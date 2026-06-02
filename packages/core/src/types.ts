@@ -1,0 +1,83 @@
+/**
+ * Swarl wire types (v0).
+ *
+ * These are the shapes that travel on the mesh. They are intentionally A2A-inspired
+ * (AgentCard / Message / Part) but transport-agnostic. This file IS part of the
+ * "wire contract" — treat changes here as protocol changes.
+ */
+
+export type EndpointKind = "agent" | "endpoint";
+
+export interface AgentSkill {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+/** A2A-inspired identity record for an endpoint or agent. */
+export interface AgentCard {
+  /** Unique, stable for the lifetime of this connection. */
+  id: string;
+  /** Human-readable display name. */
+  name: string;
+  /** 'agent' (participates in coordination) or a plain 'endpoint' (logger, dashboard…). */
+  kind: EndpointKind;
+  /** Swarl addition: the role this participant plays (planner, reviewer, …). */
+  role?: string;
+  capabilities?: string[];
+  skills?: AgentSkill[];
+  meta?: Record<string, unknown>;
+}
+
+/**
+ * Lifecycle status of a participant.
+ * - `idle`: connected, no active task
+ * - `waiting`: blocked — awaiting input, approval, or a peer
+ * - `working`: actively executing a task / in a turn
+ * - `offline`: disconnected or heartbeat lapsed (derived by observers, not self-set while live)
+ */
+export type PresenceStatus = "idle" | "waiting" | "working" | "offline";
+
+/** Live presence record. Stored in the space's KV bucket under key = card.id. */
+export interface Presence {
+  card: AgentCard;
+  status: PresenceStatus;
+  /** Freeform "what I'm doing right now". */
+  activity?: string;
+  /** Epoch ms of the last heartbeat. */
+  ts: number;
+}
+
+export type Part =
+  | { kind: "text"; text: string }
+  | { kind: "data"; data: unknown };
+
+export interface EndpointRef {
+  id: string;
+  name: string;
+  role?: string;
+}
+
+/** A message on the mesh (chat / direct message for now; extensible to other families). */
+export interface SwarlMessage {
+  /** Unique message id. */
+  id: string;
+  /** Epoch ms. */
+  ts: number;
+  space: string;
+  from: EndpointRef;
+  /** Peer id for a direct message; absent means a channel broadcast. */
+  to?: string;
+  /** Channel name (e.g. "general"). For DMs this is "dm". */
+  channel: string;
+  parts: Part[];
+  /** Id of the message being replied to. */
+  replyTo?: string;
+  /** Conversation / thread correlation id. */
+  contextId?: string;
+}
+
+export type PresenceEvent =
+  | { type: "join"; presence: Presence }
+  | { type: "update"; presence: Presence }
+  | { type: "offline"; presence: Presence };

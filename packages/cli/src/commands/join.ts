@@ -1,0 +1,182 @@
+import { parseArgs } from "node:util";
+import * as readline from "node:readline";
+import {
+  SwarlEndpoint,
+  isReachable,
+  DEFAULT_SERVER,
+  type EndpointKind,
+  type Presence,
+  type PresenceStatus,
+  type SwarlMessage,
+} from "@swarl/core";
+import { c, statusBadge } from "../ui.js";
+
+export async function join(argv: string[]): Promise<void> {
+  const { values } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      space: { type: "string" },
+      name: { type: "string" },
+      role: { type: "string" },
+      channel: { type: "string" },
+      server: { type: "string" },
+      kind: { type: "string" },
+    },
+  });
+
+  const space = values.space ?? "demo";
+  const name = values.name;
+  if (!name) {
+    console.error(c.red("--name is required"));
+    process.exit(1);
+  }
+  const server = values.server ?? DEFAULT_SERVER;
+  const channel = values.channel ?? "general";
+
+  if (!(await isReachable(server))) {
+    console.error(c.red(`Can't reach NATS at ${server}.`));
+    console.error(c.dim("Start it in another terminal:  pnpm swarl up"));
+    process.exit(1);
+  }
+
+  const ep = new SwarlEndpoint({
+    space,
+    servers: server,
+    channels: [channel],
+    card: {
+      name,
+      role: values.role,
+      kind: (values.kind as EndpointKind) ?? "agent",
+    },
+  });
+  const me = ep.card.id;
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    prompt: c.dim(`${name}> `),
+  });
+  const print = (line: string) => {
+    readline.cursorTo(process.stdout, 0);
+    readline.clearLine(process.stdout, 0);
+    console.log(line);
+    rl.prompt(true);
+  };
+
+  const who = (card: { name: string; role?: string }) =>
+    `${c.bold(card.name)}${card.role ? c.dim("/" + card.role) : ""}`;
+
+  ep.on("message", (m: SwarlMessage) => {
+    const text = m.parts
+      .map((p) => (p.kind === "text" ? p.text : JSON.stringify(p.data)))
+      .join(" ");
+    if (m.to === me)
+      print(`${c.magenta("(DM)")} ${who(m.from)} ${c.dim("→ you:")} ${text}`);
+    else print(`${c.cyan("#" + m.channel)} ${who(m.from)}: ${text}`);
+  });
+
+  ep.on("presence", (ev) => {
+    if (ev.presence.card.id === me) return; // ignore self
+    if (ev.type === "join")
+      print(c.green(`→ ${who(ev.presence.card)} joined `) + statusBadge(ev.presence.status));
+    else if (ev.type === "offline")
+      print(c.dim(`← ${who(ev.presence.card)} went offline`));
+    else
+      print(
+        `${c.dim("•")} ${who(ev.presence.card)} ${statusBadge(ev.presence.status)}${ev.presence.activity ? c.dim(" — " + ev.presence.activity) : ""}`,
+      );
+  });
+
+  ep.on("error", (e: Error) => print(c.red(`! ${e.message}`)));
+
+  await ep.start();
+
+  console.log(
+    c.dim(`Joined ${c.bold(space)} as ${who({ name, role: values.role })} on #${channel}.`),
+  );
+  console.log(
+    c.dim(
+      "Type to broadcast. Commands: /who  /dm <name> <msg>  /working [x]  /waiting [x]  /idle  /me <x>  /quit\n",
+    ),
+  );
+  setTimeout(() => {
+    const others = ep.getRoster().filter((p) => p.card.id !== me);
+    if (others.length)
+      print(
+        c.dim("Present: ") +
+          others.map((p) => who(p.card) + " " + statusBadge(p.status)).join(c.dim(", ")),
+      );
+  }, 400);
+  rl.prompt();
+
+  const setStatus = async (status: PresenceStatus, activity?: string) => {
+    if (activity) await ep.setActivity(activity);
+    await ep.setStatus(status);
+    print(c.dim(`(you are now ${status}${activity ? ": " + activity : ""})`));
+  };
+
+  const shutdown = async () => {
+    print(c.dim("leaving…"));
+    rl.close();
+    await ep.stop();
+    process.exit(0);
+  };
+
+  rl.on("line", async (raw) => {
+    const line = raw.trim();
+    if (!line) {
+      rl.prompt();
+      return;
+    }
+    try {
+      if (line === "/quit" || line === "/exit") return void (await shutdown());
+      else if (line === "/who") {
+        print(c.dim("Roster:"));
+        for (const p of ep.getRoster())
+          print(
+            "  " +
+              who(p.card) +
+              " " +
+              statusBadge(p.status) +
+              (p.activity ? c.dim(" — " + p.activity) : "") +
+              (p.card.id === me ? c.dim(" (you)") : ""),
+          );
+      } else if (line === "/idle") await setStatus("idle");
+      else if (line.startsWith("/working"))
+        await setStatus("working", line.slice(8).trim() || undefined);
+      else if (line.startsWith("/waiting"))
+        await setStatus("waiting", line.slice(8).trim() || undefined);
+      else if (line.startsWith("/me "))
+        await ep.setActivity(line.slice(4).trim()).then(() => print(c.dim("(activity updated)")));
+      else if (line.startsWith("/dm ")) {
+        const rest = line.slice(4).trim();
+        const sp = rest.indexOf(" ");
+        if (sp < 1) print(c.red("usage: /dm <name> <message>"));
+        else {
+          const target = rest.slice(0, sp);
+          const text = rest.slice(sp + 1);
+          const peer = ep
+            .getRoster()
+            .find(
+              (p) =>
+                p.card.name.toLowerCase() === target.toLowerCase() && p.card.id !== me,
+            );
+          if (!peer) print(c.red(`no peer named "${target}" present`));
+          else {
+            await ep.dm(peer.card.id, text);
+            print(`${c.magenta("(DM)")} ${c.dim("you →")} ${c.bold(peer.card.name)}: ${text}`);
+          }
+        }
+      } else {
+        await ep.broadcast(line, { channel });
+        print(`${c.cyan("#" + channel)} ${c.dim("you:")} ${line}`);
+      }
+    } catch (e) {
+      print(c.red(`! ${(e as Error).message}`));
+    }
+    rl.prompt();
+  });
+
+  process.on("SIGINT", () => void shutdown());
+}

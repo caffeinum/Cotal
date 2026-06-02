@@ -36,15 +36,16 @@ cluster later). Reference implementation is **TypeScript**.
 | **Space** | A collaboration, isolated from other spaces. |
 | **Channel** | A named topic participants broadcast on and subscribe to. |
 | **Direct message** | A message addressed to one peer. |
-| **Presence & discovery** | Live roster of who's present (auto-expiry) plus each peer's AgentCard. |
+| **Presence & discovery** | Live roster of who's present, with state (`idle` / `waiting` / `working` / `offline`) and each peer's AgentCard. |
 | **History** | Recent messages a late joiner can replay. |
 
 ## What it should be able to do
 
 Four core capabilities, plus observability, history, and isolation.
 
-- **Addressability** — broadcast to a channel, DM one peer, or address by
-  role/capability ("whoever is the reviewer"); many participants per channel.
+- **Addressability** — three delivery modes (SLIM-inspired): **multicast** (broadcast to
+  a channel), **unicast** (message one peer), and **anycast** (reach *any one* of a role —
+  "whoever is a reviewer"); many participants per channel.
 - **Control plane** — a separate command path to *act on* endpoints: ask status, send
   a directive, set role, pause/resume — with replies.
 - **Data sharing** — two directions:
@@ -65,14 +66,20 @@ Four core capabilities, plus observability, history, and isolation.
 
 ## The first demo
 
-Configurable, not hardwired: 2+ coding agents (Claude Code and Codex), each in its own
-terminal, in one repo. It should show them join in one command, discover each other,
-message (broadcast / DM / by-role), share what they're doing (ambient + deliberate),
-take a control-plane directive, pull and receive messages, coordinate on the shared
-tree without clobbering, and let a late joiner catch up.
+Role-specialized agents (Claude Code + Codex) join one shared space, each in its own
+terminal, and coordinate laterally — presence, addressing, messaging, and a control
+plane — configurable, not hardwired (the *topology* is how you set it up, not baked in).
 
-The *topology* (who is "planner" vs "reviewer", who delegates to whom) is configuration
-the user sets up — Swarl just provides the primitives.
+Full scenario and run steps: **[DEMO.md](DEMO.md)**.
+
+## Decided so far
+
+- **Stack** — TypeScript, pnpm monorepo (`@swarl/core`, `@swarl/cli`), NATS + JetStream.
+- **Wire shapes** — A2A-inspired `AgentCard` + `Message`/`Part`; **SLIM-inspired** addressing
+  (`space / service / instance`) and the three delivery modes. See [architecture.md](architecture.md).
+- **Presence states** — `idle` / `waiting` / `working` / `offline`.
+- **Built so far** — `@swarl/core` endpoint (presence, multicast, unicast) + `@swarl/cli`
+  (`up` / `join` / `watch`), smoke-tested end-to-end.
 
 ## Open questions
 
@@ -80,8 +87,6 @@ the user sets up — Swarl just provides the primitives.
   MCP; lighter, but limited inbound push for Codex) vs. `swarl run` hosting the session
   (full push + interrupt). Keystone: it sets how much inbound push is possible.
   *Leaning attach-first for the demo.*
-- **Message envelope & subjects** — how closely to mirror A2A shapes, and the NATS
-  subject naming. This *is* the wire contract.
 - **Inbound buffer/policy** — defaults for queue vs coalesce vs immediate injection.
 - **Control-plane commands** — which ship first.
 - **Coordination primitives** — advisory intent records / leases: in or out, what shape.
