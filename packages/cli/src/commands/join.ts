@@ -5,7 +5,6 @@ import {
   isReachable,
   DEFAULT_SERVER,
   type EndpointKind,
-  type Presence,
   type PresenceStatus,
   type SwarlMessage,
 } from "@swarl/core";
@@ -52,16 +51,30 @@ export async function join(argv: string[]): Promise<void> {
   });
   const me = ep.card.id;
 
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-    prompt: c.dim(`${name}> `),
+  // Interactive only when attached to a real terminal; headless when spawned
+  // detached (manager) — then we just hold presence and log mesh events.
+  const interactive = process.stdin.isTTY === true;
+  let rlClosed = false;
+  const rl = interactive
+    ? readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+        prompt: c.dim(`${name}> `),
+      })
+    : undefined;
+  rl?.on("close", () => {
+    rlClosed = true;
   });
+
   const print = (line: string) => {
-    readline.cursorTo(process.stdout, 0);
-    readline.clearLine(process.stdout, 0);
-    console.log(line);
-    rl.prompt(true);
+    if (rl && !rlClosed) {
+      readline.cursorTo(process.stdout, 0);
+      readline.clearLine(process.stdout, 0);
+      console.log(line);
+      rl.prompt(true);
+    } else {
+      console.log(line);
+    }
   };
 
   const who = (card: { name: string; role?: string }) =>
@@ -94,6 +107,23 @@ export async function join(argv: string[]): Promise<void> {
 
   await ep.start();
 
+  const shutdown = async () => {
+    print(c.dim("leaving…"));
+    rl?.close();
+    await ep.stop();
+    process.exit(0);
+  };
+  process.on("SIGINT", () => void shutdown());
+  process.on("SIGTERM", () => void shutdown());
+
+  if (!interactive || !rl) {
+    console.log(
+      c.dim(`${name} (${values.role ?? "no role"}) holding presence in ${space} — headless`),
+    );
+    await new Promise<void>(() => {}); // park; event handlers do the work
+    return;
+  }
+
   console.log(
     c.dim(`Joined ${c.bold(space)} as ${who({ name, role: values.role })} on #${channel}.`),
   );
@@ -116,13 +146,6 @@ export async function join(argv: string[]): Promise<void> {
     if (activity) await ep.setActivity(activity);
     await ep.setStatus(status);
     print(c.dim(`(you are now ${status}${activity ? ": " + activity : ""})`));
-  };
-
-  const shutdown = async () => {
-    print(c.dim("leaving…"));
-    rl.close();
-    await ep.stop();
-    process.exit(0);
   };
 
   rl.on("line", async (raw) => {
@@ -189,6 +212,4 @@ export async function join(argv: string[]): Promise<void> {
     }
     rl.prompt();
   });
-
-  process.on("SIGINT", () => void shutdown());
 }

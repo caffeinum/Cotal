@@ -57,24 +57,19 @@ pnpm swarl watch --space demo
 
 *(adapter lands next — documented here so the target flow is concrete)*
 
-A real coding agent joins the same space through the Swarl **plugin** — pure native, one
-install then a normal `claude` launch:
+A real coding agent joins through the **manager** — you ask it to start an agent and it does
+the native launch (in a terminal pane):
 
 ```
-/plugin install swarl@swarl-mesh           # once, inside Claude Code
-SWARL_SPACE=demo SWARL_NAME=dave SWARL_ROLE=builder \
-  claude --dangerously-load-development-channels plugin:swarl@swarl-mesh
+swarl role new builder                       # scaffold .swarl/roles/builder.md once
+swarl start --role builder --name dave        # CLI → control → manager spawns a native claude
 ```
 
-No wrapper binary — it's an ordinary Claude Code terminal. The MCP server reads the env at
-spawn and auto-joins the space. `SWARL_ROLE` resolves a **role template**
-(`.swarl/roles/builder.md` — card + optional persona + channel/policy defaults), so the role's
-richness lives in a file. An optional CLI is sugar over the same launch:
-
-```
-swarl role new builder                          # scaffold the role once
-swarl join claude --role builder --name dave    # resolve it + launch a native session
-```
+The manager runs the *real* `claude` with the plugin + identity in the env — an ordinary
+Claude Code terminal, no wrapper in front. The plugin's MCP server reads the env at spawn and
+auto-joins; `SWARL_ROLE` resolves the **role template** (`.swarl/roles/builder.md` — card +
+optional persona + channel/policy defaults), so the role's richness lives in a file. (One-time:
+`/plugin install swarl@swarl-mesh`.)
 
 From there the agent is a peer like any other: it appears in
 `/who`, its presence flips `working` / `idle` from lifecycle hooks, and

@@ -23,12 +23,21 @@ importers:
       '@swarl/core':
         specifier: workspace:*
         version: link:../core
+      '@swarl/manager':
+        specifier: workspace:*
+        version: link:../manager
 
   packages/core:
     dependencies:
       nats:
         specifier: ^2.27.0
         version: 2.29.3
+
+  packages/manager:
+    dependencies:
+      '@swarl/core':
+        specifier: workspace:*
+        version: link:../core
 
 packages:
 

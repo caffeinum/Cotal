@@ -80,6 +80,10 @@ Full scenario and run steps: **[DEMO.md](DEMO.md)**.
 - **Presence states** — `idle` / `waiting` / `working` / `offline`.
 - **Built so far** — `@swarl/core` endpoint (presence + all three delivery modes:
   multicast / unicast / anycast) + `@swarl/cli` (`up` / `join` / `watch`), smoke-tested.
+- **Manager (supervisor)** — a long-lived **node** that owns agent *lifecycle + config*
+  (not their work); CLI/dashboard drive it over the **control plane**
+  (`start`/`stop`/`ps`/`status`/`bind`). Supervisor-only (agents self-connect; manager off the
+  message hot path); demo spawns native agent TUIs in terminal panes.
 - **Claude Code integration (demo)** — **attach mode**: one Swarl **plugin** = a
   dual-purpose MCP server (channel push + `swarl_publish` + `swarl_inbox`) plus `http`
   lifecycle hooks for presence/ambient. Deterministic **hook** injection is the spine; the
@@ -98,7 +102,8 @@ Full scenario and run steps: **[DEMO.md](DEMO.md)**.
 ## Open questions
 
 - **Inbound buffer/policy** — defaults for queue vs coalesce vs immediate injection.
-- **Control-plane commands** — which ship first.
+- **Control-plane commands** — manager ops (`start`/`stop`/`ps`/`status`/`bind`) are the first
+  cut; still open is the agent-directed set (directive, set-role, pause/resume).
 - **Coordination primitives** — advisory intent records / leases: in or out, what shape.
 - **Collaboration patterns** — roles themselves are now defined (`.swarl/roles/<role>.md`);
   still open is how a user declares the *patterns between* them (who delegates to whom, leases).

@@ -11,6 +11,8 @@ import {
 
 import type {
   AgentCard,
+  ControlReply,
+  ControlRequest,
   EndpointRef,
   Part,
   Presence,
@@ -20,6 +22,7 @@ import type {
 import {
   anycastSubject,
   chatSubject,
+  controlServiceSubject,
   presenceBucket,
   spaceWildcard,
   unicastSubject,
@@ -92,8 +95,10 @@ export class SwarlEndpoint extends EventEmitter {
       name: `swarl:${this.card.name}`,
     });
 
-    const js = this.nc.jetstream();
-    this.kv = await js.views.kv(presenceBucket(this.space), { ttl: this.ttlMs });
+    if (this.doWatch || this.doRegister) {
+      const js = this.nc.jetstream();
+      this.kv = await js.views.kv(presenceBucket(this.space), { ttl: this.ttlMs });
+    }
 
     if (this.doWatch) {
       await this.startPresenceWatch();
@@ -217,6 +222,50 @@ export class SwarlEndpoint extends EventEmitter {
         handler(m.subject, decoded);
       }
     })().catch((e) => this.emit("error", e as Error));
+  }
+
+  // ---- control plane (request/reply) --------------------------------------
+
+  /** Serve control requests for a service (manager side). */
+  serveControl(
+    service: string,
+    handler: (req: ControlRequest) => Promise<ControlReply> | ControlReply,
+  ): void {
+    if (!this.nc) throw new Error("endpoint not started");
+    const sub = this.nc.subscribe(controlServiceSubject(this.space, service), {
+      queue: service,
+    });
+    this.subs.push(sub);
+    void (async () => {
+      for await (const m of sub) {
+        let reply: ControlReply;
+        try {
+          reply = await handler(this.codec.decode(m.data) as ControlRequest);
+        } catch (e) {
+          reply = { ok: false, error: (e as Error).message };
+        }
+        try {
+          m.respond(this.codec.encode(reply));
+        } catch {
+          /* no reply inbox */
+        }
+      }
+    })().catch((e) => this.emit("error", e as Error));
+  }
+
+  /** Send a control request to a service and await its reply (client side). */
+  async requestControl(
+    service: string,
+    req: ControlRequest,
+    timeoutMs = 5000,
+  ): Promise<ControlReply> {
+    if (!this.nc) throw new Error("endpoint not started");
+    const m = await this.nc.request(
+      controlServiceSubject(this.space, service),
+      this.codec.encode({ ...req, from: req.from ?? this.ref() }),
+      { timeout: timeoutMs },
+    );
+    return this.codec.decode(m.data) as ControlReply;
   }
 
   // ---- presence ------------------------------------------------------------

@@ -81,34 +81,67 @@ policy layer keeps them out of peers' attention — they never become injections
 | *Mid-turn interrupt of a busy agent* | host mode only (Agent SDK) |
 | *Whether the model acts* on an injection | steered via the server `instructions` + meta tags, not forced |
 
+## Manager (agent supervisor)
+
+The CLI doesn't spawn agents itself — a long-lived **manager** owns their lifecycle, and the
+CLI asks it over the mesh. The manager is itself a **node** (presence + a control subject), so
+managing Swarl agents happens *through Swarl* — the control plane's first real consumer.
+
+**Supervisor, not orchestrator.** It owns *process lifecycle + config binding* (start / stop /
+restart, resolve a role, bind env + policy to a session) — **not** what work agents do. Agents
+still coordinate laterally; the manager only births and configures them. (The orchestrator-tree
+we rejected was about delegating *work*; this is *infrastructure*.)
+
+**Supervisor-only scope.** The manager is **off the message hot path**: each agent self-connects
+to the mesh via its own plugin (own presence, messaging, inbound policy). The manager owns
+processes and config, as one node among peers — not a daemon that proxies everyone's traffic.
+
+**Attach-in-panes spawn (demo).** The manager launches each agent as a real native Claude/Codex
+TUI in its own terminal pane (tmux), so you watch it directly while it owns start/stop. Host
+mode (headless via the Agent SDK / Codex app-server, for mid-turn interrupt) is the
+manager-owned upgrade path, observed via `swarl watch`.
+
+**Control schema (first cut):** `start {role, name, agent}` · `stop {instance}` · `ps` ·
+`status {instance}` · `bind {instance, config}` — control-plane request/reply messages any
+authorized node (CLI, dashboard, or an agent) can send; spawning is policy-gated.
+
+**Emergent payoff:** an agent can ask the manager for a teammate ("need a reviewer" → control →
+manager spawns one). The new agent is a *peer*, not a child.
+
 ## Hosting & onboarding
 
-**Onboarding — pure native (no wrapper).** Install once, then launch the real `claude` with
-the plugin attached and the space identity in the environment:
+**Onboarding — manager-driven, still pure native.** You don't `exec claude` yourself; you ask
+the **manager** to start an agent (over the control plane) and it performs the launch in a
+terminal pane:
 
 ```
-/plugin install swarl@swarl-mesh
+swarl start --role planner --name alice      # CLI → control msg → manager spawns it
+```
+
+Under the hood the manager runs the *real* `claude` with the plugin attached and identity in the
+environment — an ordinary Claude Code terminal, no wrapper in front of it:
+
+```
 SWARL_SPACE=demo SWARL_NAME=alice SWARL_ROLE=planner \
   claude --dangerously-load-development-channels plugin:swarl@swarl-mesh
 ```
 
-No Swarl binary sits in front of `claude` — the session is an ordinary Claude Code terminal.
-The MCP server reads `SWARL_SPACE` / `SWARL_NAME` / `SWARL_ROLE` at spawn and **auto-joins**,
-so the agent is in presence by the time the session is interactive. `SWARL_ROLE` resolves a
-**role template** (see *Roles & identity* below) — its card, optional persona, and channel /
+The plugin's MCP server reads `SWARL_SPACE` / `SWARL_NAME` / `SWARL_ROLE` at spawn and
+**auto-joins**, so the agent is in presence by the time the session is interactive. `SWARL_ROLE`
+resolves a **role template** (see *Roles & identity* below) — card, optional persona, channel /
 policy defaults — so a role's richness lives in a file, not the launch line. The plugin also
-ships `/swarl` slash commands (`/swarl who`, `/swarl dm …`) for in-session control, and an
-optional `swarl role` / `swarl join` CLI is convenience sugar over this same env launch.
+ships `/swarl` slash commands (`/swarl who`, `/swarl dm …`) for in-session control.
+(`/plugin install swarl@swarl-mesh` once, beforehand.)
 
 **Hosting mode** still sets how much inbound push is possible:
 
-- **Attach mode (demo default)** — the agent runs in its own normal terminal; Swarl attaches
-  via the plugin (dual MCP server + http hooks). Soft/between-turn push via the channel plus
-  deterministic hook injection. Codex is **pull-mostly** (its plain TUI has no clean
-  external-injection path).
-- **Host mode (upgrade path)** — a separate launcher built on the Agent SDK
-  (`@anthropic-ai/claude-agent-sdk`, streaming input) hosts the session for true mid-turn
-  interrupt on both agents. A distinct program, not the native `claude` binary; documented,
+- **Attach mode (demo default)** — the **manager** launches the agent as a native TUI in its
+  own terminal pane; Swarl attaches via the plugin (dual MCP server + http hooks). Soft/
+  between-turn push via the channel plus deterministic hook injection. Codex is **pull-mostly**
+  (its plain TUI has no clean external-injection path).
+- **Host mode (upgrade path)** — the manager runs the session headless via the Agent SDK
+  (`@anthropic-ai/claude-agent-sdk`, streaming input) / Codex app-server for true mid-turn
+  interrupt on both agents; observed via `swarl watch` rather than a native TUI. Documented,
   not built for the demo.
 
 **Constraints (accepted).** Channels are a **research preview** (Claude Code ≥ v2.1.80): they
@@ -130,10 +163,11 @@ on the mesh side: the policy layer only emits notifications for allowlisted peer
 
 ## Roles & identity
 
-**Identity is an A2A `AgentCard`**: `name` = the SLIM **instance** (this endpoint), `role` =
-the SLIM **service** (the addressable class). The role label is therefore *load-bearing* —
-it's the **anycast** address, so `svc.reviewer` reaches "whoever is a reviewer," not just a
-roster label.
+**Identity is an A2A `AgentCard`**: the **instance id** = the SLIM **instance** (this endpoint —
+the presence key, `to:` target, future `did:key`); `name` is a cosmetic, reusable human handle
+(see *Instance continuity*); `role` = the SLIM **service** (the addressable class). The role
+label is therefore *load-bearing* — it's the **anycast** address, so `svc.reviewer` reaches
+"whoever is a reviewer," not just a roster label.
 
 A **role** is a reusable template that produces a card, in three layers:
 
@@ -214,10 +248,13 @@ presence with states. Later = trace/control families, message history.
   client-side expiry sweep (correct without relying on server delete-markers). States:
   `idle` / `waiting` / `working` / `offline`. Heartbeat ≈ TTL/3; graceful leave publishes a
   final `offline`; a lapsed heartbeat is swept to `offline`. Offline peers stay in the roster.
-- **Identity/discovery:** A2A `AgentCard` (`id`=instance, `name`, `role`≈service, `kind`,
-  `capabilities`, `skills`) carried in the presence record (our equivalent of `.well-known`).
-- **Message envelope:** `{ id, ts, space, from:{id,name,role}, to?, channel, parts[],
-  replyTo?, contextId? }`, JSON on the wire. `to` set = unicast; absent = channel.
+- **Identity/discovery:** A2A `AgentCard` (`id`=instance, `name`=handle, `role`=service,
+  `kind`, `skills`/`tags`) carried in the presence record (our equivalent of `.well-known`).
+  We omit A2A's `capabilities` field (protocol flags Swarl doesn't need) to avoid the name
+  collision — "what it can do" lives in `skills`/`tags`.
+- **Message envelope:** `{ id, ts, space, from:{id,name,role}, channel?, to?, toService?,
+  parts[], replyTo?, contextId? }`, JSON on the wire. Exactly one delivery target: `channel`
+  = multicast, `to` = unicast (instance), `toService` = anycast (service).
 - **History:** type-scoped JetStream streams (`CHAT_<space>`) with `MaxMsgsPerSubject`;
   late joiners replay via durable pull consumers — *later* (chat is fire-and-forget today).
 - **Isolation:** one NATS **account** per space (later: split `space` into `org/namespace`).

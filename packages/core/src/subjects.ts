@@ -4,6 +4,7 @@
  *   swarl.<space>.chat.<channel>      multicast to a named channel
  *   swarl.<space>.svc.<service>       anycast to any one instance of a service (queue group)
  *   swarl.<space>.inst.<instance>     unicast to one specific instance
+ *   swarl.<space>.ctl.<service>       control request/reply to a service (e.g. manager)
  *   swarl.<space>.trace.<instance>    ambient lifecycle trace (later)
  *   swarl.<space>.control.<instance>  control-plane commands (later)
  *
@@ -36,6 +37,11 @@ export function unicastSubject(space: string, instance: string): string {
 /** Anycast: a service (role). Subscribers join a queue group so one instance receives. */
 export function anycastSubject(space: string, service: string): string {
   return `${spacePrefix(space)}.svc.${token(service)}`;
+}
+
+/** Control request/reply to a service (e.g. the manager); anycast via queue group. */
+export function controlServiceSubject(space: string, service: string): string {
+  return `${spacePrefix(space)}.ctl.${token(service)}`;
 }
 
 export function traceSubject(space: string, agentId: string): string {

@@ -84,3 +84,16 @@ export type PresenceEvent =
   | { type: "join"; presence: Presence }
   | { type: "update"; presence: Presence }
   | { type: "offline"; presence: Presence };
+
+/** Control-plane request/reply (e.g. CLI → manager). */
+export interface ControlRequest {
+  op: string;
+  args?: Record<string, unknown>;
+  from?: EndpointRef;
+}
+
+export interface ControlReply {
+  ok: boolean;
+  data?: unknown;
+  error?: string;
+}

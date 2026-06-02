@@ -1,13 +1,17 @@
 {
-  "name": "@swarl/cli",
+  "name": "@swarl/manager",
   "version": "0.0.0",
   "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@swarl/core": "workspace:*",
-    "@swarl/manager": "workspace:*"
+    "@swarl/core": "workspace:*"
   }
 }
