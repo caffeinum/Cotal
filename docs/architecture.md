@@ -32,25 +32,171 @@ can be cryptographically verifiable and decentralized (see *Deferred*).
 ## Integration surfaces (Claude Code + Codex)
 
 Both target agents expose the same four surfaces, so a single adapter with two backends
-covers them:
+covers them. For **Claude Code** the whole adapter ships as one **plugin**, and three of the
+four surfaces collapse into a **single dual-purpose MCP server**:
 
 | | Claude Code | Codex CLI |
 |---|---|---|
-| **Outbound — ambient** | Lifecycle hooks → mesh (native `http` hook can POST straight to the local Swarl daemon) | Hooks + `notify`, or `codex exec --json` event stream → mesh |
-| **Outbound — deliberate** | MCP tool `swarl_publish` | MCP tool (same) |
-| **Inbound — pull** | MCP tool `swarl_inbox` | MCP tool (same) |
-| **Inbound — push** | Channels (between-turns) / Agent SDK streaming (true interrupt) | app-server `turn/*` (live) / `resume` (between-turns) |
+| **Outbound — ambient** | `http` lifecycle hooks → POST to the local daemon (native http hook, no curl shim) | Hooks + `notify`, or `codex exec --json` event stream → mesh |
+| **Outbound — deliberate** | MCP tool `swarl_publish` *(same server as the channel)* | MCP tool (same) |
+| **Inbound — pull** | MCP tool `swarl_inbox` *(same server)* | MCP tool (same) |
+| **Inbound — push** | Two native paths — see below | app-server `turn/*` (live) / `resume` (between-turns) |
 
-**Hosting mode** determines how much inbound push is possible:
+**The dual-purpose server.** A Claude Code *channel* **is** an MCP server that declares the
+`claude/channel` capability and pushes events via `notifications/claude/channel`. So one
+Swarl MCP server is simultaneously the channel (push), `swarl_publish` (deliberate out — and
+the channel's "reply tool"), and `swarl_inbox` (pull): one process, one stdio connection.
+Inbound mesh messages arrive in context as
+`<channel source="swarl" from="bob" kind="dm" channel="general">…</channel>`; each meta key
+becomes a tag attribute the agent can read for routing.
 
-- **Attach mode** — agents run in their *own* normal terminals; Swarl attaches via
-  hooks + MCP (+ Claude Channels). Lowest friction, feels completely native. Push is
-  asymmetric: Claude can receive between-turn pushes via Channels; Codex's plain TUI
-  has no clean external-injection path, so Codex peers are **pull-mostly**.
-- **Host mode** — `swarl run claude|codex` launches the agent *under* Swarl (Agent SDK
-  / app-server) while still presenting a normal-looking interactive terminal. Full
-  bidirectional push **and** interrupt for both agents; also the cleanest "one command
-  to join."
+**Two injection paths (different control profiles), composed.**
+
+- **Channel notifications** — async push. We own `content` and tag attributes fully, and the
+  daemon owns *emit* timing (drop / queue / coalesce / release — the policy layer). The model
+  *sees* it: idle agent → ~immediately (the event wakes a turn); busy agent → at the next
+  **turn boundary** (queued events coalesce into one batch); mid-turn interrupt → **not in
+  attach mode**. Research-preview gated (see *Constraints*).
+- **Hook `additionalContext`** — deterministic. A hook is *our* code at a fixed lifecycle
+  point, not research-preview gated. A `UserPromptSubmit` / `Stop` hook injects the pending
+  inbox as `additionalContext` at an exact moment; a `Stop` hook returning
+  `{decision:"block", reason}` holds the agent in the loop until its mesh obligations are met.
+
+Hooks are the **spine** (no gating, fully deterministic, turn-boundary delivery + the
+keep-working lever); the **channel** adds async "wake me when idle/away."
+
+**Presence from hooks.** The same lifecycle hooks feed presence: `UserPromptSubmit` /
+`PreToolUse` → `working`, `Stop` → `idle`, `Notification` (permission / idle prompt) →
+`waiting`, `SessionEnd` → `offline`. Ambient traces reach the mesh for observability but the
+policy layer keeps them out of peers' attention — they never become injections.
+
+**What we control (accepted for the demo):**
+
+| | |
+|---|---|
+| *What* we inject (content, routing meta) | full — daemon-side |
+| *Whether* to inject (ambient vs actionable, allowlist, coalesce, rate-limit) | full — daemon policy |
+| *When we emit* | full |
+| *When the model sees it* | channel: idle→now, busy→turn boundary · hook: exact lifecycle point |
+| *Mid-turn interrupt of a busy agent* | host mode only (Agent SDK) |
+| *Whether the model acts* on an injection | steered via the server `instructions` + meta tags, not forced |
+
+## Hosting & onboarding
+
+**Onboarding — pure native (no wrapper).** Install once, then launch the real `claude` with
+the plugin attached and the space identity in the environment:
+
+```
+/plugin install swarl@swarl-mesh
+SWARL_SPACE=demo SWARL_NAME=alice SWARL_ROLE=planner \
+  claude --dangerously-load-development-channels plugin:swarl@swarl-mesh
+```
+
+No Swarl binary sits in front of `claude` — the session is an ordinary Claude Code terminal.
+The MCP server reads `SWARL_SPACE` / `SWARL_NAME` / `SWARL_ROLE` at spawn and **auto-joins**,
+so the agent is in presence by the time the session is interactive. `SWARL_ROLE` resolves a
+**role template** (see *Roles & identity* below) — its card, optional persona, and channel /
+policy defaults — so a role's richness lives in a file, not the launch line. The plugin also
+ships `/swarl` slash commands (`/swarl who`, `/swarl dm …`) for in-session control, and an
+optional `swarl role` / `swarl join` CLI is convenience sugar over this same env launch.
+
+**Hosting mode** still sets how much inbound push is possible:
+
+- **Attach mode (demo default)** — the agent runs in its own normal terminal; Swarl attaches
+  via the plugin (dual MCP server + http hooks). Soft/between-turn push via the channel plus
+  deterministic hook injection. Codex is **pull-mostly** (its plain TUI has no clean
+  external-injection path).
+- **Host mode (upgrade path)** — a separate launcher built on the Agent SDK
+  (`@anthropic-ai/claude-agent-sdk`, streaming input) hosts the session for true mid-turn
+  interrupt on both agents. A distinct program, not the native `claude` binary; documented,
+  not built for the demo.
+
+**Constraints (accepted).** Channels are a **research preview** (Claude Code ≥ v2.1.80): they
+require Anthropic auth (claude.ai or Console key — *not* Bedrock / Vertex / Foundry), Team /
+Enterprise admins must enable them, and a custom (non-allowlisted) channel launches with
+`--dangerously-load-development-channels plugin:swarl@…` rather than `--channels`; the flag /
+protocol may still change. The MCP-tools and hooks legs have **no** such gating — the hook
+injection path is the gating-free fallback if the channel can't run.
+
+**A channel must gate senders** — an ungated channel is a prompt-injection vector. Swarl gates
+on the mesh side: the policy layer only emits notifications for allowlisted peers.
+
+> **Adjacent native feature — Agent teams.** Claude Code ships an experimental
+> `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` mode: multiple sessions, a shared task list, and
+> peer-to-peer messaging (hook events `TeammateIdle` / `TaskCreated` / `TaskCompleted`). It
+> validates the premise but is Claude-only, single-machine, and orchestrator-led. Swarl
+> differs by being cross-agent (Codex too), a standardized NATS wire contract, lateral (not a
+> tree), and local→cluster.
+
+## Roles & identity
+
+**Identity is an A2A `AgentCard`**: `name` = the SLIM **instance** (this endpoint), `role` =
+the SLIM **service** (the addressable class). The role label is therefore *load-bearing* —
+it's the **anycast** address, so `svc.reviewer` reaches "whoever is a reviewer," not just a
+roster label.
+
+A **role** is a reusable template that produces a card, in three layers:
+
+- **Advertisement** (A2A) — `role`, `description`, and `skills[]` (each `id` / `name` /
+  `tags` / `examples`), broadcast in presence for discovery + anycast. *We use `skills` +
+  `tags` for "what it can do"; A2A's `capabilities` field means protocol flags (streaming,
+  push) that Swarl doesn't need yet, so we omit it to avoid the name collision.*
+- **Persona** (optional — CrewAI-style role / goal / backstory) — free-text instructions that
+  condition the session, injected via the MCP server `instructions` + a `SessionStart` hook.
+  Omit it for a pure-primitive role; include it for a batteries-included specialist.
+- **Runtime defaults** (Swarl) — `channels` to auto-subscribe, inbound `policy`
+  (`push-on-dm` / `pull-only` / `coalesce`), optional `model` / `effort`.
+
+**File format** — `<role>.md`, mirroring the `SKILL.md` / agent idiom: structured fields in
+YAML frontmatter (the machine-readable card + runtime), the markdown body is the optional
+persona (the system prompt).
+
+```markdown
+---
+role: reviewer                       # → A2A service / anycast address
+description: Reviews diffs for correctness, security, and style.
+skills:
+  - id: diff-review
+    name: Diff review
+    tags: [review, correctness, security]
+channels: [general, reviews]         # auto-subscribe on join
+inbound: push-on-dm                  # buffer/policy default
+model: sonnet                        # optional
+---
+
+You are a reviewer on a shared Swarl mesh. Catch correctness and security issues in
+peers' diffs before they land; DM the author, post a one-line summary to #reviews.
+```
+
+**Resolution & storage.** The plugin's MCP server resolves the role at spawn from `SWARL_ROLE`
+(+ `SWARL_NAME` as the human label), reading `<role>.md` from `.swarl/roles/` (project,
+version-controlled) layered over `~/.swarl/roles/` (user). So personas work in the pure-native
+launch with **no CLI required**; a bare `SWARL_ROLE=reviewer` with no file falls back to a
+label-only card.
+
+**Instance continuity.** The instance id must track *context* continuity, not the human label.
+`name` (e.g. `alice`) is a reusable, cosmetic handle; the **instance id** is the unique
+addressable endpoint — the presence KV key, the `to:` target, the future `did:key`. Bind it to
+the session's context: a **resumed** session (same Claude Code `session_id`, same context
+window) keeps the **same** instance id, so presence, `contextId` correlation, and in-flight DMs
+stay continuous. A **fresh** context window — even reusing the same `name` — is a **new**
+instance with a **new** id; it must *not* inherit the prior one. Reusing an id across a
+discontinuous context tells peers "same agent, same memory" when the new session has none —
+breaking reply correlation, mis-delivering messages meant for the original, and wrongly
+inheriting its leases/obligations. Rule: **same context ⇒ same id; new context ⇒ new id**, with
+`name` as the stable handle that may map to different instances over time.
+
+**CLI (optional ergonomics).**
+
+```
+swarl role new reviewer            # scaffold .swarl/roles/reviewer.md ($EDITOR or flags)
+swarl role list | show reviewer
+swarl join claude --role reviewer --name carol   # resolve the role, build the card, exec native claude
+```
+
+`swarl join claude …` is sugar over the env launch: it resolves the role file, sets the env,
+and `exec`s the real `claude` with the plugin — the session stays pure Claude Code. Inline
+`--description` / `--skill` override the file for a one-off that doesn't deserve a saved role.
 
 ## Technical mapping (NATS / JetStream)
 

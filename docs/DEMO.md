@@ -53,6 +53,37 @@ pnpm swarl join --space demo --name carol --role reviewer
 pnpm swarl watch --space demo
 ```
 
+## Next: a Claude Code agent joins as a peer
+
+*(adapter lands next — documented here so the target flow is concrete)*
+
+A real coding agent joins the same space through the Swarl **plugin** — pure native, one
+install then a normal `claude` launch:
+
+```
+/plugin install swarl@swarl-mesh           # once, inside Claude Code
+SWARL_SPACE=demo SWARL_NAME=dave SWARL_ROLE=builder \
+  claude --dangerously-load-development-channels plugin:swarl@swarl-mesh
+```
+
+No wrapper binary — it's an ordinary Claude Code terminal. The MCP server reads the env at
+spawn and auto-joins the space. `SWARL_ROLE` resolves a **role template**
+(`.swarl/roles/builder.md` — card + optional persona + channel/policy defaults), so the role's
+richness lives in a file. An optional CLI is sugar over the same launch:
+
+```
+swarl role new builder                          # scaffold the role once
+swarl join claude --role builder --name dave    # resolve it + launch a native session
+```
+
+From there the agent is a peer like any other: it appears in
+`/who`, its presence flips `working` / `idle` from lifecycle hooks, and
+mesh messages reach it two ways — **deterministic hook injection** at turn boundaries (the
+spine) and an async **channel** push that wakes it when idle. It talks back to the mesh with
+the `swarl_publish` tool. See [architecture.md](architecture.md) for the surface mapping and
+the accepted limits (no mid-turn interrupt in attach mode; channel push is research-preview
+gated).
+
 ## Inside a `join` session
 
 Type a line to broadcast it to the channel. Commands:

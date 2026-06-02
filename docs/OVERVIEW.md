@@ -80,14 +80,25 @@ Full scenario and run steps: **[DEMO.md](DEMO.md)**.
 - **Presence states** — `idle` / `waiting` / `working` / `offline`.
 - **Built so far** — `@swarl/core` endpoint (presence + all three delivery modes:
   multicast / unicast / anycast) + `@swarl/cli` (`up` / `join` / `watch`), smoke-tested.
+- **Claude Code integration (demo)** — **attach mode**: one Swarl **plugin** = a
+  dual-purpose MCP server (channel push + `swarl_publish` + `swarl_inbox`) plus `http`
+  lifecycle hooks for presence/ambient. Deterministic **hook** injection is the spine; the
+  **channel** adds async "wake when idle/away." Onboarding is **pure native** —
+  `/plugin install` then launch the real `claude` with the plugin (space identity via env,
+  auto-join); no wrapper binary. Host mode (Agent SDK, true mid-turn interrupt) is the
+  documented upgrade path. Limits accepted:
+  no mid-turn interrupt in attach mode, channel push is research-preview-gated. Detail in
+  [architecture.md](architecture.md).
+- **Roles** — a role is a reusable `<role>.md` template (YAML frontmatter + optional persona
+  body) producing an A2A `AgentCard`: `role` = the addressable **service** (anycast),
+  advertisement (`description` + `skills`/`tags`), optional persona, and runtime defaults
+  (channels, inbound policy). Resolved by the plugin from `SWARL_ROLE`; managed with
+  `swarl role new/list/show`. **Persona-optional** (primitives, not prescribed personas).
 
 ## Open questions
 
-- **Hosting mode** — agents in their own native terminals (Swarl attaches via hooks +
-  MCP; lighter, but limited inbound push for Codex) vs. `swarl run` hosting the session
-  (full push + interrupt). Keystone: it sets how much inbound push is possible.
-  *Leaning attach-first for the demo.*
 - **Inbound buffer/policy** — defaults for queue vs coalesce vs immediate injection.
 - **Control-plane commands** — which ship first.
 - **Coordination primitives** — advisory intent records / leases: in or out, what shape.
-- **Topology configuration** — how a user declares roles and collaboration patterns.
+- **Collaboration patterns** — roles themselves are now defined (`.swarl/roles/<role>.md`);
+  still open is how a user declares the *patterns between* them (who delegates to whom, leases).
