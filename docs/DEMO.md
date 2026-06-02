@@ -9,16 +9,16 @@ presence, a control plane, data sharing); the *topology* — who's "planner" vs 
 who delegates to whom — is just how you set it up.
 
 > **Status:** this is the **walking skeleton** — manual CLI participants stand in for the
-> agents. The coding-agent adapters (Claude Code + Codex via hooks/MCP), `anycast`, and
-> the control plane land next. What's below runs today.
+> agents. The coding-agent adapters (Claude Code + Codex via hooks/MCP) and the control
+> plane land next. What's below runs today.
 
 ## What it demonstrates
 
 - **Join in one command** — an endpoint joins a space and appears in presence.
 - **Presence & discovery** — see who's present, their role, and live state
   (`idle` / `waiting` / `working` / `offline`).
-- **Addressability** — **multicast** (broadcast to a channel) and **unicast** (DM one
-  peer) today; **anycast** (reach *any one* of a role) next.
+- **Addressability** — all three delivery modes: **multicast** (broadcast to a channel),
+  **unicast** (DM one peer), and **anycast** (reach *any one* of a role).
 - **Live state** — watch a peer flip to `working` / `waiting` and back.
 - **Observability** — a read-only `watch` endpoint tails everything on the mesh.
 - **Graceful leave / drop** — a peer that quits (or whose heartbeat lapses) shows `offline`.
@@ -61,6 +61,7 @@ Type a line to broadcast it to the channel. Commands:
 |---|---|
 | `/who` | show the roster (names, roles, states) |
 | `/dm <name> <msg>` | unicast a direct message to one peer |
+| `/anycast <role> <msg>` | anycast — reach *any one* instance of a role |
 | `/working [what]` | set your state to `working` (+ optional activity) |
 | `/waiting [why]` | set your state to `waiting` |
 | `/idle` | set your state to `idle` |
@@ -73,8 +74,9 @@ Type a line to broadcast it to the channel. Commands:
 2. `alice`: type `kicking off the auth refactor` → `bob` sees it on `#general`.
 3. `alice`: `/working auth refactor` → `bob`'s roster shows `alice ● working`.
 4. `bob`: `/dm alice on it — taking the tests` → `alice` gets a direct message.
-5. Quit `bob` (`/quit` or Ctrl-C) → `alice` sees `← bob went offline`.
-6. A late `carol` joins → immediately sees the current roster.
+5. A late `carol` (reviewer) joins → immediately sees the current roster.
+6. `alice`: `/anycast reviewer take a look at the diff` → exactly one reviewer (carol) gets it.
+7. Quit `bob` (`/quit` or Ctrl-C) → `alice` sees `← bob went offline`.
 
 ## Quick self-test
 

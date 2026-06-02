@@ -73,7 +73,9 @@ export async function join(argv: string[]): Promise<void> {
       .join(" ");
     if (m.to === me)
       print(`${c.magenta("(DM)")} ${who(m.from)} ${c.dim("→ you:")} ${text}`);
-    else print(`${c.cyan("#" + m.channel)} ${who(m.from)}: ${text}`);
+    else if (m.toService)
+      print(`${c.yellow("(@" + m.toService + ")")} ${who(m.from)}: ${text}`);
+    else print(`${c.cyan("#" + (m.channel ?? "?"))} ${who(m.from)}: ${text}`);
   });
 
   ep.on("presence", (ev) => {
@@ -97,7 +99,7 @@ export async function join(argv: string[]): Promise<void> {
   );
   console.log(
     c.dim(
-      "Type to broadcast. Commands: /who  /dm <name> <msg>  /working [x]  /waiting [x]  /idle  /me <x>  /quit\n",
+      "Type to broadcast. Commands: /who  /dm <name> <msg>  /anycast <role> <msg>  /working [x]  /waiting [x]  /idle  /me <x>  /quit\n",
     ),
   );
   setTimeout(() => {
@@ -164,12 +166,22 @@ export async function join(argv: string[]): Promise<void> {
             );
           if (!peer) print(c.red(`no peer named "${target}" present`));
           else {
-            await ep.dm(peer.card.id, text);
+            await ep.unicast(peer.card.id, text);
             print(`${c.magenta("(DM)")} ${c.dim("you →")} ${c.bold(peer.card.name)}: ${text}`);
           }
         }
+      } else if (line.startsWith("/anycast ")) {
+        const rest = line.slice(9).trim();
+        const sp = rest.indexOf(" ");
+        if (sp < 1) print(c.red("usage: /anycast <role> <message>"));
+        else {
+          const service = rest.slice(0, sp);
+          const text = rest.slice(sp + 1);
+          await ep.anycast(service, text);
+          print(`${c.yellow("(@" + service + ")")} ${c.dim("you →")} ${text}`);
+        }
       } else {
-        await ep.broadcast(line, { channel });
+        await ep.multicast(line, { channel });
         print(`${c.cyan("#" + channel)} ${c.dim("you:")} ${line}`);
       }
     } catch (e) {

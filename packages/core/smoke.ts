@@ -29,7 +29,8 @@ const b = new SwarlEndpoint({
 const got: string[] = [];
 b.on("message", (m) => {
   const text = m.parts.map((p) => (p.kind === "text" ? p.text : "")).join("");
-  got.push(`${m.to ? "DM" : "#" + m.channel}:${m.from.name}:${text}`);
+  const kind = m.to ? "DM" : m.toService ? "ANY:" + m.toService : "#" + (m.channel ?? "");
+  got.push(`${kind}:${m.from.name}:${text}`);
 });
 
 await a.start();
@@ -40,11 +41,15 @@ console.log("roster(a):", a.getRoster().map((p) => `${p.card.name}=${p.status}`)
 console.log("roster(b):", b.getRoster().map((p) => `${p.card.name}=${p.status}`));
 
 await a.setStatus("working");
-await a.broadcast("hello team", { channel: "general" });
+await a.multicast("hello team", { channel: "general" });
 await wait(300);
 
 const bob = a.getRoster().find((p) => p.card.name === "bob");
-if (bob) await a.dm(bob.card.id, "psst bob");
+if (bob) await a.unicast(bob.card.id, "psst bob");
+await wait(300);
+
+// anycast to the "builder" service — bob (role: builder) should receive it
+await a.anycast("builder", "build the thing");
 await wait(300);
 
 const aliceInB = b.getRoster().find((p) => p.card.name === "alice");
@@ -60,6 +65,7 @@ const ok =
   a.getRoster().length === 2 &&
   got.some((g) => g.startsWith("#general")) &&
   got.some((g) => g.startsWith("DM")) &&
+  got.some((g) => g.startsWith("ANY:builder")) &&
   aliceInB?.status === "working" &&
   bobInA?.status === "offline";
 

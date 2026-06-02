@@ -18,10 +18,11 @@ import type {
   SwarlMessage,
 } from "./types.js";
 import {
+  anycastSubject,
   chatSubject,
-  dmSubject,
   presenceBucket,
   spaceWildcard,
+  unicastSubject,
 } from "./subjects.js";
 
 export const DEFAULT_SERVER = "nats://127.0.0.1:4222";
@@ -109,8 +110,13 @@ export class SwarlEndpoint extends EventEmitter {
       }, this.heartbeatMs);
     }
 
+    // multicast: each channel; unicast: our own instance inbox
     for (const ch of this.channels) this.subscribe(chatSubject(this.space, ch));
-    this.subscribe(dmSubject(this.space, this.card.id));
+    this.subscribe(unicastSubject(this.space, this.card.id));
+    // anycast: join our service's queue group so one of us handles each anycast
+    if (this.card.role) {
+      this.subscribe(anycastSubject(this.space, this.card.role), this.card.role);
+    }
   }
 
   async stop(): Promise<void> {
@@ -135,7 +141,8 @@ export class SwarlEndpoint extends EventEmitter {
 
   // ---- messaging -----------------------------------------------------------
 
-  async broadcast(
+  /** Multicast: broadcast to everyone on a channel. */
+  async multicast(
     text: string,
     opts?: { channel?: string; parts?: Part[]; replyTo?: string; contextId?: string },
   ): Promise<SwarlMessage> {
@@ -154,8 +161,9 @@ export class SwarlEndpoint extends EventEmitter {
     return msg;
   }
 
-  async dm(
-    peerId: string,
+  /** Unicast: direct message to one specific instance. */
+  async unicast(
+    instanceId: string,
     text: string,
     opts?: { parts?: Part[]; replyTo?: string; contextId?: string },
   ): Promise<SwarlMessage> {
@@ -164,13 +172,32 @@ export class SwarlEndpoint extends EventEmitter {
       ts: Date.now(),
       space: this.space,
       from: this.ref(),
-      to: peerId,
-      channel: "dm",
+      to: instanceId,
       parts: opts?.parts ?? [{ kind: "text", text }],
       replyTo: opts?.replyTo,
       contextId: opts?.contextId,
     };
-    this.nc?.publish(dmSubject(this.space, peerId), this.codec.encode(msg));
+    this.nc?.publish(unicastSubject(this.space, instanceId), this.codec.encode(msg));
+    return msg;
+  }
+
+  /** Anycast: deliver to ANY one instance of a service (role) — queue-group load balancing. */
+  async anycast(
+    service: string,
+    text: string,
+    opts?: { parts?: Part[]; replyTo?: string; contextId?: string },
+  ): Promise<SwarlMessage> {
+    const msg: SwarlMessage = {
+      id: randomUUID(),
+      ts: Date.now(),
+      space: this.space,
+      from: this.ref(),
+      toService: service,
+      parts: opts?.parts ?? [{ kind: "text", text }],
+      replyTo: opts?.replyTo,
+      contextId: opts?.contextId,
+    };
+    this.nc?.publish(anycastSubject(this.space, service), this.codec.encode(msg));
     return msg;
   }
 
@@ -212,9 +239,9 @@ export class SwarlEndpoint extends EventEmitter {
 
   // ---- internals -----------------------------------------------------------
 
-  private subscribe(subject: string): void {
+  private subscribe(subject: string, queue?: string): void {
     if (!this.nc) return;
-    const sub = this.nc.subscribe(subject);
+    const sub = this.nc.subscribe(subject, queue ? { queue } : undefined);
     this.subs.push(sub);
     void (async () => {
       for await (const m of sub) {

@@ -54,15 +54,14 @@ covers them:
 
 ## Technical mapping (NATS / JetStream)
 
-**Status:** implemented = multicast (channels), unicast (direct), presence with states.
-Next = the SLIM addressing pass: add **anycast** (`svc.<service>` queue groups), rename the
-unicast subject `dm`→`inst`, add `service` to the address. Later = trace/control families, history.
+**Status:** implemented = all three delivery modes (multicast / unicast / anycast) +
+presence with states. Later = trace/control families, message history.
 
 - **Subjects (delivery modes):**
   - multicast → `swarl.<space>.chat.<channel>`  — broadcast to a channel
-  - unicast → `swarl.<space>.inst.<instance>`  — one specific endpoint *(currently `dm.<id>`)*
+  - unicast → `swarl.<space>.inst.<instance>`  — one specific endpoint
   - anycast → `swarl.<space>.svc.<service>`  — subscribers join NATS **queue group**
-    `<service>`, so one publish reaches exactly one instance *(next)*
+    `<service>` (= role), so one publish reaches exactly one instance
   - trace → `swarl.<space>.trace.<instance>`, control → `swarl.<space>.control.<instance>` *(later)*
   - `*` = one token, `>` = trailing tokens; `swarl.<space>.>` taps everything (the `watch` command).
 - **Presence:** NATS **KV bucket per space** (key = instance id), bucket-level TTL + a

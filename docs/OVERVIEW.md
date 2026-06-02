@@ -78,8 +78,8 @@ Full scenario and run steps: **[DEMO.md](DEMO.md)**.
 - **Wire shapes** — A2A-inspired `AgentCard` + `Message`/`Part`; **SLIM-inspired** addressing
   (`space / service / instance`) and the three delivery modes. See [architecture.md](architecture.md).
 - **Presence states** — `idle` / `waiting` / `working` / `offline`.
-- **Built so far** — `@swarl/core` endpoint (presence, multicast, unicast) + `@swarl/cli`
-  (`up` / `join` / `watch`), smoke-tested end-to-end.
+- **Built so far** — `@swarl/core` endpoint (presence + all three delivery modes:
+  multicast / unicast / anycast) + `@swarl/cli` (`up` / `join` / `watch`), smoke-tested.
 
 ## Open questions
 

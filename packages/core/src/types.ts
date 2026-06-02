@@ -66,10 +66,13 @@ export interface SwarlMessage {
   ts: number;
   space: string;
   from: EndpointRef;
-  /** Peer id for a direct message; absent means a channel broadcast. */
+  // Delivery target — exactly one of the next three is set:
+  /** Channel name — multicast (broadcast to everyone on the channel). */
+  channel?: string;
+  /** Instance id — unicast (direct to one specific endpoint). */
   to?: string;
-  /** Channel name (e.g. "general"). For DMs this is "dm". */
-  channel: string;
+  /** Service / role — anycast (any one instance of the service receives it). */
+  toService?: string;
   parts: Part[];
   /** Id of the message being replied to. */
   replyTo?: string;

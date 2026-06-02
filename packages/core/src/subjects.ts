@@ -1,10 +1,11 @@
 /**
  * Subject naming — the routing half of the wire contract (v0).
  *
- *   swarl.<space>.chat.<channel>     broadcast to a named channel
- *   swarl.<space>.dm.<peerId>        direct message to one peer
- *   swarl.<space>.trace.<agentId>    ambient lifecycle trace (later)
- *   swarl.<space>.control.<agentId>  control-plane commands (later)
+ *   swarl.<space>.chat.<channel>      multicast to a named channel
+ *   swarl.<space>.svc.<service>       anycast to any one instance of a service (queue group)
+ *   swarl.<space>.inst.<instance>     unicast to one specific instance
+ *   swarl.<space>.trace.<instance>    ambient lifecycle trace (later)
+ *   swarl.<space>.control.<instance>  control-plane commands (later)
  *
  * Presence lives in a JetStream KV bucket, not a subject (see presenceBucket()).
  */
@@ -27,8 +28,14 @@ export function chatSubject(space: string, channel: string): string {
   return `${spacePrefix(space)}.chat.${token(channel)}`;
 }
 
-export function dmSubject(space: string, peerId: string): string {
-  return `${spacePrefix(space)}.dm.${token(peerId)}`;
+/** Unicast: a specific instance's inbox. */
+export function unicastSubject(space: string, instance: string): string {
+  return `${spacePrefix(space)}.inst.${token(instance)}`;
+}
+
+/** Anycast: a service (role). Subscribers join a queue group so one instance receives. */
+export function anycastSubject(space: string, service: string): string {
+  return `${spacePrefix(space)}.svc.${token(service)}`;
 }
 
 export function traceSubject(space: string, agentId: string): string {

@@ -45,11 +45,19 @@ export async function watch(argv: string[]): Promise<void> {
   await ep.start();
   ep.tap((subject, msg) => {
     if (!msg) return;
-    const kind = subject.includes(".dm.") ? c.magenta("dm     ") : c.cyan("chat   ");
+    const kind = subject.includes(".inst.")
+      ? c.magenta("unicast")
+      : subject.includes(".svc.")
+        ? c.yellow("anycast")
+        : c.cyan("chat   ");
     const text = msg.parts
       ?.map((p) => (p.kind === "text" ? p.text : JSON.stringify(p.data)))
       .join(" ");
-    const arrow = msg.to ? c.dim(" → " + msg.to.slice(0, 8)) : "";
+    const arrow = msg.to
+      ? c.dim(" → " + msg.to.slice(0, 8))
+      : msg.toService
+        ? c.dim(" → @" + msg.toService)
+        : "";
     console.log(
       `${ts()} ${kind} ${who(msg.from?.name ?? "?", msg.from?.role)}${arrow}: ${text}`,
     );
