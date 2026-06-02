@@ -234,35 +234,82 @@ and `exec`s the real `claude` with the plugin — the session stays pure Claude 
 
 ## Technical mapping (NATS / JetStream)
 
-**Status:** implemented = all three delivery modes (multicast / unicast / anycast) +
-presence with states. Later = trace/control families, message history.
+**Status.** *Built today:* all three delivery modes over **core NATS** (fire-and-forget
+pub/sub + queue-group anycast), presence via a KV bucket, control plane via a hand-rolled
+queue subscription. *Decided next* (this section's target): move the three delivery modes
+onto **JetStream streams** so messages wait for busy/offline agents, swap the control plane
+to the **NATS Services API**, and move routing meta into **message headers**. The subject
+names and envelope shape below are stable across both.
 
-- **Subjects (delivery modes):**
+**Why streams, not fire-and-forget.** Core NATS is at-most-once: a message is delivered only
+to whoever is subscribed *at that instant*. Agents are constantly `working` / `offline`, so a
+DM, a task, or a channel post sent while an agent is mid-turn is silently lost. JetStream
+**stores** each message and gives every reader its own bookmark, so an agent catches up *at
+its own pace* when it frees up — nothing missed, no interruption required. One mechanism then
+covers three things at once: live delivery, the inbound buffer, and late-join history.
+
+- **Subjects (delivery modes):** publishers write to the same subjects; the difference is
+  *who consumes* the backing stream.
   - multicast → `swarl.<space>.chat.<channel>`  — broadcast to a channel
   - unicast → `swarl.<space>.inst.<instance>`  — one specific endpoint
-  - anycast → `swarl.<space>.svc.<service>`  — subscribers join NATS **queue group**
-    `<service>` (= role), so one publish reaches exactly one instance
+  - anycast → `swarl.<space>.svc.<service>`  — any one instance of a service (role)
   - trace → `swarl.<space>.trace.<instance>`, control → `swarl.<space>.control.<instance>` *(later)*
   - `*` = one token, `>` = trailing tokens; `swarl.<space>.>` taps everything (the `watch` command).
+- **Streams (one model, three read patterns):**
+  - **`CHAT_<space>`** (multicast) — captures `chat.>`, **Limits** retention with
+    `MaxMsgsPerSubject` (a capped per-channel backlog). **Every** agent reads **every**
+    message via its **own** consumer/bookmark, at its own pace; a late joiner replays the
+    window. This *is* both the inbound channel buffer and history.
+  - **`DM_<space>`** (unicast) — captures `inst.>`, **Limits** retention. Each agent has a
+    **per-instance durable consumer** (durable name = instance id, filter `inst.<id>`) — its
+    private inbox. Retained for **session length**: the inbox lives as long as the agent's
+    context does (an `InactiveThreshold` retires the consumer when the context ends, so a
+    retired/`new`-context id never inherits a stale inbox — mirrors the *Instance continuity*
+    rule). `swarl_inbox` = pull the unread batch; push = the consumer delivers on attach.
+  - **`TASK_<space>`** (anycast) — captures `svc.>`, **WorkQueuePolicy**. A **shared pull
+    consumer per service** (filter `svc.<role>`): a task with no worker online *waits*; the
+    first available instance of the role grabs it; multiple online instances load-balance; the
+    task is removed once acked. Durable replacement for the old core queue-group, which dropped
+    the task if no one was subscribed.
+  - **Acks** are explicit and happen when a message is actually surfaced/injected (not on
+    pull), so a crash before injection redelivers (`AckExplicit` + `AckWait`).
 - **Presence:** NATS **KV bucket per space** (key = instance id), bucket-level TTL + a
-  client-side expiry sweep (correct without relying on server delete-markers). States:
+  client-side expiry sweep (correct without relying on server delete-markers — per-key TTL on
+  an updated key is unreliable on current servers, and heartbeats re-put the same key). States:
   `idle` / `waiting` / `working` / `offline`. Heartbeat ≈ TTL/3; graceful leave publishes a
   final `offline`; a lapsed heartbeat is swept to `offline`. Offline peers stay in the roster.
+  (Instant offline via `$SYS` disconnect events is a documented upgrade — see *Deferred*.)
 - **Identity/discovery:** A2A `AgentCard` (`id`=instance, `name`=handle, `role`=service,
   `kind`, `skills`/`tags`) carried in the presence record (our equivalent of `.well-known`).
   We omit A2A's `capabilities` field (protocol flags Swarl doesn't need) to avoid the name
   collision — "what it can do" lives in `skills`/`tags`.
 - **Message envelope:** `{ id, ts, space, from:{id,name,role}, channel?, to?, toService?,
-  parts[], replyTo?, contextId? }`, JSON on the wire. Exactly one delivery target: `channel`
-  = multicast, `to` = unicast (instance), `toService` = anycast (service).
-- **History:** type-scoped JetStream streams (`CHAT_<space>`) with `MaxMsgsPerSubject`;
-  late joiners replay via durable pull consumers — *later* (chat is fire-and-forget today).
+  parts[], replyTo?, contextId? }`. Routing meta (`id`, `from.id`, `contextId`, `replyTo`)
+  moves to **NATS headers** — `id` as `Nats-Msg-Id` gives free server-side **dedup** under
+  JetStream redelivery, and lets the buffer/policy layer peek (who / kind) without decoding the
+  body; `parts[]` stay in the body. Exactly one delivery target: `channel` = multicast, `to` =
+  unicast (instance), `toService` = anycast (service).
+- **Artifacts:** large `data` parts / A2A `Artifact`s exceed the ~1 MB message cap, so they go
+  to a **JetStream Object Store** bucket per space (chunked); the message carries a reference
+  part `{ kind:"artifact", ref:{ bucket, name, size, mime } }` and the recipient fetches on
+  demand. (Part shape reserved now; delivery later.)
+- **Control plane:** the **NATS Services API** (`micro`) — the manager registers a service
+  (endpoints `start`/`stop`/`ps`/`status`/`bind` under `ctl.<service>`, auto queue-grouped),
+  which brings built-in **discovery** (`$SRV.PING`/`INFO`) and **stats** for free. The
+  `ControlRequest`/`ControlReply` envelope is unchanged; only the transport underneath swaps.
 - **Isolation:** one NATS **account** per space (later: split `space` into `org/namespace`).
-- **Transport choice:** core NATS for live multicast/unicast/anycast + request/reply
-  control; JetStream for presence (KV) and history.
+- **Transport choice:** JetStream streams for all three delivery modes (durability + per-reader
+  bookmarks + history), KV for presence, Object Store for artifacts, and the Services API for
+  the control plane.
 
 ## Deferred (designed-for, not built)
 
 - **Sessions + moderator** — managed group membership (admit/remove), per SLIM's Group session.
-- **Verifiable identity** — `instance` becomes a `did:key`; messages signed, peers verify.
-- **Message history / late-join replay** — the JetStream streams described above.
+- **Verifiable identity** — `instance` becomes a `did:key`; messages signed, peers verify;
+  the natural pairing is NATS **NKey/JWT** decentralized auth over the account-per-space split.
+- **Instant offline (`$SYS`)** — subscribe the manager to `$SYS.ACCOUNT.<id>.DISCONNECT` for
+  immediate offline detection instead of waiting out the heartbeat window. Needs `system_account`
+  config + a privileged connection, connection names that carry the instance id (not just the
+  handle), and the manager as presence reconciler (a dead agent can't mark itself offline). The
+  heartbeat sweep remains the floor when no reconciler is running.
+- **Artifact delivery** — the Object Store path above (shape reserved, transfer not built).
