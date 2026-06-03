@@ -351,6 +351,19 @@ export class SwarlEndpoint extends EventEmitter {
       return;
     }
 
+    // Heartbeat refresh with no real change: bump liveness quietly and don't
+    // emit — otherwise the periodic keep-alive looks like a stream of "updates".
+    if (
+      prev &&
+      prev.status !== "offline" &&
+      p.status !== "offline" &&
+      prev.status === p.status &&
+      prev.activity === p.activity
+    ) {
+      this.roster.set(id, p);
+      return;
+    }
+
     this.roster.set(id, p);
     const type: "join" | "update" | "offline" =
       p.status === "offline"
