@@ -54,9 +54,9 @@ becomes a tag attribute the agent can read for routing.
 
 - **Channel notifications** — async push. We own `content` and tag attributes fully, and the
   daemon owns *emit* timing (drop / queue / coalesce / release — the policy layer). The model
-  *sees* it: idle agent → ~immediately (the event wakes a turn); busy agent → at the next
-  **turn boundary** (queued events coalesce into one batch); mid-turn interrupt → **not in
-  attach mode**. Research-preview gated (see *Constraints*).
+  *sees* it: idle agent → ~immediately (the event wakes a turn — **empirically verified**, see
+  *Constraints*); busy agent → at the next **turn boundary** (queued events coalesce into one
+  batch); mid-turn interrupt → **not in attach mode**. Research-preview gated (see *Constraints*).
 - **Hook `additionalContext`** — deterministic. A hook is *our* code at a fixed lifecycle
   point, not research-preview gated. A `UserPromptSubmit` / `Stop` hook injects the pending
   inbox as `additionalContext` at an exact moment; a `Stop` hook returning
@@ -64,6 +64,17 @@ becomes a tag attribute the agent can read for routing.
 
 Hooks are the **spine** (no gating, fully deterministic, turn-boundary delivery + the
 keep-working lever); the **channel** adds async "wake me when idle/away."
+
+**Permission relay (same channel, control-plane payoff).** The channel protocol also carries
+*tool-permission* requests, so tool approval can happen **over the mesh** on the same dual-purpose
+server — no extra transport. The agent declares the `claude/channel/permission` capability; a
+pending tool call surfaces as `notifications/claude/channel/permission_request`
+(`{request_id, tool_name, description, input_preview}`) which the daemon relays onto the mesh, and
+a verdict returns via `notifications/claude/channel/permission` (`{request_id,
+behavior:"allow"|"deny"}`). A peer — a human at the CLI, a future moderator, or a policy node —
+can then admit or deny an agent's action *through Swarl*, making tool approval a first-class
+control-plane flow rather than a per-terminal prompt. (Claude Code ≥ v2.1.81; same research-preview
+gating as the channel.)
 
 **Presence from hooks.** The same lifecycle hooks feed presence: `UserPromptSubmit` /
 `PreToolUse` → `working`, `Stop` → `idle`, `Notification` (permission / idle prompt) →
@@ -96,14 +107,55 @@ we rejected was about delegating *work*; this is *infrastructure*.)
 to the mesh via its own plugin (own presence, messaging, inbound policy). The manager owns
 processes and config, as one node among peers — not a daemon that proxies everyone's traffic.
 
-**Attach-in-panes spawn (demo).** The manager launches each agent as a real native Claude/Codex
-TUI in its own terminal pane (tmux), so you watch it directly while it owns start/stop. Host
-mode (headless via the Agent SDK / Codex app-server, for mid-turn interrupt) is the
-manager-owned upgrade path, observed via `swarl watch`.
+**Lifecycle = two planes.** *Observing* lifecycle (alive? idle / working / offline) is
+**mesh-native via presence** — the agent self-reports through its plugin, so `ps` / `status`
+read presence and work **regardless of how the agent was launched** (manager-spawned, a human's
+own terminal, or headless). *Forcing* lifecycle (start / stop / restart) is the only part that
+needs an OS handle on the process. So the manager owns processes to *control* them, but observes
+everything through the mesh — and a BYO-terminal agent the manager never spawned still shows up
+and reports status.
+
+**Spawn via a pluggable `Runtime` (no tmux dependency).** Starting / stopping / attaching is
+abstracted behind one interface (`spawn → handle`, `stop`, `status`, `attach`, optional
+`interrupt`) with selectable backends — think *pm2 / docker for agent TUIs*:
+- **`pty` (default)** — the manager spawns the real `claude`/Codex (plugin + env) in a
+  pseudo-terminal it owns via **`@lydell/node-pty`** (prebuilt binaries for mac/Linux/Windows ×
+  x64/arm64 — zero compiler, zero `node-gyp`, ABI-stable). A real native TUI; the human watches
+  or types in via `swarl attach <name>` (stream the PTY), and the manager keeps full OS-signal
+  control (group-kill, restart). No external software to install.
+- **`tmux` / `iTerm2` (opt-in)** — for users already living in a multiplexer who want native
+  panes / persistence; auto-detect (if already inside tmux, use it).
+- **`byo` (floor)** — the manager doesn't own the process; a human runs `swarl claude --role …`
+  in their own terminal and the manager just tracks it via presence.
+- **`host` (upgrade)** — headless via the Agent SDK / Codex app-server for structured control +
+  true mid-turn interrupt; no native TUI (rendered from the event stream), observed via
+  `swarl watch`.
+
+The PTY carries the agent's **terminal I/O only** — its mesh traffic still flows agent↔NATS
+directly through the plugin, so owning the PTY doesn't put the manager on the message hot path.
+**Restart-with-continuity:** a `pty`/`host` restart can `claude --resume <session_id>` to keep
+the same context — and therefore the same instance id (see *Instance continuity*).
+
+**Console (watching agents).** The viewer is a **separate entity** from the manager, but the
+terminal *stream* comes from whoever owns the PTY (the manager), **not over the mesh** — PTY
+frames are high-bandwidth terminal I/O, and routing them through NATS would put the manager back
+on the message hot path. So the console uses **two channels**: the **mesh** (presence / `ps`) to
+discover *which* agents exist and their status, and a **direct attach connection** to the PTY
+owner for the actual pixels (same stream `swarl attach` consumes, just rendered in a browser).
+- **Stack:** **xterm.js** (`@xterm/xterm` + official addons `addon-fit`, `addon-webgl`,
+  `addon-attach`, `addon-serialize` — all MIT, zero-dep) for the terminal, in **our own
+  lightweight UI** (no framework lock-in, no forked dashboard). The manager exposes a local
+  **attach endpoint** (HTTP + WebSocket) that bridges PTY ↔ browser; `addon-attach` wires a pane
+  straight to that socket, `addon-serialize` replays scrollback on late attach.
+- **Topology:** the manager hosts the attach endpoint (it holds the PTYs); the **console** is a
+  thin client that can run in-process (manager serves the page) now, or split later into a
+  standalone `swarl console` node that discovers managers over the mesh and aggregates their
+  streams.
 
 **Control schema (first cut):** `start {role, name, agent}` · `stop {instance}` · `ps` ·
-`status {instance}` · `bind {instance, config}` — control-plane request/reply messages any
-authorized node (CLI, dashboard, or an agent) can send; spawning is policy-gated.
+`status {instance}` · `attach {instance}` · `bind {instance, config}` — control-plane
+request/reply messages any authorized node (CLI, dashboard, or an agent) can send; spawning is
+policy-gated.
 
 **Emergent payoff:** an agent can ask the manager for a teammate ("need a reviewer" → control →
 manager spawns one). The new agent is a *peer*, not a child.
@@ -111,8 +163,8 @@ manager spawns one). The new agent is a *peer*, not a child.
 ## Hosting & onboarding
 
 **Onboarding — manager-driven, still pure native.** You don't `exec claude` yourself; you ask
-the **manager** to start an agent (over the control plane) and it performs the launch in a
-terminal pane:
+the **manager** to start an agent (over the control plane) and it performs the launch in a PTY it
+owns (default `pty` runtime — see *Manager*):
 
 ```
 swarl start --role planner --name alice      # CLI → control msg → manager spawns it
@@ -135,21 +187,25 @@ ships `/swarl` slash commands (`/swarl who`, `/swarl dm …`) for in-session con
 
 **Hosting mode** still sets how much inbound push is possible:
 
-- **Attach mode (demo default)** — the **manager** launches the agent as a native TUI in its
-  own terminal pane; Swarl attaches via the plugin (dual MCP server + http hooks). Soft/
-  between-turn push via the channel plus deterministic hook injection. Codex is **pull-mostly**
-  (its plain TUI has no clean external-injection path).
+- **Attach mode (demo default)** — the **manager** launches the agent as a native TUI in a PTY
+  it owns (`@lydell/node-pty`, default `pty` runtime); you watch / drive it with `swarl attach`.
+  Swarl attaches via the plugin (dual MCP server + http hooks). Soft / between-turn push via the
+  channel plus deterministic hook injection. Codex is **pull-mostly** (its plain TUI has no clean
+  external-injection path).
 - **Host mode (upgrade path)** — the manager runs the session headless via the Agent SDK
   (`@anthropic-ai/claude-agent-sdk`, streaming input) / Codex app-server for true mid-turn
   interrupt on both agents; observed via `swarl watch` rather than a native TUI. Documented,
   not built for the demo.
 
-**Constraints (accepted).** Channels are a **research preview** (Claude Code ≥ v2.1.80): they
-require Anthropic auth (claude.ai or Console key — *not* Bedrock / Vertex / Foundry), Team /
-Enterprise admins must enable them, and a custom (non-allowlisted) channel launches with
-`--dangerously-load-development-channels plugin:swarl@…` rather than `--channels`; the flag /
-protocol may still change. The MCP-tools and hooks legs have **no** such gating — the hook
-injection path is the gating-free fallback if the channel can't run.
+**Constraints (accepted).** Channels are a **research preview** (Claude Code ≥ v2.1.80; permission
+relay ≥ v2.1.81): they require Anthropic auth (claude.ai or Console key — *not* Bedrock / Vertex /
+Foundry), Team / Enterprise admins must enable them, and a custom (non-allowlisted) channel
+launches with `--dangerously-load-development-channels plugin:swarl@…` rather than `--channels`;
+the flag / protocol may still change. **Verified** on Claude Code 2.1.160: a `notifications/claude/
+channel` event delivered to an otherwise-**idle** session autonomously wakes a turn (no keystroke,
+no `send-keys`) — so the channel is the primary wake path, not a fallback. The MCP-tools and hooks
+legs have **no** such gating — the hook injection path is the gating-free fallback if the channel
+can't run.
 
 **A channel must gate senders** — an ungated channel is a prompt-injection vector. Swarl gates
 on the mesh side: the policy layer only emits notifications for allowlisted peers.
