@@ -1,0 +1,59 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/node_modules/.bin/tsx",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/src/hook.ts"]
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/node_modules/.bin/tsx",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/src/hook.ts"]
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/node_modules/.bin/tsx",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/src/hook.ts"]
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/node_modules/.bin/tsx",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/src/hook.ts"]
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/node_modules/.bin/tsx",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/src/hook.ts"]
+          }
+        ]
+      }
+    ]
+  }
+}
