@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import {
   SwarlEndpoint,
   type Presence,
@@ -36,16 +37,21 @@ function sleep(ms: number): Promise<void> {
  *
  * Connecting is resilient: {@link start} kicks off a background retry loop so the
  * MCP server is responsive immediately even if the mesh isn't up yet.
+ *
+ * Emits `"incoming"` (InboxItem) after each message is buffered, so a push layer
+ * (the channel) can deliver it immediately; `"error"` (Error) for endpoint faults.
  */
-export class MeshAgent {
+export class MeshAgent extends EventEmitter {
   readonly ep: SwarlEndpoint;
   readonly config: AgentConfig;
 
   private inbox: InboxItem[] = [];
   private _connected = false;
+  private _status: PresenceStatus = "idle";
   private stopping = false;
 
   constructor(config: AgentConfig) {
+    super();
     this.config = config;
     this.ep = new SwarlEndpoint({
       space: config.space,
@@ -97,7 +103,7 @@ export class MeshAgent {
       .map((p) => (p.kind === "text" ? p.text : JSON.stringify(p.data)))
       .join(" ");
     const kind: InboxItem["kind"] = m.to ? "dm" : m.toService ? "anycast" : "channel";
-    this.inbox.push({
+    const item: InboxItem = {
       id: m.id,
       ts: m.ts,
       fromId: m.from.id,
@@ -109,10 +115,12 @@ export class MeshAgent {
       text,
       replyTo: m.replyTo,
       contextId: m.contextId,
-    });
+    };
+    this.inbox.push(item);
     if (this.inbox.length > MAX_INBOX) {
       this.inbox.splice(0, this.inbox.length - MAX_INBOX);
     }
+    this.emit("incoming", item);
   }
 
   /** Return pending messages and clear them. */
@@ -124,6 +132,12 @@ export class MeshAgent {
   /** Return pending messages without clearing them. */
   peekInbox(): InboxItem[] {
     return [...this.inbox];
+  }
+
+  /** Drop one message from the inbox (e.g. once the channel has delivered it). */
+  removeFromInbox(id: string): void {
+    const i = this.inbox.findIndex((m) => m.id === id);
+    if (i >= 0) this.inbox.splice(i, 1);
   }
 
   inboxCount(): number {
@@ -170,8 +184,14 @@ export class MeshAgent {
     return this.ep.getRoster();
   }
 
+  /** Our last self-reported presence status. */
+  get status(): PresenceStatus {
+    return this._status;
+  }
+
   async setStatus(status: PresenceStatus, activity?: string): Promise<void> {
     this.assertConnected();
+    this._status = status;
     if (activity !== undefined) await this.ep.setActivity(activity);
     await this.ep.setStatus(status);
   }

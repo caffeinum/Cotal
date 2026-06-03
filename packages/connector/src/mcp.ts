@@ -33,6 +33,15 @@ function fmtItem(i: InboxItem): string {
 const text = (t: string) => ({ content: [{ type: "text" as const, text: t }] });
 const fail = (t: string) => ({ ...text(t), isError: true as const });
 
+/** Routing context for a `<channel …>` tag. Keys must be [A-Za-z0-9_] (others are dropped). */
+function channelMeta(i: InboxItem): Record<string, string> {
+  const m: Record<string, string> = { kind: i.kind, from: i.fromName, from_id: i.fromId };
+  if (i.fromRole) m.role = i.fromRole;
+  if (i.channel) m.channel = i.channel;
+  if (i.service) m.to_role = i.service; // anycast: the role that was addressed
+  return m;
+}
+
 async function main(): Promise<void> {
   const config = configFromEnv();
   const agent = new MeshAgent(config);
@@ -43,15 +52,20 @@ async function main(): Promise<void> {
   const controlServer = startControlServer(agent, socketPath);
 
   const server = new McpServer(
-    { name: "swarl-connector", version: "0.0.0" },
+    { name: "swarl", version: "0.0.0" },
     {
+      // `claude/channel` makes this MCP server a Claude Code *channel*: peer
+      // messages can be pushed straight into the session (waking it if idle).
+      capabilities: { experimental: { "claude/channel": {} } },
       instructions:
         `You are connected to the Swarl mesh as "${config.name}"` +
         `${config.role ? ` (role: ${config.role})` : ""} in space "${config.space}". ` +
         `Other agents coordinate with you here as lateral peers. ` +
-        `Use swarl_roster to see who is present, swarl_inbox to read messages they have sent you, ` +
-        `swarl_send to broadcast on a channel, swarl_dm to message one peer, ` +
-        `swarl_anycast to ask any agent of a role, and swarl_status to report what you are doing.`,
+        `Peer messages may arrive as <channel source="swarl" from="<name>" role="<role>" ` +
+        `kind="dm|channel|anycast" channel="<name>">…</channel> — read them and, when a reply is ` +
+        `warranted, respond with swarl_dm (back to that peer), swarl_send (to a channel), or ` +
+        `swarl_anycast (to a role). Use swarl_roster to see who is present, swarl_inbox to pull ` +
+        `anything you may have missed, and swarl_status to report what you are doing.`,
     },
   );
 
@@ -198,6 +212,33 @@ async function main(): Promise<void> {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
+
+  // Is this session actually consuming us as a channel? If so, push peer
+  // messages straight in (waking it when idle) and drain them from the inbox so
+  // the hook path doesn't also deliver them. If not, the hook/inbox path stands.
+  const clientCaps = server.server.getClientCapabilities();
+  const envFlag = process.env.SWARL_CHANNEL;
+  const channelActive = envFlag
+    ? /^(1|true|yes|on)$/i.test(envFlag)
+    : Boolean((clientCaps?.experimental as Record<string, unknown> | undefined)?.["claude/channel"]);
+  process.stderr.write(
+    `[swarl-connector] client capabilities: ${JSON.stringify(clientCaps ?? {})} → channel ${channelActive ? "ACTIVE" : "off"}\n`,
+  );
+
+  if (channelActive) {
+    agent.on("incoming", (item: InboxItem) => {
+      void server.server
+        .notification({
+          method: "notifications/claude/channel",
+          params: { content: item.text, meta: channelMeta(item) },
+        })
+        .then(() => agent.removeFromInbox(item.id))
+        .catch((e) =>
+          process.stderr.write(`[swarl-connector] channel push failed: ${(e as Error).message}\n`),
+        );
+    });
+  }
+
   process.stderr.write(
     `[swarl-connector] MCP ready (stdio) — space="${config.space}" name="${config.name}"${config.role ? ` role="${config.role}"` : ""}\n`,
   );
