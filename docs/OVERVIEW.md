@@ -70,7 +70,7 @@ Role-specialized agents (Claude Code + Codex) join one shared space, each in its
 terminal, and coordinate laterally — presence, addressing, messaging, and a control
 plane — configurable, not hardwired (the *topology* is how you set it up, not baked in).
 
-Full scenario and run steps: **[DEMO.md](DEMO.md)**.
+Full scenario and run steps: **[demos/01-lateral-coordination](../demos/01-lateral-coordination/README.md)**.
 
 ## Decided so far
 

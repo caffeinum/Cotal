@@ -1,4 +1,4 @@
-# Swarl — First Demo
+# Demo 1 — Lateral Coordination
 
 Role-specialized endpoints join **one shared space** and coordinate **laterally** —
 presence, addressing, and messaging — on a local NATS/JetStream mesh, each participant
