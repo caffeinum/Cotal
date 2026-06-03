@@ -24,6 +24,7 @@
     ],
     "Notification": [
       {
+        "matcher": "permission_prompt|elicitation_dialog",
         "hooks": [
           {
             "type": "command",
@@ -34,6 +35,17 @@
       }
     ],
     "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/node_modules/.bin/tsx",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/src/hook.ts"]
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
       {
         "hooks": [
           {

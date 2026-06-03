@@ -50,8 +50,11 @@ async function handle(agent: MeshAgent, ev: HookEvent): Promise<Record<string, u
         await agent.setStatus("waiting");
         return {};
       case "Stop":
-      case "SessionEnd":
+      case "StopFailure": // turn died on an API error — Stop won't fire, so reset here too
         await agent.setStatus("idle");
+        return {};
+      case "SessionEnd":
+        await agent.setStatus("offline");
         return {};
       default:
         return {};
