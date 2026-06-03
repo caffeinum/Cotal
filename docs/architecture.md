@@ -203,9 +203,11 @@ Foundry), Team / Enterprise admins must enable them, and a custom (non-allowlist
 launches with `--dangerously-load-development-channels plugin:swarl@…` rather than `--channels`;
 the flag / protocol may still change. **Verified** on Claude Code 2.1.160: a `notifications/claude/
 channel` event delivered to an otherwise-**idle** session autonomously wakes a turn (no keystroke,
-no `send-keys`) — so the channel is the primary wake path, not a fallback. The MCP-tools and hooks
-legs have **no** such gating — the hook injection path is the gating-free fallback if the channel
-can't run.
+no `send-keys`) — so the channel is the **wake** path: a peer message fires a content-less *nudge*
+that pokes an idle session into a turn. Delivery itself is the durable DM/chat stream consumer:
+the woken turn's `UserPromptSubmit` hook drains the inbox, injects the messages, and **acks** them
+(the single, gating-free delivery path). The nudge never acks or removes anything, so if the channel
+can't run the message simply waits on the stream for the next turn — nothing is lost.
 
 **A channel must gate senders** — an ungated channel is a prompt-injection vector. Swarl gates
 on the mesh side: the policy layer only emits notifications for allowlisted peers.
@@ -290,12 +292,12 @@ and `exec`s the real `claude` with the plugin — the session stays pure Claude 
 
 ## Technical mapping (NATS / JetStream)
 
-**Status.** *Built today:* all three delivery modes over **core NATS** (fire-and-forget
-pub/sub + queue-group anycast), presence via a KV bucket, control plane via a hand-rolled
-queue subscription. *Decided next* (this section's target): move the three delivery modes
-onto **JetStream streams** so messages wait for busy/offline agents, swap the control plane
-to the **NATS Services API**, and move routing meta into **message headers**. The subject
-names and envelope shape below are stable across both.
+**Status.** *Built today:* all three delivery modes over **JetStream streams** (durable
+per-reader consumers, explicit ack-on-surface, `Nats-Msg-Id` dedup), presence via a KV bucket,
+control plane via a hand-rolled queue subscription. *Decided next:* swap the control plane to
+the **NATS Services API**, and move the rest of the routing meta into **message headers** (only
+`Nats-Msg-Id` lives there today; the envelope is still JSON in the body). The subject names and
+envelope shape below are stable across both.
 
 **Why streams, not fire-and-forget.** Core NATS is at-most-once: a message is delivered only
 to whoever is subscribed *at that instant*. Agents are constantly `working` / `offline`, so a

@@ -3,8 +3,17 @@ import { randomUUID } from "node:crypto";
 import {
   connect,
   JSONCodec,
+  nanos,
+  AckPolicy,
+  DeliverPolicy,
+  DiscardPolicy,
+  RetentionPolicy,
+  StorageType,
   type NatsConnection,
   type Subscription,
+  type JetStreamClient,
+  type JetStreamManager,
+  type ConsumerMessages,
   type KV,
   type KvEntry,
 } from "nats";
@@ -13,6 +22,7 @@ import type {
   AgentCard,
   ControlReply,
   ControlRequest,
+  Delivery,
   EndpointRef,
   Part,
   Presence,
@@ -21,10 +31,17 @@ import type {
 } from "./types.js";
 import {
   anycastSubject,
+  chatStream,
+  chatDurable,
   chatSubject,
   controlServiceSubject,
+  dmStream,
+  dmDurable,
   presenceBucket,
+  spacePrefix,
   spaceWildcard,
+  taskStream,
+  taskDurable,
   unicastSubject,
 } from "./subjects.js";
 
@@ -46,6 +63,12 @@ export interface EndpointOptions {
   registerPresence?: boolean;
   /** Track the roster of peers (default true). */
   watchPresence?: boolean;
+  /** Create inbound stream consumers (DM / chat / anycast). Default true; a pure observer sets false. */
+  consume?: boolean;
+  /** How long an unacked (un-surfaced) message waits before redelivery (ms). */
+  ackWaitMs?: number;
+  /** Retire this instance's durable consumers after it's been gone this long (ms). */
+  inactiveThresholdMs?: number;
 }
 
 /** Events: "message" (SwarlMessage), "presence" (PresenceEvent), "roster" (Presence[]), "error" (Error). */
@@ -59,10 +82,16 @@ export class SwarlEndpoint extends EventEmitter {
   private readonly ttlMs: number;
   private readonly doRegister: boolean;
   private readonly doWatch: boolean;
+  private readonly doConsume: boolean;
+  private readonly ackWaitMs: number;
+  private readonly inactiveThresholdMs: number;
 
   private nc?: NatsConnection;
+  private js?: JetStreamClient;
+  private jsm?: JetStreamManager;
   private kv?: KV;
   private readonly subs: Subscription[] = [];
+  private readonly streamMsgs: ConsumerMessages[] = [];
   private heartbeatTimer?: ReturnType<typeof setInterval>;
   private sweepTimer?: ReturnType<typeof setInterval>;
   private readonly roster = new Map<string, Presence>();
@@ -83,6 +112,9 @@ export class SwarlEndpoint extends EventEmitter {
     this.ttlMs = opts.ttlMs ?? 6000;
     this.doRegister = opts.registerPresence ?? true;
     this.doWatch = opts.watchPresence ?? true;
+    this.doConsume = opts.consume ?? true;
+    this.ackWaitMs = opts.ackWaitMs ?? 60_000;
+    this.inactiveThresholdMs = opts.inactiveThresholdMs ?? 600_000;
   }
 
   ref(): EndpointRef {
@@ -94,10 +126,10 @@ export class SwarlEndpoint extends EventEmitter {
       servers: this.servers,
       name: `swarl:${this.card.name}`,
     });
+    this.js = this.nc.jetstream();
 
     if (this.doWatch || this.doRegister) {
-      const js = this.nc.jetstream();
-      this.kv = await js.views.kv(presenceBucket(this.space), { ttl: this.ttlMs });
+      this.kv = await this.js.views.kv(presenceBucket(this.space), { ttl: this.ttlMs });
     }
 
     if (this.doWatch) {
@@ -115,12 +147,10 @@ export class SwarlEndpoint extends EventEmitter {
       }, this.heartbeatMs);
     }
 
-    // multicast: each channel; unicast: our own instance inbox
-    for (const ch of this.channels) this.subscribe(chatSubject(this.space, ch));
-    this.subscribe(unicastSubject(this.space, this.card.id));
-    // anycast: join our service's queue group so one of us handles each anycast
-    if (this.card.role) {
-      this.subscribe(anycastSubject(this.space, this.card.role), this.card.role);
+    if (this.doConsume) {
+      this.jsm = await this.nc.jetstreamManager();
+      await this.ensureStreams();
+      await this.startConsumers();
     }
   }
 
@@ -129,6 +159,13 @@ export class SwarlEndpoint extends EventEmitter {
     this.stopped = true;
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     if (this.sweepTimer) clearInterval(this.sweepTimer);
+    for (const msgs of this.streamMsgs) {
+      try {
+        msgs.stop();
+      } catch {
+        /* already closed */
+      }
+    }
     try {
       if (this.doRegister) {
         this.status = "offline";
@@ -162,7 +199,7 @@ export class SwarlEndpoint extends EventEmitter {
       replyTo: opts?.replyTo,
       contextId: opts?.contextId,
     };
-    this.nc?.publish(chatSubject(this.space, channel), this.codec.encode(msg));
+    await this.publishMsg(chatSubject(this.space, channel), msg);
     return msg;
   }
 
@@ -182,7 +219,7 @@ export class SwarlEndpoint extends EventEmitter {
       replyTo: opts?.replyTo,
       contextId: opts?.contextId,
     };
-    this.nc?.publish(unicastSubject(this.space, instanceId), this.codec.encode(msg));
+    await this.publishMsg(unicastSubject(this.space, instanceId), msg);
     return msg;
   }
 
@@ -202,7 +239,7 @@ export class SwarlEndpoint extends EventEmitter {
       replyTo: opts?.replyTo,
       contextId: opts?.contextId,
     };
-    this.nc?.publish(anycastSubject(this.space, service), this.codec.encode(msg));
+    await this.publishMsg(anycastSubject(this.space, service), msg);
     return msg;
   }
 
@@ -288,21 +325,107 @@ export class SwarlEndpoint extends EventEmitter {
 
   // ---- internals -----------------------------------------------------------
 
-  private subscribe(subject: string, queue?: string): void {
-    if (!this.nc) return;
-    const sub = this.nc.subscribe(subject, queue ? { queue } : undefined);
-    this.subs.push(sub);
+  private async publishMsg(subject: string, msg: SwarlMessage): Promise<void> {
+    if (!this.js) throw new Error("endpoint not started");
+    // msgID = message id → free server-side dedup across JetStream redelivery.
+    await this.js.publish(subject, this.codec.encode(msg), { msgID: msg.id });
+  }
+
+  /** Create the three backing streams for this space (idempotent). */
+  private async ensureStreams(): Promise<void> {
+    if (!this.jsm) throw new Error("endpoint not started");
+    const p = spacePrefix(this.space);
+    await this.jsm.streams.add({
+      name: chatStream(this.space),
+      subjects: [`${p}.chat.>`],
+      retention: RetentionPolicy.Limits,
+      storage: StorageType.File,
+      max_msgs_per_subject: 1000, // capped per-channel backlog (buffer + history)
+      discard: DiscardPolicy.Old,
+    });
+    await this.jsm.streams.add({
+      name: dmStream(this.space),
+      subjects: [`${p}.inst.>`],
+      retention: RetentionPolicy.Limits,
+      storage: StorageType.File,
+    });
+    await this.jsm.streams.add({
+      name: taskStream(this.space),
+      subjects: [`${p}.svc.>`],
+      retention: RetentionPolicy.Workqueue,
+      storage: StorageType.File,
+    });
+  }
+
+  /** Bind this endpoint's durable consumers: DM inbox, chat, and (if a role) the task queue. */
+  private async startConsumers(): Promise<void> {
+    if (!this.jsm) throw new Error("endpoint not started");
+    const id = this.card.id;
+    const ack_wait = nanos(this.ackWaitMs);
+    const inactive_threshold = nanos(this.inactiveThresholdMs);
+
+    // Unicast: this instance's private DM inbox.
+    await this.jsm.consumers.add(dmStream(this.space), {
+      durable_name: dmDurable(id),
+      filter_subject: unicastSubject(this.space, id),
+      ack_policy: AckPolicy.Explicit,
+      ack_wait,
+      deliver_policy: DeliverPolicy.All,
+      inactive_threshold,
+    });
+    await this.pump(dmStream(this.space), dmDurable(id));
+
+    // Multicast: every message on our channels, at our own pace (replays the retained window).
+    if (this.channels.length) {
+      await this.jsm.consumers.add(chatStream(this.space), {
+        durable_name: chatDurable(id),
+        filter_subjects: this.channels.map((ch) => chatSubject(this.space, ch)),
+        ack_policy: AckPolicy.Explicit,
+        ack_wait,
+        deliver_policy: DeliverPolicy.All,
+        inactive_threshold,
+      });
+      await this.pump(chatStream(this.space), chatDurable(id));
+    }
+
+    // Anycast: a shared work-queue consumer for our role — one instance grabs each task.
+    if (this.card.role) {
+      await this.jsm.consumers.add(taskStream(this.space), {
+        durable_name: taskDurable(this.card.role),
+        filter_subject: anycastSubject(this.space, this.card.role),
+        ack_policy: AckPolicy.Explicit,
+        ack_wait,
+      });
+      await this.pump(taskStream(this.space), taskDurable(this.card.role));
+    }
+  }
+
+  /** Drive one consumer: decode, drop our own echo, and hand each message to listeners with ack control. */
+  private async pump(stream: string, durable: string): Promise<void> {
+    if (!this.js) throw new Error("endpoint not started");
+    const consumer = await this.js.consumers.get(stream, durable);
+    const msgs = await consumer.consume();
+    this.streamMsgs.push(msgs);
     void (async () => {
-      for await (const m of sub) {
+      for await (const m of msgs) {
+        let msg: SwarlMessage;
         try {
-          const msg = this.codec.decode(m.data) as SwarlMessage;
-          if (msg.from?.id === this.card.id) continue; // ignore our own echo
-          this.emit("message", msg);
+          msg = this.codec.decode(m.data) as SwarlMessage;
         } catch (e) {
+          m.term(); // undecodable — never redeliver
           this.emit("error", e as Error);
+          continue;
         }
+        if (msg.from?.id === this.card.id) {
+          m.ack(); // our own echo — advance past it
+          continue;
+        }
+        const delivery: Delivery = { ack: () => m.ack(), nak: () => m.nak() };
+        this.emit("message", msg, delivery);
       }
-    })().catch((e) => this.emit("error", e as Error));
+    })().catch((e) => {
+      if (!this.stopped) this.emit("error", e as Error);
+    });
   }
 
   private async publishPresence(): Promise<void> {

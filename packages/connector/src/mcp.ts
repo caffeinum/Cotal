@@ -213,9 +213,10 @@ async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  // Is this session actually consuming us as a channel? If so, push peer
-  // messages straight in (waking it when idle) and drain them from the inbox so
-  // the hook path doesn't also deliver them. If not, the hook/inbox path stands.
+  // Is this session consuming us as a channel? If so, a peer message fires a *wake nudge*
+  // so an idle session takes a turn now — its UserPromptSubmit hook then drains + acks the
+  // inbox (the single authoritative delivery path). The nudge itself never acks/removes, so
+  // nothing is lost if the channel is inactive; the message waits in the stream for the next turn.
   const clientCaps = server.server.getClientCapabilities();
   const envFlag = process.env.SWARL_CHANNEL;
   const channelActive = envFlag
@@ -230,11 +231,13 @@ async function main(): Promise<void> {
       void server.server
         .notification({
           method: "notifications/claude/channel",
-          params: { content: item.text, meta: channelMeta(item) },
+          params: {
+            content: `📨 New ${item.kind} from ${fmtFrom(item)} — delivering your Swarl inbox now.`,
+            meta: channelMeta(item),
+          },
         })
-        .then(() => agent.removeFromInbox(item.id))
         .catch((e) =>
-          process.stderr.write(`[swarl-connector] channel push failed: ${(e as Error).message}\n`),
+          process.stderr.write(`[swarl-connector] channel nudge failed: ${(e as Error).message}\n`),
         );
     });
   }

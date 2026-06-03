@@ -20,6 +20,24 @@ state boundary move it; "what it's doing" rides on channel updates, not presence
 Wired in [`packages/connector/hooks/hooks.json`](../packages/connector/hooks/hooks.json),
 dispatched in [`packages/connector/src/control.ts`](../packages/connector/src/control.ts).
 
+## Message delivery (stream-backed)
+
+Peer messages land in the connector's inbox from its **durable JetStream consumers** (per the
+DM / chat / task streams in [architecture](architecture.md#technical-mapping-nats--jetstream)),
+so a message sent while the agent is busy or offline waits on the stream instead of being lost.
+
+Two things move a message from the inbox to the model — **one delivers, one only wakes**:
+
+- **Hook drain (delivery).** `SessionStart` / `UserPromptSubmit` drain the inbox, inject the
+  messages as `additionalContext`, and **ack** them on the stream. This is the single
+  authoritative path — gating-free, works on any Claude Code build. A message is acked only here,
+  once actually surfaced; a crash before injection redelivers it.
+- **Channel nudge (wake).** If the experimental `claude/channel` capability is active, each
+  arriving message also fires a content-less `notifications/claude/channel` nudge that wakes an
+  idle session into a turn (so the hook drain runs *now* instead of at the next prompt). The nudge
+  never acks or removes anything — if the channel can't run, delivery still happens at the next
+  turn. Enable with `--dangerously-load-development-channels plugin:swarl@…` (research preview).
+
 ### Once per session
 | Event | Fires when | Matchers |
 |---|---|---|

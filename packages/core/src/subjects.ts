@@ -61,3 +61,35 @@ export function spaceWildcard(space: string): string {
 export function presenceBucket(space: string): string {
   return `swarl_presence_${token(space)}`;
 }
+
+// ---- JetStream streams (the durable backing for the three delivery modes) ----
+
+/** Stream capturing `chat.>` — multicast backlog + history. */
+export function chatStream(space: string): string {
+  return `CHAT_${token(space)}`;
+}
+
+/** Stream capturing `inst.>` — per-instance direct-message inboxes. */
+export function dmStream(space: string): string {
+  return `DM_${token(space)}`;
+}
+
+/** Stream capturing `svc.>` — anycast work queue. */
+export function taskStream(space: string): string {
+  return `TASK_${token(space)}`;
+}
+
+/** Durable consumer name for an instance's view of the chat stream. */
+export function chatDurable(instance: string): string {
+  return `chat_${token(instance)}`;
+}
+
+/** Durable consumer name for an instance's private DM inbox. */
+export function dmDurable(instance: string): string {
+  return `dm_${token(instance)}`;
+}
+
+/** Durable consumer name (shared across instances of a role) for the task queue. */
+export function taskDurable(service: string): string {
+  return `svc_${token(service)}`;
+}

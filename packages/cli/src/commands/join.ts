@@ -4,6 +4,7 @@ import {
   SwarlEndpoint,
   isReachable,
   DEFAULT_SERVER,
+  type Delivery,
   type EndpointKind,
   type PresenceStatus,
   type SwarlMessage,
@@ -80,7 +81,7 @@ export async function join(argv: string[]): Promise<void> {
   const who = (card: { name: string; role?: string }) =>
     `${c.bold(card.name)}${card.role ? c.dim("/" + card.role) : ""}`;
 
-  ep.on("message", (m: SwarlMessage) => {
+  ep.on("message", (m: SwarlMessage, d: Delivery) => {
     const text = m.parts
       .map((p) => (p.kind === "text" ? p.text : JSON.stringify(p.data)))
       .join(" ");
@@ -89,6 +90,7 @@ export async function join(argv: string[]): Promise<void> {
     else if (m.toService)
       print(`${c.yellow("(@" + m.toService + ")")} ${who(m.from)}: ${text}`);
     else print(`${c.cyan("#" + (m.channel ?? "?"))} ${who(m.from)}: ${text}`);
+    d.ack(); // printed = surfaced
   });
 
   ep.on("presence", (ev) => {

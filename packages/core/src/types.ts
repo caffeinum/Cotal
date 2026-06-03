@@ -85,6 +85,19 @@ export type PresenceEvent =
   | { type: "update"; presence: Presence }
   | { type: "offline"; presence: Presence };
 
+/**
+ * Delivery control handed to "message" listeners alongside each {@link SwarlMessage}.
+ * The message stays on its JetStream stream until {@link Delivery.ack} is called — so
+ * ack ONLY once the message has actually been surfaced (printed, injected, handled).
+ * A crash before ack redelivers it.
+ */
+export interface Delivery {
+  /** Mark the message handled; advances this reader's bookmark so it won't redeliver. */
+  ack(): void;
+  /** Decline for now; the message redelivers (e.g. couldn't surface it yet). */
+  nak(): void;
+}
+
 /** Control-plane request/reply (e.g. CLI → manager). */
 export interface ControlRequest {
   op: string;

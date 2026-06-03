@@ -66,3 +66,4 @@ MCP SDK, A2A/SLIM conventions, etc.) before replying or writing code — verify 
 - ESM only (`"type": "module"`); run TS directly with `tsx`, no build step needed for dev.
 - Core primitives: endpoint, agent node, space, channel, direct message, presence, history.
 - Delivery modes (SLIM-inspired): multicast / unicast / anycast.
+- Never use fallbacks in the code, rather throw if something isn't supported in the current environment or configuration.

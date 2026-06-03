@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import {
   SwarlEndpoint,
+  type Delivery,
   type Presence,
   type PresenceStatus,
   type SwarlMessage,
@@ -24,6 +25,13 @@ export interface InboxItem {
   contextId?: string;
 }
 
+/** An inbox entry: the normalized message plus its JetStream ack handle. */
+interface Pending {
+  item: InboxItem;
+  /** Ack the backing stream message — called only once the item is actually surfaced. */
+  ack: () => void;
+}
+
 const MAX_INBOX = 200;
 
 function sleep(ms: number): Promise<void> {
@@ -45,7 +53,7 @@ export class MeshAgent extends EventEmitter {
   readonly ep: SwarlEndpoint;
   readonly config: AgentConfig;
 
-  private inbox: InboxItem[] = [];
+  private inbox: Pending[] = [];
   private _connected = false;
   private _status: PresenceStatus = "idle";
   private stopping = false;
@@ -59,7 +67,7 @@ export class MeshAgent extends EventEmitter {
       channels: config.channels,
       card: { name: config.name, role: config.role, kind: config.kind },
     });
-    this.ep.on("message", (m: SwarlMessage) => this.ingest(m));
+    this.ep.on("message", (m: SwarlMessage, d: Delivery) => this.ingest(m, d));
     this.ep.on("error", (e: Error) => this.log(`endpoint error: ${e.message}`));
   }
 
@@ -98,7 +106,13 @@ export class MeshAgent extends EventEmitter {
 
   // ---- inbox ---------------------------------------------------------------
 
-  private ingest(m: SwarlMessage): void {
+  private ingest(m: SwarlMessage, delivery: Delivery): void {
+    // Redelivery (we held it unacked past ack_wait): keep one entry, take the freshest ack handle.
+    const existing = this.inbox.find((p) => p.item.id === m.id);
+    if (existing) {
+      existing.ack = delivery.ack;
+      return;
+    }
     const text = m.parts
       .map((p) => (p.kind === "text" ? p.text : JSON.stringify(p.data)))
       .join(" ");
@@ -116,28 +130,25 @@ export class MeshAgent extends EventEmitter {
       replyTo: m.replyTo,
       contextId: m.contextId,
     };
-    this.inbox.push(item);
+    this.inbox.push({ item, ack: delivery.ack });
     if (this.inbox.length > MAX_INBOX) {
-      this.inbox.splice(0, this.inbox.length - MAX_INBOX);
+      // Pathological backlog: ack the overflow so it stops redelivering.
+      for (const p of this.inbox.splice(0, this.inbox.length - MAX_INBOX)) p.ack();
     }
     this.emit("incoming", item);
   }
 
-  /** Return pending messages and clear them. */
+  /** Return pending messages and ack them — call only when they're actually surfaced to the model. */
   drainInbox(limit?: number): InboxItem[] {
     const n = limit && limit > 0 ? Math.min(limit, this.inbox.length) : this.inbox.length;
-    return this.inbox.splice(0, n);
+    const taken = this.inbox.splice(0, n);
+    for (const p of taken) p.ack();
+    return taken.map((p) => p.item);
   }
 
-  /** Return pending messages without clearing them. */
+  /** Return pending messages without acking them (they stay on the stream). */
   peekInbox(): InboxItem[] {
-    return [...this.inbox];
-  }
-
-  /** Drop one message from the inbox (e.g. once the channel has delivered it). */
-  removeFromInbox(id: string): void {
-    const i = this.inbox.findIndex((m) => m.id === id);
-    if (i >= 0) this.inbox.splice(i, 1);
+    return this.inbox.map((p) => p.item);
   }
 
   inboxCount(): number {
