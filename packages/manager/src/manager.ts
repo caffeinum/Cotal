@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { SwarlEndpoint } from "@swarl/core";
-import type { Connector, ControlReply, ControlRequest, Registry } from "@swarl/core";
+import type { Connector, ControlReply, ControlRequest, Registry, Runtime } from "@swarl/core";
 import {
   findWorkspaceRoot,
   killDetached,
@@ -8,7 +8,6 @@ import {
   spawnDetached,
   spawnTmux,
   tmuxAvailable,
-  type SpawnMode,
   type Spawned,
 } from "./spawn.js";
 
@@ -18,8 +17,11 @@ export interface ManagerOptions {
   registry: Registry;
   servers?: string;
   name?: string;
-  /** "auto" (default) uses tmux when available, else detached. */
-  spawnMode?: SpawnMode | "auto";
+  /**
+   * "auto" (default) uses tmux when available, else detached. "tmux"/"detached" pick a
+   * built-in. Any other value is a runtime extension name resolved from the registry.
+   */
+  spawnMode?: string;
   workspaceRoot?: string;
 }
 
@@ -42,7 +44,7 @@ export class Manager {
   private readonly servers: string | undefined;
   private readonly name: string;
   private readonly workspaceRoot: string;
-  private readonly mode: SpawnMode;
+  private readonly mode: string;
   private readonly session: string;
   private readonly agents = new Map<string, ManagedAgent>();
   private ep!: SwarlEndpoint;
@@ -53,12 +55,20 @@ export class Manager {
     this.servers = opts.servers;
     this.name = opts.name ?? "manager";
     this.workspaceRoot = opts.workspaceRoot ?? findWorkspaceRoot();
-    const wantTmux = (opts.spawnMode ?? "auto") !== "detached";
-    this.mode = wantTmux && tmuxAvailable() ? "tmux" : "detached";
+    const want = opts.spawnMode ?? "auto";
+    if (want === "detached") {
+      this.mode = "detached";
+    } else if (want === "auto" || want === "tmux") {
+      this.mode = tmuxAvailable() ? "tmux" : "detached";
+    } else {
+      // A runtime extension name — must be registered (no silent fallback).
+      this.registry.resolve<Runtime>("runtime", want);
+      this.mode = want;
+    }
     this.session = `swarl-${this.space}`;
   }
 
-  get spawnMode(): SpawnMode {
+  get spawnMode(): string {
     return this.mode;
   }
 
@@ -112,14 +122,20 @@ export class Manager {
         role,
         servers: this.servers,
       });
-      spawned =
-        this.mode === "tmux"
-          ? spawnTmux(this.session, name, spec, this.workspaceRoot)
-          : spawnDetached(
-              spec,
-              this.workspaceRoot,
-              join(this.workspaceRoot, ".swarl", "logs", `${name}.log`),
-            );
+      if (this.mode === "tmux") {
+        spawned = spawnTmux(this.session, name, spec, this.workspaceRoot);
+      } else if (this.mode === "detached") {
+        spawned = spawnDetached(
+          spec,
+          this.workspaceRoot,
+          join(this.workspaceRoot, ".swarl", "logs", `${name}.log`),
+        );
+      } else {
+        // Runtime extension (e.g. cmux) resolved by name from the registry.
+        const runtime = this.registry.resolve<Runtime>("runtime", this.mode);
+        const handle = runtime.spawn(name, spec, { cwd: this.workspaceRoot });
+        spawned = { mode: this.mode, handle };
+      }
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
@@ -135,6 +151,8 @@ export class Manager {
       killTmux(a.spawned.session, a.spawned.window);
     } else if (a.spawned.pid) {
       killDetached(a.spawned.pid);
+    } else if (a.spawned.handle) {
+      this.registry.resolve<Runtime>("runtime", a.spawned.mode).stop(a.spawned.handle);
     }
     this.agents.delete(name);
     return { ok: true, data: { name, stopped: true } };

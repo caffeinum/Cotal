@@ -23,6 +23,7 @@ pnpm + TypeScript ESM monorepo — four dependency tiers, one-way deps, Node ≥
   - **@swarl/manager** — agent supervisor + control plane (spawns/manages nodes).
 - **`extensions/*` — pluggable adapters** (peer-depend core, self-register through its registry).
   - **@swarl/connector** — MCP bridge (`@modelcontextprotocol/sdk`, zod) for Claude Code / Codex.
+  - **@swarl/cmux** — a spawn `Runtime` that places spawned agents into cmux panes.
 - **`implementations/*` — opinionated surfaces** over core.
   - **@swarl/cli** — `swarl` commands: `up`, `join`, `manager`, `control`, `watch`.
 - **`examples/*` — use-cases** (composition roots; private, never published).

@@ -1,15 +1,19 @@
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, openSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import type { LaunchSpec } from "@swarl/core";
+import type { LaunchSpec, SpawnHandle } from "@swarl/core";
 
+/** The manager's built-in spawn backends; other modes are runtime extensions resolved by name. */
 export type SpawnMode = "tmux" | "detached";
 
 export interface Spawned {
-  mode: SpawnMode;
+  /** Built-in mode ("tmux"/"detached") or the name of a resolved runtime extension. */
+  mode: string;
   pid?: number;
   window?: string;
   session?: string;
+  /** Set when a runtime extension produced this (instead of a built-in mode). */
+  handle?: SpawnHandle;
 }
 
 /** Walk up from `startDir` to the pnpm workspace root (for spawning `pnpm swarl …`). */
