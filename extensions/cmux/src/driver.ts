@@ -1,0 +1,40 @@
+import { execFileSync } from "node:child_process";
+
+/**
+ * The one place that knows the cmux CLI. Thin wrappers over `cmux <subcommand>`
+ * (the CLI talks to the running cmux app over its Unix socket). Used by the spawn
+ * runtime and by example launchers — so no raw `cmux` calls live anywhere else.
+ */
+function cmux(args: string[]): void {
+  execFileSync("cmux", args, { stdio: "ignore" });
+}
+
+/** True if a cmux app is reachable (`cmux ping`). */
+export function available(): boolean {
+  try {
+    execFileSync("cmux", ["ping"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Open a new workspace with a declarative split layout (JSON). */
+export function openWorkspace(name: string, layout: string): void {
+  cmux(["new-workspace", "--name", name, "--focus", "true", "--layout", layout]);
+}
+
+/** Split the focused pane; the new pane becomes focused. */
+export function newSplit(direction: "left" | "right" | "up" | "down"): void {
+  cmux(["new-split", direction]);
+}
+
+/** Type text into the focused pane. */
+export function send(text: string): void {
+  cmux(["send", text]);
+}
+
+/** Send a key press (e.g. "enter") to the focused pane. */
+export function sendKey(key: string): void {
+  cmux(["send-key", key]);
+}

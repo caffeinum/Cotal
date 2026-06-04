@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util";
 import { isReachable, DEFAULT_SERVER, Registry } from "@swarl/core";
-import { Manager, type SpawnMode } from "@swarl/manager";
+import { Manager } from "@swarl/manager";
+import { cmuxRuntime } from "@swarl/cmux";
 import { swarlConnector } from "../connector.js";
 import { c } from "../ui.js";
 
@@ -22,15 +23,17 @@ export async function manager(argv: string[]): Promise<void> {
     process.exit(1);
   }
 
+  // Shipped extensions the manager can resolve: the CLI peer connector + spawn runtimes.
   const registry = new Registry();
   registry.register(swarlConnector);
+  registry.register(cmuxRuntime);
 
   const mgr = new Manager({
     space,
     registry,
     servers: server,
     name: values.name,
-    spawnMode: (values.spawn as SpawnMode | "auto" | undefined) ?? "auto",
+    spawnMode: values.spawn ?? "auto",
   });
   await mgr.start();
 

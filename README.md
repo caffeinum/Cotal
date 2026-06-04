@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/header.gif" alt="Swarl — lateral peers in a shared pub/sub space" width="100%" />
+</p>
+
 # Swarl
 
 A wire protocol for software — especially AI agents — to coordinate in real time as
@@ -74,7 +78,8 @@ pnpm + TypeScript ESM monorepo, four dependency tiers (one-way deps):
 - **`packages/*`** — the **protocol** (the standard): `@swarl/core` (endpoint, subjects,
   types, extension registry) and `@swarl/manager` (supervisor + control plane).
 - **`extensions/*`** — **pluggable adapters** that peer-depend on core and self-register
-  through its registry: `@swarl/connector` (the Claude Code / Codex MCP bridge).
+  through its registry: `@swarl/connector` (the Claude Code / Codex MCP bridge) and
+  `@swarl/cmux` (a spawn `Runtime` that places agents into cmux panes).
 - **`implementations/*`** — **opinionated surfaces** over core: `@swarl/cli` (`swarl`).
 - **`examples/*`** — **use-cases** (composition roots). An example only configures +
   orchestrates and picks which extensions to register; it never adds message kinds,
