@@ -101,6 +101,33 @@ Then, in the **orchestrator** pane, give it the one prompt:
    "remove the mock, connect the real `/tasks` endpoint." (The money shot.)
 4. `todo-web` does the follow-up and reports done. The orchestrator tells you it's complete.
 
+## Variant: spawn the team on demand (`--spawn`)
+
+The static layout above launches everyone up front. The `--spawn` flow instead starts with
+**just the left column** and grows the rest live:
+
+```bash
+./launch.sh --spawn     # mesh + manager (headless), then opens dashboard + spawner only
+```
+
+```
+┌───────────────┐
+│   dashboard   │   swarl console — live agent panel + message log
+├───────────────┤
+│   spawner     │   claude — talk to it here
+│   (claude)    │
+└───────────────┘
+```
+
+A **manager** runs headless in `cmux` spawn mode (log: `.manager.log`). Tell the spawner, e.g.:
+
+> spin up two workers and say hi to each
+
+The spawner calls `swarl_spawn` per worker → the manager opens a **new cmux pane** running a
+`swarl join` peer → the spawner waits for each to appear in `swarl_roster`, then `swarl_dm`s it a
+greeting. You watch new panes appear on the left and the dashboard panel fill in. (Spawning into a
+pane is best-effort — same caveat as `--drive`; the workers here are generic mesh peers, not coders.)
+
 ## How it maps to Swarl
 
 | haa | Swarl tool |

@@ -21,6 +21,12 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 SPACE="todo"
 
+# cmux is driven through the @swarl/cmux integration's CLI — no raw `cmux` here.
+CMUX="$REPO_ROOT/node_modules/.bin/tsx $REPO_ROOT/extensions/cmux/src/cli.ts"
+cmux_check() {
+  $CMUX check || { echo "✗ can't reach cmux — run this from inside a cmux terminal." >&2; exit 1; }
+}
+
 # --- mesh ------------------------------------------------------------------
 nats_up() { (exec 3<>/dev/tcp/127.0.0.1/4222) 2>/dev/null; }
 
@@ -67,15 +73,33 @@ build_layout() {
   printf '{"direction":"horizontal","split":0.5,"children":[%s,%s]}' "$left" "$right"
 }
 
+# --- spawn demo ------------------------------------------------------------
+# The "left side first" flow: open ONLY the dashboard + the spawner, run the
+# manager headless (cmux spawn mode), then ask the spawner to spin up workers —
+# each appears as a fresh cmux pane on the left. Run FROM a cmux terminal.
+if [[ "${1:-}" == "--spawn" ]]; then
+  cmux_check
+  echo "starting the manager headless (cmux spawn mode)…"
+  ( cd "$REPO_ROOT" && nohup pnpm swarl manager --space "$SPACE" --spawn cmux \
+      >"$HERE/.manager.log" 2>&1 & )
+  sleep 1
+  left="$(printf '{"direction":"vertical","split":0.4,"children":[%s,%s]}' \
+    "$(term "bash -lc 'cd $REPO_ROOT && pnpm swarl console --space $SPACE'")" \
+    "$(agent_term spawner)")"
+  echo "opening the left column (dashboard + spawner)…"
+  $CMUX open swarl-spawn "$left"
+  echo "✓ opened. In the spawner pane, ask it to spin up a couple of workers —"
+  echo "  e.g. \"spin up two workers and say hi to each\". (manager log: $HERE/.manager.log)"
+  exit 0
+fi
+
 # --- drive cmux ------------------------------------------------------------
 # Opens ONE cmux workspace, split into the demo layout. Run this FROM a cmux
 # terminal (the CLI talks to cmux over its Unix socket).
 if [[ "${1:-}" == "--drive" ]]; then
-  command -v cmux >/dev/null || { echo "✗ cmux not found on PATH" >&2; exit 1; }
-  cmux ping >/dev/null 2>&1 || {
-    echo "✗ can't reach cmux — run this from inside a cmux terminal." >&2; exit 1; }
+  cmux_check
   echo "opening the swarl-todo workspace (watch + orchestrator | api/web/docs)…"
-  cmux new-workspace --name swarl-todo --focus true --layout "$(build_layout)"
+  $CMUX open swarl-todo "$(build_layout)"
   echo "✓ workspace opened. Approve the plugin in each claude pane if prompted,"
   echo "  then give the orchestrator pane the human prompt (see below / README)."
   exit 0
@@ -90,9 +114,10 @@ the three subagents on the right:
 
   ./launch.sh --drive
 
-That runs this single command (here's the layout if you want to tweak it):
+That opens the workspace via the @swarl/cmux driver (here's the layout if you
+want to tweak it):
 
-  cmux new-workspace --name swarl-todo --focus true --layout '$(build_layout)'
+  tsx extensions/cmux/src/cli.ts open swarl-todo '$(build_layout)'
 
 …or open plain terminals / use the cmux.json palette, one of these per pane:
 

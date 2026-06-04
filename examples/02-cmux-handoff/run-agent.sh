@@ -10,9 +10,9 @@ set -euo pipefail
 
 role="${1:-}"
 case "$role" in
-  orchestrator | todo-api | todo-web | todo-docs) ;;
+  orchestrator | todo-api | todo-web | todo-docs | spawner) ;;
   *)
-    echo "usage: run-agent.sh <orchestrator|todo-api|todo-web|todo-docs>" >&2
+    echo "usage: run-agent.sh <orchestrator|todo-api|todo-web|todo-docs|spawner>" >&2
     exit 1
     ;;
 esac
