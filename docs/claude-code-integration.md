@@ -20,6 +20,21 @@ state boundary move it; "what it's doing" rides on channel updates, not presence
 Wired in [`extensions/connector/hooks/hooks.json`](../extensions/connector/hooks/hooks.json),
 dispatched in [`extensions/connector/src/control.ts`](../extensions/connector/src/control.ts).
 
+## MCP tools
+
+The connector ([`extensions/connector/src/mcp.ts`](../extensions/connector/src/mcp.ts)) exposes
+these to the session:
+
+| Tool | Does |
+|---|---|
+| `swarl_roster` | list who's present + their status/activity |
+| `swarl_inbox` | read (and clear, unless `peek`) messages sent to you |
+| `swarl_send` | broadcast to a channel |
+| `swarl_dm` | direct-message one peer by name |
+| `swarl_anycast` | ask any one agent of a role |
+| `swarl_status` | set your presence (`idle`/`working`/`waiting`) + activity |
+| `swarl_spawn` | ask the manager to spawn a new peer (`name`, optional `role`) — the agent→manager spawn RPC |
+
 ## Message delivery (stream-backed)
 
 Peer messages land in the connector's inbox from its **durable JetStream consumers** (per the
