@@ -20,11 +20,11 @@ pnpm + TypeScript ESM monorepo — four dependency tiers, one-way deps, Node ≥
 
 - **`packages/*` — the protocol** (generic, the standard).
   - **@swarl/core** — endpoint, subjects, message types; the NATS client layer + extension registry.
-  - **@swarl/manager** — agent supervisor + control plane (spawns/manages nodes).
 - **`extensions/*` — pluggable adapters** (peer-depend core, self-register through its registry).
   - **@swarl/connector** — MCP bridge (`@modelcontextprotocol/sdk`, zod) for Claude Code / Codex.
-- **`implementations/*` — opinionated surfaces** over core.
-  - **@swarl/cli** — `swarl` commands: `up`, `join`, `manager`, `control`, `watch`.
+- **`implementations/*` — opinionated surfaces** over core (self-contained; never import each other).
+  - **@swarl/cli** — `swarl` operator commands: `up`, `join`, `watch`, and the control client (`start`/`stop`/`ps`).
+  - **@swarl/manager** — agent supervisor: a mesh endpoint that spawns/manages nodes.
 - **`examples/*` — use-cases** (composition roots; private, never published).
 
 Tiers depend one-way: `examples → implementations → packages ← (peer) extensions`. An

@@ -2,15 +2,11 @@
   "name": "@swarl/cli",
   "version": "0.0.0",
   "type": "module",
-  "exports": {
-    "./connector": "./src/connector.ts"
-  },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@swarl/core": "workspace:*",
-    "@swarl/manager": "workspace:*"
+    "@swarl/core": "workspace:*"
   }
 }

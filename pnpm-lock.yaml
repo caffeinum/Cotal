@@ -20,9 +20,6 @@ importers:
 
   examples/01-lateral-coordination:
     dependencies:
-      '@swarl/cli':
-        specifier: workspace:*
-        version: link:../../implementations/cli
       '@swarl/connector':
         specifier: workspace:*
         version: link:../../extensions/connector
@@ -31,7 +28,7 @@ importers:
         version: link:../../packages/core
       '@swarl/manager':
         specifier: workspace:*
-        version: link:../../packages/manager
+        version: link:../../implementations/manager
     devDependencies:
       tsx:
         specifier: ^4.22.4
@@ -58,21 +55,18 @@ importers:
       '@swarl/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@swarl/manager':
+
+  implementations/manager:
+    dependencies:
+      '@swarl/core':
         specifier: workspace:*
-        version: link:../../packages/manager
+        version: link:../../packages/core
 
   packages/core:
     dependencies:
       nats:
         specifier: ^2.27.0
         version: 2.29.3
-
-  packages/manager:
-    dependencies:
-      '@swarl/core':
-        specifier: workspace:*
-        version: link:../core
 
 packages:
 

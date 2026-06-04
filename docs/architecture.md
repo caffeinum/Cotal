@@ -63,12 +63,13 @@ examples ──→ one-or-more implementations ──→ core ←(peer)── ex
 
 The migration is done: `demos/` use-cases are now `examples/`, `@swarl/connector` is an
 `extensions/` connector that **peer-depends** on core and self-registers (`claudeConnector`),
-and `@swarl/cli` an `implementations/` package. Core owns the typed **extension registry**; the
-manager resolves a connector by agent type from it (unknown ⇒ throws), and an example's
-composition root (`examples/01/src/manager.ts`) explicitly registers the connectors it wants.
-`@swarl/manager` sits in `packages/` for now because `cli` imports it at compile time — but
-it's a supervisor, not protocol, so that's tracked **debt**: the end state is
-manager-as-implementation that `cli` reaches over the mesh, not via import.
+and `@swarl/cli` + `@swarl/manager` are `implementations/` packages. Core owns the typed
+**extension registry**; the manager resolves a connector by agent type from it (unknown ⇒
+throws). Assembly lives at the **composition root** — an example (`examples/01/src/manager.ts`)
+imports the manager + the extensions it wants, registers the connectors, and starts the
+manager. Implementations stay self-contained and never import each other: the `cli` drives the
+manager purely over the mesh (`start`/`stop`/`ps` control requests), so neither imports the
+other — only the example wires them together.
 
 ## Integration surfaces (Claude Code + Codex)
 

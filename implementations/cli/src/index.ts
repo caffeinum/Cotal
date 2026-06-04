@@ -2,7 +2,6 @@ import { c } from "./ui.js";
 import { up } from "./commands/up.js";
 import { join } from "./commands/join.js";
 import { watch } from "./commands/watch.js";
-import { manager } from "./commands/manager.js";
 import { start, stop, ps } from "./commands/control.js";
 
 const [, , cmd, ...rest] = process.argv;
@@ -16,16 +15,17 @@ ${c.bold("Mesh")}
        [--role <r>] [--channel <c>]
   swarl watch --space <s>             observe all activity in a space
 
-${c.bold("Manager")} (agent supervisor)
-  swarl manager --space <s>           run the supervisor daemon [--spawn tmux|detached]
+${c.bold("Control plane")} (talk to a running manager)
   swarl start --name <n> [--role <r>] ask the manager to spawn an agent
+       [--agent <a>]
   swarl stop --name <n>               ask the manager to stop an agent
   swarl ps                            list managed agents + their mesh status
 
 ${c.bold("Examples")}
   pnpm swarl up
-  pnpm swarl manager --space demo
-  pnpm swarl start --space demo --name carol --role reviewer
+  # start a manager from a composition root, e.g. examples/01:
+  #   (cd examples/01-lateral-coordination && pnpm manager)
+  pnpm swarl start --space demo --name carol --agent swarl
   pnpm swarl ps --space demo
 `);
 }
@@ -39,9 +39,6 @@ switch (cmd) {
     break;
   case "watch":
     await watch(rest);
-    break;
-  case "manager":
-    await manager(rest);
     break;
   case "start":
     await start(rest);
