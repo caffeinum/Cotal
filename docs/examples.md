@@ -10,3 +10,4 @@ Those belong in `@swarl/core`, generalized. Dependency direction is one-way:
 | Example | What it shows |
 |---|---|
 | [01 — Lateral Coordination](../examples/01-lateral-coordination/README.md) | Role-specialized endpoints join one shared space and coordinate laterally — presence, all three addressing modes, live state, observability, graceful leave, late join. |
+| [02 — Orchestrated Handoff (cmux)](../examples/02-cmux-handoff/README.md) | Four real Claude Code agents in cmux panes ship one change across three repos: one human prompt, then agent-to-agent fan-out and an automatic API→web handoff over the mesh. |
