@@ -3,5 +3,5 @@ dist/
 .swarl/
 *.log
 .DS_Store
-# local dev config (machine-specific paths); the plugin's is packages/connector/.mcp.json
+# local dev config (machine-specific paths); the plugin's is extensions/connector/.mcp.json
 /.mcp.json

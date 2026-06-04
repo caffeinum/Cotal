@@ -17,8 +17,8 @@ state boundary move it; "what it's doing" rides on channel updates, not presence
 | `StopFailure` | `idle` (turn died on an API error — `Stop` won't fire) |
 | `SessionEnd` | `offline` (graceful leave) |
 
-Wired in [`packages/connector/hooks/hooks.json`](../packages/connector/hooks/hooks.json),
-dispatched in [`packages/connector/src/control.ts`](../packages/connector/src/control.ts).
+Wired in [`extensions/connector/hooks/hooks.json`](../extensions/connector/hooks/hooks.json),
+dispatched in [`extensions/connector/src/control.ts`](../extensions/connector/src/control.ts).
 
 ## Message delivery (stream-backed)
 

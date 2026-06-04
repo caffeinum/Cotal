@@ -18,23 +18,14 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
-  packages/cli:
-    dependencies:
-      '@swarl/core':
-        specifier: workspace:*
-        version: link:../core
-      '@swarl/manager':
-        specifier: workspace:*
-        version: link:../manager
-
-  packages/connector:
+  extensions/connector:
     dependencies:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.3)
       '@swarl/core':
         specifier: workspace:*
-        version: link:../core
+        version: link:../../packages/core
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -42,6 +33,15 @@ importers:
       tsx:
         specifier: ^4.22.4
         version: 4.22.4
+
+  implementations/cli:
+    dependencies:
+      '@swarl/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@swarl/manager':
+        specifier: workspace:*
+        version: link:../../packages/manager
 
   packages/core:
     dependencies:

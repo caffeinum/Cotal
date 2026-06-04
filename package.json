@@ -10,7 +10,7 @@
   "scripts": {
     "typecheck": "pnpm -r typecheck",
     "build": "pnpm -r build",
-    "swarl": "tsx packages/cli/src/index.ts",
+    "swarl": "tsx implementations/cli/src/index.ts",
     "smoke": "tsx packages/core/smoke.ts"
   },
   "devDependencies": {

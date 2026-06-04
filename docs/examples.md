@@ -1,0 +1,12 @@
+# Examples
+
+Examples live in [`examples/`](../examples), one self-contained folder each. They consume the
+protocol (`packages/*`) through one or more implementations and add nothing to it: an example
+only *configures + orchestrates* (roles, config, space name, runbook, optional driver) and
+picks which extensions to register — never new message kinds, subjects, or endpoint methods.
+Those belong in `@swarl/core`, generalized. Dependency direction is one-way:
+`examples → implementations → packages`, never back.
+
+| Example | What it shows |
+|---|---|
+| [01 — Lateral Coordination](../examples/01-lateral-coordination/README.md) | Role-specialized endpoints join one shared space and coordinate laterally — presence, all three addressing modes, live state, observability, graceful leave, late join. |

@@ -61,9 +61,12 @@ examples ──→ one-or-more implementations ──→ core ←(peer)── ex
                       (interoperate at runtime over NATS, not via imports)
 ```
 
-Migration from today's layout: `demos/` use-cases become `examples/`, `@swarl/connector`
-becomes an `extensions/` connector, `@swarl/cli` an implementation. `@swarl/manager` is still
-open (core infra vs. an implementation concern).
+The folder migration is done: `demos/` use-cases are now `examples/`, `@swarl/connector` is an
+`extensions/` connector, and `@swarl/cli` an `implementations/` package. `@swarl/manager` sits
+in `packages/` for now because `cli` imports it at compile time — but it's a supervisor, not
+protocol, so that's tracked **debt**: the end state is manager-as-implementation that `cli`
+reaches over the mesh, not via import. Still pending: core's extension registry and the
+connector's peer-dependency on core (wired at an example's composition root).
 
 ## Integration surfaces (Claude Code + Codex)
 
