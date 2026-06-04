@@ -1,13 +1,9 @@
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, openSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import type { LaunchSpec } from "@swarl/core";
 
 export type SpawnMode = "tmux" | "detached";
-
-export interface SpawnSpec {
-  command: string;
-  args: string[];
-}
 
 export interface Spawned {
   mode: SpawnMode;
@@ -36,20 +32,6 @@ export function tmuxAvailable(): boolean {
   }
 }
 
-/** Build the command that launches a given agent type as a Swarl mesh node. */
-export function buildSpawn(
-  agent: string,
-  opts: { space: string; name: string; role?: string; servers?: string },
-): SpawnSpec {
-  if (agent === "swarl") {
-    const args = ["swarl", "join", "--space", opts.space, "--name", opts.name];
-    if (opts.role) args.push("--role", opts.role);
-    if (opts.servers) args.push("--server", opts.servers);
-    return { command: "pnpm", args };
-  }
-  throw new Error(`agent type "${agent}" not wired yet (needs the connector plugin)`);
-}
-
 function shellQuote(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`;
 }
@@ -66,7 +48,7 @@ function hasSession(session: string): boolean {
 export function spawnTmux(
   session: string,
   windowName: string,
-  spec: SpawnSpec,
+  spec: LaunchSpec,
   cwd: string,
 ): Spawned {
   if (!hasSession(session)) {
@@ -74,7 +56,10 @@ export function spawnTmux(
       stdio: "ignore",
     });
   }
-  const cmd = [spec.command, ...spec.args].map(shellQuote).join(" ");
+  const envPrefix = Object.entries(spec.env ?? {}).map(
+    ([k, v]) => `${k}=${shellQuote(v)}`,
+  );
+  const cmd = [...envPrefix, spec.command, ...spec.args.map(shellQuote)].join(" ");
   execFileSync(
     "tmux",
     ["new-window", "-t", session, "-n", windowName, "-c", cwd, cmd],
@@ -93,13 +78,14 @@ export function killTmux(session: string, windowName: string): void {
   }
 }
 
-export function spawnDetached(spec: SpawnSpec, cwd: string, logPath: string): Spawned {
+export function spawnDetached(spec: LaunchSpec, cwd: string, logPath: string): Spawned {
   mkdirSync(dirname(logPath), { recursive: true });
   const out = openSync(logPath, "a");
   const child = spawn(spec.command, spec.args, {
     cwd,
     detached: true,
     stdio: ["ignore", out, out],
+    env: spec.env ? { ...process.env, ...spec.env } : process.env,
   });
   child.unref();
   return { mode: "detached", pid: child.pid };

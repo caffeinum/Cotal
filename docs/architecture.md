@@ -61,12 +61,14 @@ examples ──→ one-or-more implementations ──→ core ←(peer)── ex
                       (interoperate at runtime over NATS, not via imports)
 ```
 
-The folder migration is done: `demos/` use-cases are now `examples/`, `@swarl/connector` is an
-`extensions/` connector, and `@swarl/cli` an `implementations/` package. `@swarl/manager` sits
-in `packages/` for now because `cli` imports it at compile time — but it's a supervisor, not
-protocol, so that's tracked **debt**: the end state is manager-as-implementation that `cli`
-reaches over the mesh, not via import. Still pending: core's extension registry and the
-connector's peer-dependency on core (wired at an example's composition root).
+The migration is done: `demos/` use-cases are now `examples/`, `@swarl/connector` is an
+`extensions/` connector that **peer-depends** on core and self-registers (`claudeConnector`),
+and `@swarl/cli` an `implementations/` package. Core owns the typed **extension registry**; the
+manager resolves a connector by agent type from it (unknown ⇒ throws), and an example's
+composition root (`examples/01/src/manager.ts`) explicitly registers the connectors it wants.
+`@swarl/manager` sits in `packages/` for now because `cli` imports it at compile time — but
+it's a supervisor, not protocol, so that's tracked **debt**: the end state is
+manager-as-implementation that `cli` reaches over the mesh, not via import.
 
 ## Integration surfaces (Claude Code + Codex)
 

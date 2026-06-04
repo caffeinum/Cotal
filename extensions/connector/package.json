@@ -13,10 +13,13 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@swarl/core": "workspace:*",
     "zod": "^4.4.3"
   },
+  "peerDependencies": {
+    "@swarl/core": "workspace:*"
+  },
   "devDependencies": {
+    "@swarl/core": "workspace:*",
     "tsx": "^4.22.4"
   }
 }

@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util";
-import { isReachable, DEFAULT_SERVER } from "@swarl/core";
+import { isReachable, DEFAULT_SERVER, Registry } from "@swarl/core";
 import { Manager, type SpawnMode } from "@swarl/manager";
+import { swarlConnector } from "../connector.js";
 import { c } from "../ui.js";
 
 export async function manager(argv: string[]): Promise<void> {
@@ -21,8 +22,12 @@ export async function manager(argv: string[]): Promise<void> {
     process.exit(1);
   }
 
+  const registry = new Registry();
+  registry.register(swarlConnector);
+
   const mgr = new Manager({
     space,
+    registry,
     servers: server,
     name: values.name,
     spawnMode: (values.spawn as SpawnMode | "auto" | undefined) ?? "auto",

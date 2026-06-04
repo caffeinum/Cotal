@@ -1,16 +1,20 @@
 {
-  "name": "@swarl/cli",
+  "name": "@swarl/example-01-lateral-coordination",
   "version": "0.0.0",
+  "private": true,
   "type": "module",
-  "exports": {
-    "./connector": "./src/connector.ts"
-  },
   "scripts": {
+    "manager": "tsx src/manager.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@swarl/cli": "workspace:*",
+    "@swarl/connector": "workspace:*",
     "@swarl/core": "workspace:*",
     "@swarl/manager": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.4"
   }
 }

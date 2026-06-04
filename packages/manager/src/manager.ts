@@ -1,8 +1,7 @@
 import { join } from "node:path";
 import { SwarlEndpoint } from "@swarl/core";
-import type { ControlReply, ControlRequest } from "@swarl/core";
+import type { Connector, ControlReply, ControlRequest, Registry } from "@swarl/core";
 import {
-  buildSpawn,
   findWorkspaceRoot,
   killDetached,
   killTmux,
@@ -15,6 +14,8 @@ import {
 
 export interface ManagerOptions {
   space: string;
+  /** Extension registry the manager resolves connectors (agent types) from. */
+  registry: Registry;
   servers?: string;
   name?: string;
   /** "auto" (default) uses tmux when available, else detached. */
@@ -37,6 +38,7 @@ interface ManagedAgent {
  */
 export class Manager {
   private readonly space: string;
+  private readonly registry: Registry;
   private readonly servers: string | undefined;
   private readonly name: string;
   private readonly workspaceRoot: string;
@@ -47,6 +49,7 @@ export class Manager {
 
   constructor(opts: ManagerOptions) {
     this.space = opts.space;
+    this.registry = opts.registry;
     this.servers = opts.servers;
     this.name = opts.name ?? "manager";
     this.workspaceRoot = opts.workspaceRoot ?? findWorkspaceRoot();
@@ -102,7 +105,8 @@ export class Manager {
     const agent = args.agent ? String(args.agent) : "swarl";
     let spawned: Spawned;
     try {
-      const spec = buildSpawn(agent, {
+      const connector = this.registry.resolve<Connector>("connector", agent);
+      const spec = connector.buildLaunch({
         space: this.space,
         name,
         role,
