@@ -3,5 +3,6 @@ packages:
   - "extensions/*"
   - "implementations/*"
   - "examples/*"
+  - "remotion"
 allowBuilds:
   esbuild: true
