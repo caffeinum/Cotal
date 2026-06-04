@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { SwarlEndpoint } from "@swarl/core";
-import type { Connector, ControlReply, ControlRequest, Registry } from "@swarl/core";
+import type { Connector, ControlReply, ControlRequest } from "@swarl/core";
 import {
   findWorkspaceRoot,
   killDetached,
@@ -14,8 +14,8 @@ import {
 
 export interface ManagerOptions {
   space: string;
-  /** Extension registry the manager resolves connectors (agent types) from. */
-  registry: Registry;
+  /** The connectors (agent types) this manager can spawn — picked at the composition root. */
+  connectors: Connector[];
   servers?: string;
   name?: string;
   /** "auto" (default) uses tmux when available, else detached. */
@@ -38,7 +38,7 @@ interface ManagedAgent {
  */
 export class Manager {
   private readonly space: string;
-  private readonly registry: Registry;
+  private readonly connectors: Map<string, Connector>;
   private readonly servers: string | undefined;
   private readonly name: string;
   private readonly workspaceRoot: string;
@@ -49,7 +49,7 @@ export class Manager {
 
   constructor(opts: ManagerOptions) {
     this.space = opts.space;
-    this.registry = opts.registry;
+    this.connectors = new Map(opts.connectors.map((c) => [c.name, c]));
     this.servers = opts.servers;
     this.name = opts.name ?? "manager";
     this.workspaceRoot = opts.workspaceRoot ?? findWorkspaceRoot();
@@ -105,7 +105,8 @@ export class Manager {
     const agent = args.agent ? String(args.agent) : "swarl";
     let spawned: Spawned;
     try {
-      const connector = this.registry.resolve<Connector>("connector", agent);
+      const connector = this.connectors.get(agent);
+      if (!connector) throw new Error(`no connector for agent type "${agent}"`);
       const spec = connector.buildLaunch({
         space: this.space,
         name,

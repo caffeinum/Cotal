@@ -35,20 +35,21 @@ Four tiers, one-way dependencies — `packages/` is the standard, everything els
 it. `pnpm-workspace.yaml` globs all four (`packages/*`, `extensions/*`, `implementations/*`,
 `examples/*`).
 
-- **`packages/*` — core.** The protocol: subjects, schemas, the NATS client, and the generic
-  **extension registry**. Everything depends on it; it depends on nothing in the repo.
+- **`packages/*` — core.** The protocol: subjects, schemas, the NATS client, and the shared
+  contracts extensions implement (e.g. `Connector`). Everything depends on it; it depends on
+  nothing in the repo.
 - **`extensions/*` — pluggable adapters.** A connector (Claude Code, Codex, …) is the first
   extension *kind*; transport / auth could follow. Each is its own package that
   **peer-depends** on core (so it binds to the host's *single* core instance, not a private
-  copy) and registers itself through core's typed registry. Chosen by **explicit
-  registration** at the composition root — an unknown kind/extension **throws** (no silent
-  fallback).
+  copy) and exports an object implementing a core contract. They're **picked by explicit
+  wiring** at the composition root — the manager is handed the connectors it may spawn, and an
+  unknown agent type **throws** (no silent fallback).
 - **`implementations/*` — opinionated surfaces.** CLI, web, … — each a self-contained package
   over core. **Implementations never import each other** — keeps the dependency graph
   acyclic (no import loops).
 - **`examples/*` — use cases.** Private (never published) packages — demos, benchmarks. An
   example is the **composition root**: it may depend on *several* implementations and picks
-  which extensions to register.
+  which extensions to wire in.
 
 **Why no sideways imports.** Two implementations don't need each other's code to work
 together — they're lateral peers that meet **at runtime in a shared space over NATS**, not at
@@ -62,14 +63,14 @@ examples ──→ one-or-more implementations ──→ core ←(peer)── ex
 ```
 
 The migration is done: `demos/` use-cases are now `examples/`, `@swarl/connector` is an
-`extensions/` connector that **peer-depends** on core and self-registers (`claudeConnector`),
-and `@swarl/cli` + `@swarl/manager` are `implementations/` packages. Core owns the typed
-**extension registry**; the manager resolves a connector by agent type from it (unknown ⇒
-throws). Assembly lives at the **composition root** — an example (`examples/01/src/manager.ts`)
-imports the manager + the extensions it wants, registers the connectors, and starts the
-manager. Implementations stay self-contained and never import each other: the `cli` drives the
-manager purely over the mesh (`start`/`stop`/`ps` control requests), so neither imports the
-other — only the example wires them together.
+`extensions/` connector that **peer-depends** on core and exports a `Connector`
+(`claudeConnector`), and `@swarl/cli` + `@swarl/manager` are `implementations/` packages.
+Assembly lives at the **composition root** — an example (`examples/01/src/manager.ts`) imports
+the manager + the connectors it wants and hands them to the manager (`new Manager({ connectors:
+[…] })`), which resolves one by agent type when spawning (unknown ⇒ throws). Implementations
+stay self-contained and never import each other: the `cli` drives the manager purely over the
+mesh (`start`/`stop`/`ps` control requests), so neither imports the other — only the example
+wires them together.
 
 ## Integration surfaces (Claude Code + Codex)
 

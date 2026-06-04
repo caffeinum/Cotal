@@ -19,8 +19,8 @@ hook / MCP / channel integration.
 pnpm + TypeScript ESM monorepo — four dependency tiers, one-way deps, Node ≥20:
 
 - **`packages/*` — the protocol** (generic, the standard).
-  - **@swarl/core** — endpoint, subjects, message types; the NATS client layer + extension registry.
-- **`extensions/*` — pluggable adapters** (peer-depend core, self-register through its registry).
+  - **@swarl/core** — endpoint, subjects, message types; the NATS client layer + extension contracts (e.g. `Connector`).
+- **`extensions/*` — pluggable adapters** (peer-depend core; wired in at a composition root).
   - **@swarl/connector** — MCP bridge (`@modelcontextprotocol/sdk`, zod) for Claude Code / Codex.
 - **`implementations/*` — opinionated surfaces** over core (self-contained; never import each other).
   - **@swarl/cli** — `swarl` operator commands: `up`, `join`, `watch`, and the control client (`start`/`stop`/`ps`).

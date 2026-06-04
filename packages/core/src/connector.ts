@@ -1,5 +1,3 @@
-import type { Extension } from "./registry.js";
-
 /** Identity + mesh coordinates the manager hands a connector to launch an agent. */
 export interface LaunchOpts {
   space: string;
@@ -16,11 +14,12 @@ export interface LaunchSpec {
 }
 
 /**
- * The first extension kind: a bridge that knows how to launch one agent type
- * (Claude Code, Codex, the CLI peer …) as a Swarl mesh node. `name` is the
- * agent type it handles — the key the manager resolves by.
+ * A bridge that knows how to launch one agent type (Claude Code, Codex, the CLI
+ * peer …) as a Swarl mesh node. `name` is the agent type it handles — the key the
+ * manager resolves by. Connectors are picked at a composition root and handed to
+ * the manager; core stays ignorant of which ones exist.
  */
-export interface Connector extends Extension {
-  readonly kind: "connector";
+export interface Connector {
+  readonly name: string;
   buildLaunch(opts: LaunchOpts): LaunchSpec;
 }

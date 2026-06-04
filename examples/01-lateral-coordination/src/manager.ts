@@ -7,7 +7,6 @@
 import {
   DEFAULT_SERVER,
   isReachable,
-  Registry,
   type Connector,
   type LaunchOpts,
   type LaunchSpec,
@@ -17,7 +16,6 @@ import { claudeConnector } from "@swarl/connector";
 
 /** The walking-skeleton peer: a manual CLI endpoint launched via `swarl join`. */
 const swarlConnector: Connector = {
-  kind: "connector",
   name: "swarl",
   buildLaunch(opts: LaunchOpts): LaunchSpec {
     const args = ["swarl", "join", "--space", opts.space, "--name", opts.name];
@@ -35,11 +33,11 @@ if (!(await isReachable(server))) {
   process.exit(1);
 }
 
-const registry = new Registry();
-registry.register(swarlConnector);
-registry.register(claudeConnector);
-
-const mgr = new Manager({ space, registry, servers: server });
+const mgr = new Manager({
+  space,
+  servers: server,
+  connectors: [swarlConnector, claudeConnector],
+});
 await mgr.start();
 console.log(`example-01 manager up in space "${space}" — connectors: swarl, claude`);
 
