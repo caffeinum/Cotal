@@ -1,13 +1,17 @@
 import { parseArgs } from "node:util";
 import { SwarlEndpoint, isReachable, DEFAULT_SERVER } from "@swarl/core";
 import { c } from "../ui.js";
-import { runLog } from "../render.js";
+import { runLog, runDashboard } from "../render.js";
 
-export async function watch(argv: string[]): Promise<void> {
+export async function console_(argv: string[]): Promise<void> {
   const { values } = parseArgs({
     args: argv,
     allowPositionals: true,
-    options: { space: { type: "string" }, server: { type: "string" } },
+    options: {
+      space: { type: "string" },
+      server: { type: "string" },
+      plain: { type: "boolean" },
+    },
   });
   const space = values.space ?? "demo";
   const server = values.server ?? DEFAULT_SERVER;
@@ -16,14 +20,17 @@ export async function watch(argv: string[]): Promise<void> {
     process.exit(1);
   }
 
+  // Observer: never registers presence, never consumes an inbox — invisible to peers.
   const ep = new SwarlEndpoint({
     space,
     servers: server,
     channels: [],
     registerPresence: false,
     watchPresence: true,
-    card: { name: "watch", kind: "endpoint" },
+    card: { name: "console", kind: "endpoint" },
   });
 
-  await runLog(ep, space);
+  // Dashboard needs a real terminal; piped/--plain falls back to the classic log.
+  if (values.plain || process.stdout.isTTY !== true) await runLog(ep, space);
+  else await runDashboard(ep, space);
 }

@@ -2,6 +2,7 @@ import { c } from "./ui.js";
 import { up } from "./commands/up.js";
 import { join } from "./commands/join.js";
 import { watch } from "./commands/watch.js";
+import { console_ } from "./commands/console.js";
 import { manager } from "./commands/manager.js";
 import { start, stop, ps } from "./commands/control.js";
 
@@ -15,6 +16,8 @@ ${c.bold("Mesh")}
   swarl join --space <s> --name <n>   join a space (interactive)
        [--role <r>] [--channel <c>]
   swarl watch --space <s>             observe all activity in a space
+  swarl console --space <s>           live dashboard: agent panel + message log
+       [--plain]                      ...or the classic scrolling log (pipeable)
 
 ${c.bold("Manager")} (agent supervisor)
   swarl manager --space <s>           run the supervisor daemon [--spawn tmux|detached]
@@ -39,6 +42,9 @@ switch (cmd) {
     break;
   case "watch":
     await watch(rest);
+    break;
+  case "console":
+    await console_(rest);
     break;
   case "manager":
     await manager(rest);

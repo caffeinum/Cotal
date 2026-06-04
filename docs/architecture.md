@@ -178,7 +178,15 @@ directly through the plugin, so owning the PTY doesn't put the manager on the me
 **Restart-with-continuity:** a `pty`/`host` restart can `claude --resume <session_id>` to keep
 the same context — and therefore the same instance id (see *Instance continuity*).
 
-**Console (watching agents).** The viewer is a **separate entity** from the manager, but the
+**Console (watching agents).** The first cut ships today as `swarl console` — a terminal,
+mesh-only observer that registers no presence and taps every subject in the space. It renders
+a **live dashboard**: a fixed panel of every agent with per-agent colors, status, activity, and
+last-seen, above a scrolling message log (recipient ids resolved to names; fan-out coalesced).
+`--plain` (or a non-TTY pipe) falls back to the classic scrolling log — the same renderer as
+`swarl watch`. The browser/PTY-attach viewer below is the later evolution that adds the terminal
+*pixels* on top of this mesh view.
+
+The viewer is a **separate entity** from the manager, but the
 terminal *stream* comes from whoever owns the PTY (the manager), **not over the mesh** — PTY
 frames are high-bandwidth terminal I/O, and routing them through NATS would put the manager back
 on the message hot path. So the console uses **two channels**: the **mesh** (presence / `ps`) to
