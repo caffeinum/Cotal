@@ -1,11 +1,12 @@
-import type { Connector, LaunchOpts, LaunchSpec } from "@swarl/core";
+import { registry, type Connector, type LaunchOpts, type LaunchSpec } from "@swarl/core";
 
 /**
  * The Claude Code connector: launches the real `claude` with the Swarl plugin
  * attached and identity in the environment, so the session auto-joins the mesh.
- * Picked at a composition root; the manager resolves it by agent type "claude".
+ * Self-registers on import; the manager resolves it by agent type "claude".
  */
 export const claudeConnector: Connector = {
+  kind: "connector",
   name: "claude",
   buildLaunch(opts: LaunchOpts): LaunchSpec {
     const env: Record<string, string> = {
@@ -21,3 +22,5 @@ export const claudeConnector: Connector = {
     };
   },
 };
+
+registry.register(claudeConnector);

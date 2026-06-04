@@ -19,24 +19,27 @@ hook / MCP / channel integration.
 pnpm + TypeScript ESM monorepo — four dependency tiers, one-way deps, Node ≥20:
 
 - **`packages/*` — the protocol** (generic, the standard).
-  - **@swarl/core** — endpoint, subjects, message types; the NATS client layer + extension contracts (e.g. `Connector`).
-- **`extensions/*` — pluggable adapters** (peer-depend core; wired in at a composition root).
+  - **@swarl/core** — endpoint, subjects, message types; the NATS client layer + extension contracts (`Connector`, `Command`) and the `Registry` they self-register into.
+- **`extensions/*` — pluggable adapters** (peer-depend core; self-register on import).
   - **@swarl/connector** — MCP bridge (`@modelcontextprotocol/sdk`, zod) for Claude Code / Codex.
 - **`implementations/*` — opinionated surfaces** over core (self-contained; never import each other).
-  - **@swarl/cli** — `swarl` operator commands: `up`, `join`, `watch`, and the control client (`start`/`stop`/`ps`).
-  - **@swarl/manager** — agent supervisor: a mesh endpoint that spawns/manages nodes.
+  - **@swarl/cli** — minimal mesh CLI: `up`, `join`, `watch` (thin NATS clients, no process logic).
+  - **@swarl/manager** — agent supervisor: a mesh endpoint that spawns/manages nodes via a pluggable `Runtime` (`pty` default / `tmux` opt-in), plus its own control-plane commands (`start`/`stop`/`ps`/`attach`) and a WS attach endpoint.
+- **`bin/swarl.ts` — composition root** for the `swarl` binary: imports the implementations it wants (which self-register their commands) and runs them.
 - **`examples/*` — use-cases** (composition roots; private, never published).
 
 Tiers depend one-way: `examples → implementations → packages ← (peer) extensions`. An
 example only *configures + orchestrates* (roles, config, space name, runbook, optional
 driver) and picks which extensions to register; it never adds message kinds, subjects, or
 endpoint methods — those go into `core`, generalized. Implementations never import each
-other (they meet at runtime over NATS). See [docs/examples.md](docs/examples.md) for the index.
+other (they meet at runtime over NATS, and compose only at a root). Extensions, connectors
+and commands **self-register into the core `Registry` on import**; a composition root just
+imports the surfaces it wants. See [docs/examples.md](docs/examples.md) for the index.
 
 ## Commands
 
 ```bash
-pnpm swarl <cmd>   # run the CLI (tsx implementations/cli/src/index.ts)
+pnpm swarl <cmd>   # run the CLI (tsx bin/swarl.ts — base + manager commands)
 pnpm smoke         # core smoke test
 pnpm typecheck     # tsc --noEmit across all packages
 pnpm build         # tsc build across all packages
@@ -47,8 +50,9 @@ pnpm build         # tsc build across all packages
 We are building **Demo 1** — a showcase of what Swarl can do: role-specialized endpoints
 join one shared space and coordinate laterally (presence, all three addressing modes,
 live state, observability, graceful leave, late join) on a local NATS/JetStream mesh.
-Today it's the **walking skeleton** (manual CLI peers); coding-agent adapters and the
-control plane land next. Keep work aimed at making Demo 1 demonstrable — see
+The **walking skeleton** (manual CLI peers) and the **control plane** (manager + `pty`
+runtime + `attach`) are in; wiring the coding-agent adapters end-to-end lands next. Keep
+work aimed at making Demo 1 demonstrable — see
 [examples/01-lateral-coordination/README.md](examples/01-lateral-coordination/README.md).
 
 ## Working on features

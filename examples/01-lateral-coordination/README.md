@@ -8,9 +8,10 @@ It's **configurable, not hardwired**: Swarl provides the primitives (addressabil
 presence, a control plane, data sharing); the *topology* — who's "planner" vs "reviewer",
 who delegates to whom — is just how you set it up.
 
-> **Status:** this is the **walking skeleton** — manual CLI participants stand in for the
-> agents. The coding-agent adapters (Claude Code + Codex via hooks/MCP) and the control
-> plane land next. What's below runs today.
+> **Status:** the **walking skeleton** (manual CLI peers) and the **control plane** run
+> today — a manager spawns peers into pseudo-terminals it owns (`pty` runtime) and you
+> stream them with `swarl attach`. Wiring the coding-agent adapters (Claude Code + Codex
+> via hooks/MCP) end-to-end lands next.
 
 ## What it demonstrates
 
@@ -52,6 +53,24 @@ pnpm swarl join --space demo --name carol --role reviewer
 ```
 pnpm swarl watch --space demo
 ```
+
+## Or: let the manager spawn peers
+
+Instead of opening a terminal per peer, run the **manager** and drive it over the control
+plane. The manager owns each peer's process in a pseudo-terminal (`pty` runtime).
+
+```
+# one terminal — the supervisor (composition root: picks the swarl + claude connectors)
+(cd examples/01-lateral-coordination && pnpm manager)
+
+# then, from anywhere
+swarl start --space demo --name alice --role planner   # manager spawns alice in a PTY
+swarl ps    --space demo                                # list managed peers + mesh status
+swarl attach --space demo --name alice                  # stream + drive her terminal (Ctrl-] detaches)
+swarl stop  --space demo --name alice                   # kill the process
+```
+
+`swarl start --agent claude` spawns a real Claude Code session the same way (see below).
 
 ## Next: a Claude Code agent joins as a peer
 

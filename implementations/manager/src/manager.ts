@@ -1,25 +1,20 @@
-import { join } from "node:path";
-import { SwarlEndpoint } from "@swarl/core";
+import { SwarlEndpoint, registry } from "@swarl/core";
 import type { Connector, ControlReply, ControlRequest } from "@swarl/core";
 import {
+  createRuntime,
   findWorkspaceRoot,
-  killDetached,
-  killTmux,
-  spawnDetached,
-  spawnTmux,
-  tmuxAvailable,
-  type SpawnMode,
-  type Spawned,
-} from "./spawn.js";
+  type AgentHandle,
+  type Runtime,
+  type RuntimeMode,
+} from "./runtime/index.js";
+import { AttachEndpoint } from "./attach-endpoint.js";
 
 export interface ManagerOptions {
   space: string;
-  /** The connectors (agent types) this manager can spawn — picked at the composition root. */
-  connectors: Connector[];
   servers?: string;
   name?: string;
-  /** "auto" (default) uses tmux when available, else detached. */
-  spawnMode?: SpawnMode | "auto";
+  /** Spawn backend. `auto` (default) → pty, or tmux when already inside tmux. */
+  runtime?: RuntimeMode;
   workspaceRoot?: string;
 }
 
@@ -28,41 +23,40 @@ interface ManagedAgent {
   role?: string;
   agent: string;
   startedAt: number;
-  spawned: Spawned;
+  handle: AgentHandle;
 }
 
 /**
  * The agent supervisor: a long-lived mesh node that owns agent process lifecycle.
- * It serves control requests on the "manager" service and spawns/kills agents as
- * child processes (tmux panes or detached). It does NOT proxy agent mesh traffic.
+ * It serves control requests on the "manager" service and spawns/kills agents
+ * through a pluggable {@link Runtime} (pty by default). It does NOT proxy agent
+ * mesh traffic — terminal I/O streams over its own attach endpoint instead.
  */
 export class Manager {
   private readonly space: string;
-  private readonly connectors: Map<string, Connector>;
   private readonly servers: string | undefined;
   private readonly name: string;
   private readonly workspaceRoot: string;
-  private readonly mode: SpawnMode;
-  private readonly session: string;
+  private readonly runtime: Runtime;
   private readonly agents = new Map<string, ManagedAgent>();
+  private readonly attach: AttachEndpoint;
   private ep!: SwarlEndpoint;
 
   constructor(opts: ManagerOptions) {
     this.space = opts.space;
-    this.connectors = new Map(opts.connectors.map((c) => [c.name, c]));
     this.servers = opts.servers;
     this.name = opts.name ?? "manager";
     this.workspaceRoot = opts.workspaceRoot ?? findWorkspaceRoot();
-    const wantTmux = (opts.spawnMode ?? "auto") !== "detached";
-    this.mode = wantTmux && tmuxAvailable() ? "tmux" : "detached";
-    this.session = `swarl-${this.space}`;
+    this.runtime = createRuntime(opts.runtime ?? "auto", `swarl-${this.space}`);
+    this.attach = new AttachEndpoint((name) => this.agents.get(name)?.handle);
   }
 
-  get spawnMode(): SpawnMode {
-    return this.mode;
+  get runtimeKind(): string {
+    return this.runtime.kind;
   }
 
   async start(): Promise<void> {
+    await this.attach.start();
     this.ep = new SwarlEndpoint({
       space: this.space,
       servers: this.servers,
@@ -70,12 +64,13 @@ export class Manager {
       card: { name: this.name, role: "manager", kind: "endpoint" },
     });
     await this.ep.start();
-    await this.ep.setActivity(`supervisor (${this.mode})`);
+    await this.ep.setActivity(`supervisor (${this.runtime.kind})`);
     this.ep.serveControl("manager", (req) => this.handle(req));
   }
 
   async stop(): Promise<void> {
     await this.ep.stop();
+    await this.attach.stop();
   }
 
   private async handle(req: ControlRequest): Promise<ControlReply> {
@@ -85,6 +80,8 @@ export class Manager {
         return this.opStart(args);
       case "stop":
         return this.opStop(args);
+      case "attach":
+        return this.opAttach(args);
       case "ps":
         return { ok: true, data: this.list() };
       case "status": {
@@ -103,42 +100,43 @@ export class Manager {
     if (this.agents.has(name)) return { ok: false, error: `agent "${name}" already running` };
     const role = args.role ? String(args.role) : undefined;
     const agent = args.agent ? String(args.agent) : "swarl";
-    let spawned: Spawned;
+    let handle: AgentHandle;
     try {
-      const connector = this.connectors.get(agent);
-      if (!connector) throw new Error(`no connector for agent type "${agent}"`);
+      const connector = registry.resolve<Connector>("connector", agent);
       const spec = connector.buildLaunch({
         space: this.space,
         name,
         role,
         servers: this.servers,
       });
-      spawned =
-        this.mode === "tmux"
-          ? spawnTmux(this.session, name, spec, this.workspaceRoot)
-          : spawnDetached(
-              spec,
-              this.workspaceRoot,
-              join(this.workspaceRoot, ".swarl", "logs", `${name}.log`),
-            );
+      handle = this.runtime.spawn(name, spec, this.workspaceRoot);
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    this.agents.set(name, { name, role, agent, startedAt: Date.now(), spawned });
-    return { ok: true, data: { name, role, agent, mode: spawned.mode } };
+    this.agents.set(name, { name, role, agent, startedAt: Date.now(), handle });
+    return { ok: true, data: { name, role, agent, mode: handle.kind } };
   }
 
   private opStop(args: Record<string, unknown>): ControlReply {
     const name = String(args.name ?? "").trim();
     const a = this.agents.get(name);
     if (!a) return { ok: false, error: `no agent "${name}"` };
-    if (a.spawned.mode === "tmux" && a.spawned.session && a.spawned.window) {
-      killTmux(a.spawned.session, a.spawned.window);
-    } else if (a.spawned.pid) {
-      killDetached(a.spawned.pid);
-    }
+    a.handle.stop();
     this.agents.delete(name);
     return { ok: true, data: { name, stopped: true } };
+  }
+
+  private opAttach(args: Record<string, unknown>): ControlReply {
+    const name = String(args.name ?? "").trim();
+    const a = this.agents.get(name);
+    if (!a) return { ok: false, error: `no agent "${name}"` };
+    if (this.runtime.kind !== "pty") {
+      return {
+        ok: false,
+        error: `attach needs the pty runtime; under tmux run \`tmux attach -t swarl-${this.space}:${name}\``,
+      };
+    }
+    return { ok: true, data: { ws: this.attach.url(name) } };
   }
 
   /** Managed agents cross-referenced with live presence (the manager sees the roster). */
@@ -148,7 +146,7 @@ export class Manager {
       name: a.name,
       role: a.role,
       agent: a.agent,
-      mode: a.spawned.mode,
+      mode: a.handle.kind,
       uptimeMs: Date.now() - a.startedAt,
       mesh: roster.get(a.name)?.status ?? "absent",
     }));

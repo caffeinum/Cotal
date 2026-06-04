@@ -3,9 +3,12 @@ import {
   SwarlEndpoint,
   isReachable,
   DEFAULT_SERVER,
+  registry,
+  type Command,
   type ControlReply,
 } from "@swarl/core";
-import { c } from "../ui.js";
+import { attachClient } from "./attach-client.js";
+import { c } from "./ui.js";
 
 type Values = Record<string, string | undefined>;
 
@@ -32,7 +35,7 @@ async function ask(
   args?: Record<string, unknown>,
 ): Promise<ControlReply> {
   if (!(await isReachable(server))) {
-    console.error(c.red(`Can't reach NATS at ${server}. Run: pnpm swarl up`));
+    console.error(c.red(`Can't reach NATS at ${server}. Run: swarl up`));
     process.exit(1);
   }
   const ep = new SwarlEndpoint({
@@ -60,7 +63,7 @@ function failIfNotOk(reply: ControlReply): void {
   }
 }
 
-export async function start(argv: string[]): Promise<void> {
+async function start(argv: string[]): Promise<void> {
   const v = parse(argv);
   if (!v.name) {
     console.error(c.red("--name is required"));
@@ -79,7 +82,7 @@ export async function start(argv: string[]): Promise<void> {
   );
 }
 
-export async function stop(argv: string[]): Promise<void> {
+async function stop(argv: string[]): Promise<void> {
   const v = parse(argv);
   if (!v.name) {
     console.error(c.red("--name is required"));
@@ -92,13 +95,18 @@ export async function stop(argv: string[]): Promise<void> {
   console.log(c.dim(`✓ stopped ${v.name}`));
 }
 
-export async function ps(argv: string[]): Promise<void> {
+async function ps(argv: string[]): Promise<void> {
   const v = parse(argv);
   const reply = await ask(v.space ?? "demo", v.server ?? DEFAULT_SERVER, "ps");
   failIfNotOk(reply);
   const rows =
-    (reply.data as Array<{ name: string; role?: string; agent: string; mode: string; mesh: string }>) ??
-    [];
+    (reply.data as Array<{
+      name: string;
+      role?: string;
+      agent: string;
+      mode: string;
+      mesh: string;
+    }>) ?? [];
   if (!rows.length) {
     console.log(c.dim("(no managed agents)"));
     return;
@@ -115,7 +123,61 @@ export async function ps(argv: string[]): Promise<void> {
               ? c.yellow("waiting")
               : c.cyan(r.mesh);
     console.log(
-      `${c.bold(r.name)}${r.role ? c.dim("/" + r.role) : ""}  ${c.dim(r.agent + " · " + r.mode)}  ${status}`,
+      `${c.bold(r.name)}${r.role ? c.dim("/" + r.role) : ""}  ${c.dim(
+        r.agent + " · " + r.mode,
+      )}  ${status}`,
     );
   }
 }
+
+async function attach(argv: string[]): Promise<void> {
+  const v = parse(argv);
+  if (!v.name) {
+    console.error(c.red("--name is required"));
+    process.exit(1);
+  }
+  const reply = await ask(v.space ?? "demo", v.server ?? DEFAULT_SERVER, "attach", {
+    name: v.name,
+  });
+  failIfNotOk(reply);
+  const { ws } = reply.data as { ws: string };
+  console.error(c.dim(`attached to ${v.name} — Ctrl-] to detach`));
+  await attachClient(ws);
+  console.error(c.dim(`\ndetached from ${v.name}`));
+}
+
+/** The manager's control-plane commands — thin NATS request/reply clients that
+ *  drive a running manager. Self-registered on import; the `swarl` binary resolves
+ *  them from the registry. */
+const managerCommands: Command[] = [
+  {
+    kind: "command",
+    name: "start",
+    group: "Control plane",
+    summary: "ask the manager to spawn an agent — --name <n> [--role <r>] [--agent <a>]",
+    run: start,
+  },
+  {
+    kind: "command",
+    name: "stop",
+    group: "Control plane",
+    summary: "ask the manager to stop an agent — --name <n>",
+    run: stop,
+  },
+  {
+    kind: "command",
+    name: "ps",
+    group: "Control plane",
+    summary: "list managed agents + their mesh status",
+    run: ps,
+  },
+  {
+    kind: "command",
+    name: "attach",
+    group: "Control plane",
+    summary: "stream + drive an agent's terminal (pty runtime) — --name <n>",
+    run: attach,
+  },
+];
+
+registry.register(...managerCommands);

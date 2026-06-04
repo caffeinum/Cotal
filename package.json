@@ -10,8 +10,13 @@
   "scripts": {
     "typecheck": "pnpm -r typecheck",
     "build": "pnpm -r build",
-    "swarl": "tsx implementations/cli/src/index.ts",
+    "swarl": "tsx bin/swarl.ts",
     "smoke": "tsx packages/core/smoke.ts"
+  },
+  "dependencies": {
+    "@swarl/cli": "workspace:*",
+    "@swarl/core": "workspace:*",
+    "@swarl/manager": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
