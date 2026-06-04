@@ -29,6 +29,42 @@ JetStream replaces that layer and adds the durability + presence SLIM leaves to 
 to later become a **DID** (`did:key` — a self-certifying public-key identifier) so identity
 can be cryptographically verifiable and decentralized (see *Deferred*).
 
+## Package layout & dependency tiers
+
+Four tiers, one-way dependencies — `packages/` is the standard, everything else builds on
+it. `pnpm-workspace.yaml` globs all four (`packages/*`, `extensions/*`, `implementations/*`,
+`examples/*`).
+
+- **`packages/*` — core.** The protocol: subjects, schemas, the NATS client, and the generic
+  **extension registry**. Everything depends on it; it depends on nothing in the repo.
+- **`extensions/*` — pluggable adapters.** A connector (Claude Code, Codex, …) is the first
+  extension *kind*; transport / auth could follow. Each is its own package that
+  **peer-depends** on core (so it binds to the host's *single* core instance, not a private
+  copy) and registers itself through core's typed registry. Chosen by **explicit
+  registration** at the composition root — an unknown kind/extension **throws** (no silent
+  fallback).
+- **`implementations/*` — opinionated surfaces.** CLI, web, … — each a self-contained package
+  over core. **Implementations never import each other** — keeps the dependency graph
+  acyclic (no import loops).
+- **`examples/*` — use cases.** Private (never published) packages — demos, benchmarks. An
+  example is the **composition root**: it may depend on *several* implementations and picks
+  which extensions to register.
+
+**Why no sideways imports.** Two implementations don't need each other's code to work
+together — they're lateral peers that meet **at runtime in a shared space over NATS**, not at
+compile time in an import. A demo that runs both a CLI and a web peer just starts each pointed
+at the same `space`; coordination flows through the mesh. So the CLI package and the web
+package stay independent, each ignorant of the other, and the example wires them.
+
+```
+examples ──→ one-or-more implementations ──→ core ←(peer)── extensions
+                      (interoperate at runtime over NATS, not via imports)
+```
+
+Migration from today's layout: `demos/` use-cases become `examples/`, `@swarl/connector`
+becomes an `extensions/` connector, `@swarl/cli` an implementation. `@swarl/manager` is still
+open (core infra vs. an implementation concern).
+
 ## Integration surfaces (Claude Code + Codex)
 
 Both target agents expose the same four surfaces, so a single adapter with two backends
@@ -38,14 +74,15 @@ four surfaces collapse into a **single dual-purpose MCP server**:
 | | Claude Code | Codex CLI |
 |---|---|---|
 | **Outbound — ambient** | `http` lifecycle hooks → POST to the local daemon (native http hook, no curl shim) | Hooks + `notify`, or `codex exec --json` event stream → mesh |
-| **Outbound — deliberate** | MCP tool `swarl_publish` *(same server as the channel)* | MCP tool (same) |
+| **Outbound — deliberate** | MCP tools `swarl_send`/`swarl_dm`/`swarl_anycast` *(same server as the channel)* | MCP tools (same) |
 | **Inbound — pull** | MCP tool `swarl_inbox` *(same server)* | MCP tool (same) |
 | **Inbound — push** | Two native paths — see below | app-server `turn/*` (live) / `resume` (between-turns) |
 
 **The dual-purpose server.** A Claude Code *channel* **is** an MCP server that declares the
 `claude/channel` capability and pushes events via `notifications/claude/channel`. So one
-Swarl MCP server is simultaneously the channel (push), `swarl_publish` (deliberate out — and
-the channel's "reply tool"), and `swarl_inbox` (pull): one process, one stdio connection.
+Swarl MCP server is simultaneously the channel (push), the deliberate-out tools
+(`swarl_send`/`swarl_dm`/`swarl_anycast` — one per addressing mode, doubling as the channel's
+"reply tools"), and `swarl_inbox` (pull): one process, one stdio connection.
 Inbound mesh messages arrive in context as
 `<channel source="swarl" from="bob" kind="dm" channel="general">…</channel>`; each meta key
 becomes a tag attribute the agent can read for routing.

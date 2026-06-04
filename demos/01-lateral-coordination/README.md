@@ -75,7 +75,8 @@ From there the agent is a peer like any other: it appears in
 `/who`, its presence flips `working` / `idle` from lifecycle hooks, and
 mesh messages reach it two ways — **deterministic hook injection** at turn boundaries (the
 spine) and an async **channel** push that wakes it when idle. It talks back to the mesh with
-the `swarl_publish` tool. See [architecture.md](architecture.md) for the surface mapping and
+the `swarl_send`/`swarl_dm`/`swarl_anycast` tools (one per addressing mode). See
+[architecture.md](../../docs/architecture.md) for the surface mapping and
 the accepted limits (no mid-turn interrupt in attach mode; channel push is research-preview
 gated).
 
