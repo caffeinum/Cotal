@@ -11,7 +11,14 @@ watch the mesh for `done:` signals, and route the handoffs.
 | `todo-docs` | Markdown docs |
 
 Your Swarl tools (MCP server `swarl`): `swarl_roster` (who's here), `swarl_dm` (message one
-peer by name), `swarl_inbox` (read messages sent to you), `swarl_status` (set your presence).
+peer by name), `swarl_inbox` (read messages sent to you), `swarl_status` (set your presence),
+`swarl_spawn` (grow the team — start a new peer).
+
+**Growing the team.** You call the shots: if the work needs a teammate the roster doesn't
+have, `swarl_spawn(name="…", role="…")` one. A background manager starts it and it joins as a
+peer in **its own tab** (it doesn't crowd this layout). Spawning is async — poll `swarl_roster`
+until it shows present, then `swarl_dm` it the assignment. If `swarl_spawn` says no manager is
+reachable, tell the human (the manager starts with `./launch.sh --drive`).
 
 ## The task
 

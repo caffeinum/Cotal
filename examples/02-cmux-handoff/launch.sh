@@ -4,10 +4,10 @@
 #   ./launch.sh           verify the mesh, print the cmux launch sequence
 #   ./launch.sh --drive   open ONE cmux workspace, split into the demo layout
 #
-# Layout (one workspace, four claude panes + a mesh watcher):
+# Layout (one workspace, four claude panes + the live console dashboard):
 #
 #   ┌───────────────┬───────────────┐
-#   │  swarl watch  │   todo-api    │
+#   │ swarl console │   todo-api    │
 #   ├───────────────┤───────────────┤
 #   │ orchestrator  │   todo-web    │
 #   │   (claude)    ├───────────────┤
@@ -25,6 +25,19 @@ SPACE="todo"
 CMUX="$REPO_ROOT/node_modules/.bin/tsx $REPO_ROOT/extensions/cmux/src/cli.ts"
 cmux_check() {
   $CMUX check || { echo "✗ can't reach cmux — run this from inside a cmux terminal." >&2; exit 1; }
+}
+
+# Start the headless manager (cmux spawn mode) once — skip if one is already running,
+# so re-runs / using both --drive and --spawn don't leave duplicate managers in the roster.
+manager_up() {
+  if pgrep -f "swarl manager --space $SPACE" >/dev/null; then
+    echo "✓ manager already running (log: $HERE/.manager.log)"
+  else
+    echo "starting the manager headless (cmux spawn mode) so agents can grow the team…"
+    ( cd "$REPO_ROOT" && nohup pnpm swarl manager --space "$SPACE" --spawn cmux \
+        >"$HERE/.manager.log" 2>&1 & )
+    sleep 1
+  fi
 }
 
 # --- mesh ------------------------------------------------------------------
@@ -66,7 +79,7 @@ agent_term() {
 build_layout() {
   local left right
   left="$(printf '{"direction":"vertical","split":0.4,"children":[%s,%s]}' \
-    "$(term "bash -lc 'cd $REPO_ROOT && pnpm swarl watch --space $SPACE'")" \
+    "$(term "bash -lc 'cd $REPO_ROOT && pnpm swarl console --space $SPACE'")" \
     "$(agent_term orchestrator)")"
   right="$(printf '{"direction":"vertical","split":0.34,"children":[%s,{"direction":"vertical","split":0.5,"children":[%s,%s]}]}' \
     "$(agent_term todo-api)" "$(agent_term todo-web)" "$(agent_term todo-docs)")"
@@ -76,13 +89,10 @@ build_layout() {
 # --- spawn demo ------------------------------------------------------------
 # The "left side first" flow: open ONLY the dashboard + the spawner, run the
 # manager headless (cmux spawn mode), then ask the spawner to spin up workers —
-# each appears as a fresh cmux pane on the left. Run FROM a cmux terminal.
+# each opens as its own fresh cmux tab. Run FROM a cmux terminal.
 if [[ "${1:-}" == "--spawn" ]]; then
   cmux_check
-  echo "starting the manager headless (cmux spawn mode)…"
-  ( cd "$REPO_ROOT" && nohup pnpm swarl manager --space "$SPACE" --spawn cmux \
-      >"$HERE/.manager.log" 2>&1 & )
-  sleep 1
+  manager_up
   left="$(printf '{"direction":"vertical","split":0.4,"children":[%s,%s]}' \
     "$(term "bash -lc 'cd $REPO_ROOT && pnpm swarl console --space $SPACE'")" \
     "$(agent_term spawner)")"
@@ -98,10 +108,13 @@ fi
 # terminal (the CLI talks to cmux over its Unix socket).
 if [[ "${1:-}" == "--drive" ]]; then
   cmux_check
-  echo "opening the swarl-todo workspace (watch + orchestrator | api/web/docs)…"
+  manager_up
+  echo "opening the swarl-todo workspace (console + orchestrator | api/web/docs)…"
   $CMUX open swarl-todo "$(build_layout)"
   echo "✓ workspace opened. Approve the plugin in each claude pane if prompted,"
   echo "  then give the orchestrator pane the human prompt (see below / README)."
+  echo "  If the orchestrator needs another teammate it can swarl_spawn one — it opens"
+  echo "  in its own tab. (manager log: $HERE/.manager.log)"
   exit 0
 fi
 
@@ -109,7 +122,7 @@ fi
 cat <<EOF
 
 Mesh is up. Easiest: re-run with --drive (from inside a cmux terminal) to open
-ONE workspace split into the demo layout — watcher + orchestrator on the left,
+ONE workspace split into the demo layout — console + orchestrator on the left,
 the three subagents on the right:
 
   ./launch.sh --drive

@@ -59,7 +59,7 @@ That opens a single `swarl-todo` workspace, split like this:
 
 ```
 ┌───────────────┬───────────────┐
-│  swarl watch  │   todo-api    │
+│ swarl console │   todo-api    │
 ├───────────────┤───────────────┤
 │ orchestrator  │   todo-web    │
 │   (claude)    ├───────────────┤
@@ -67,7 +67,8 @@ That opens a single `swarl-todo` workspace, split like this:
 └───────────────┴───────────────┘
 ```
 
-Left column: the mesh watcher (live traffic) on top, the **orchestrator** below. Right
+Left column: the live **console** dashboard (`swarl console` — agent panel + traffic) on top,
+the **orchestrator** below. Right
 column: the three subagents. Each pane `cd`s into its repo and starts `claude` with its
 `SWARL_*` identity. The workspace opens as its own cmux tab — that tab *is* the container
 holding the four panes. (If the columns/rows come out mirrored, swap `horizontal`/`vertical`
@@ -123,10 +124,13 @@ A **manager** runs headless in `cmux` spawn mode (log: `.manager.log`). Tell the
 
 > spin up two workers and say hi to each
 
-The spawner calls `swarl_spawn` per worker → the manager opens a **new cmux pane** running a
-`swarl join` peer → the spawner waits for each to appear in `swarl_roster`, then `swarl_dm`s it a
-greeting. You watch new panes appear on the left and the dashboard panel fill in. (Spawning into a
-pane is best-effort — same caveat as `--drive`; the workers here are generic mesh peers, not coders.)
+The spawner calls `swarl_spawn` per worker → the manager opens each as a **new cmux tab** running
+a `swarl join` peer → the spawner waits for each to appear in `swarl_roster`, then `swarl_dm`s it a
+greeting. New tabs appear (unfocused, so you stay on the spawner) and the dashboard panel fills in;
+switch to a worker's tab to watch it. (The workers here are generic mesh peers, not coders.)
+
+The same wiring is on in `--drive`: a headless manager runs there too, so the **orchestrator** can
+`swarl_spawn` an extra teammate mid-run — it opens in its own tab without disturbing the 4-pane layout.
 
 ## How it maps to Swarl
 
