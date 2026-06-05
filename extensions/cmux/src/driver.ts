@@ -19,9 +19,10 @@ export function available(): boolean {
   }
 }
 
-/** Open a new workspace with a declarative split layout (JSON). */
-export function openWorkspace(name: string, layout: string): void {
-  cmux(["new-workspace", "--name", name, "--focus", "true", "--layout", layout]);
+/** Open a new workspace (tab) with a declarative split layout (JSON). */
+export function openWorkspace(name: string, layout: string, opts: { focus?: boolean } = {}): void {
+  const focus = opts.focus ?? true;
+  cmux(["new-workspace", "--name", name, "--focus", String(focus), "--layout", layout]);
 }
 
 /** Split the focused pane; the new pane becomes focused. */

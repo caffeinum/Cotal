@@ -9,9 +9,11 @@ function shellQuote(s: string): string {
 }
 
 /**
- * Spawn an agent into a new cmux pane (best-effort). cmux can't run a command in a
- * fresh split directly, so we write the launch as a temp bash script and have the
- * new (focused) pane run it — sidestepping nushell↔bash quoting when typing in.
+ * Spawn an agent into its own new cmux tab (workspace), so spawned teammates get
+ * room instead of crowding the spawner's column. cmux can't run a command in a fresh
+ * surface directly, so we write the launch as a temp bash script and point the tab's
+ * single terminal at it — sidestepping nushell↔bash quoting. Opened unfocused so the
+ * human stays on the orchestrator tab; switch to the new tab to watch the worker.
  */
 export const cmuxRuntime: Runtime = {
   kind: "runtime",
@@ -25,13 +27,14 @@ export const cmuxRuntime: Runtime = {
     const script = `#!/usr/bin/env bash\ncd ${shellQuote(ctx.cwd)}\nexec ${cmd}\n`;
     const scriptPath = join(tmpdir(), `swarl-spawn-${name}.sh`);
     writeFileSync(scriptPath, script, { mode: 0o755 });
-    cmux.newSplit("down");
-    cmux.send(`bash ${scriptPath}`);
-    cmux.sendKey("enter");
+    const layout = JSON.stringify({
+      pane: { surfaces: [{ type: "terminal", command: `bash ${scriptPath}` }] },
+    });
+    cmux.openWorkspace(`swarl-${name}`, layout, { focus: false });
     return { runtime: "cmux", ref: { script: scriptPath } };
   },
 
   stop(_handle: SpawnHandle): void {
-    // Best-effort: a cmux pane has no pid/window we tracked — it's closed by hand.
+    // Best-effort: we don't track the tab's surface id — it's closed by hand.
   },
 };

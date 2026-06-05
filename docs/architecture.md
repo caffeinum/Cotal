@@ -167,13 +167,14 @@ abstracted behind one interface (`spawn → handle`, `stop`, `status`, `attach`,
   control (group-kill, restart). No external software to install.
 - **`tmux` / `iTerm2` (opt-in)** — for users already living in a multiplexer who want native
   panes / persistence; auto-detect (if already inside tmux, use it).
-- **`cmux` (implemented, as an extension)** — spawn into a new cmux pane on the fly. This is the
+- **`cmux` (implemented, as an extension)** — spawn into a new cmux tab on the fly. This is the
   first **pluggable `Runtime`** (a new extension kind beside `Connector`): `extensions/cmux`
   self-registers, and the manager resolves the spawn backend *by name from the registry* — no
-  cmux specifics in core. It does `new-split` + `send` the launch line into the freshly-focused
-  pane (best-effort — cmux has no "run-in-split" flag), letting an agent grow the team *visibly*
-  (see `examples/02`'s `--spawn`). The manager's own built-ins are `tmux` / `detached`; `cmux`
-  rides in as a `Runtime`; `pty` / `byo` / `host` are the planned set above.
+  cmux specifics in core. Each spawned agent opens in its **own workspace/tab** (its terminal
+  runs a temp launch script — cmux has no "run-in-surface" flag), unfocused so it doesn't crowd
+  the caller, letting an agent grow the team *visibly* (see `examples/02`'s `--spawn`, and the
+  orchestrator in `--drive`). The manager's own built-ins are `tmux` / `detached`; `cmux` rides
+  in as a `Runtime`; `pty` / `byo` / `host` are the planned set above.
 - **`byo` (floor)** — the manager doesn't own the process; a human runs `swarl claude --role …`
   in their own terminal and the manager just tracks it via presence.
 - **`host` (upgrade)** — headless via the Agent SDK / Codex app-server for structured control +
