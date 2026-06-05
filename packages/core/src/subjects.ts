@@ -25,6 +25,9 @@ export function spacePrefix(space: string): string {
   return `${ROOT}.${token(space)}`;
 }
 
+/** Reserved channel for protocol-native feedback reports (see FeedbackReport). */
+export const FEEDBACK_CHANNEL = "feedback";
+
 export function chatSubject(space: string, channel: string): string {
   return `${spacePrefix(space)}.chat.${token(channel)}`;
 }

@@ -110,3 +110,25 @@ export interface ControlReply {
   data?: unknown;
   error?: string;
 }
+
+// ---- feedback ------------------------------------------------------------
+// Protocol-native: a report is carried as a `data` Part on the reserved
+// `feedback` channel (see FEEDBACK_CHANNEL); the reporter's identity, space,
+// and timestamp ride on the enclosing SwarlMessage.
+
+export type FeedbackSource = "agent" | "human";
+export type FeedbackDomain = "protocol" | "implementation";
+export type FeedbackSeverity = "info" | "warn" | "error";
+
+/** A feedback / issue report from an agent or a human-via-agent. */
+export interface FeedbackReport {
+  /** The agent itself, or a human relayed through the agent. */
+  source: FeedbackSource;
+  /** About the Swarl protocol, or about an implementation/repo. */
+  domain: FeedbackDomain;
+  /** The package the feedback concerns (e.g. "@swarl/core", "todo-api"). */
+  component: string;
+  severity: FeedbackSeverity;
+  message: string;
+  meta?: Record<string, unknown>;
+}

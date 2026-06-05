@@ -1,4 +1,4 @@
-import { DEFAULT_SERVER, type EndpointKind } from "@swarl/core";
+import { DEFAULT_SERVER, FEEDBACK_CHANNEL, type EndpointKind } from "@swarl/core";
 
 /**
  * How a connector instance presents itself on the mesh. Everything is read from
@@ -31,7 +31,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AgentConfig
     name: env.SWARL_NAME?.trim() || `claude-${process.pid}`,
     role: env.SWARL_ROLE?.trim() || undefined,
     servers: env.SWARL_SERVERS?.trim() || DEFAULT_SERVER,
-    channels: channels.length ? channels : ["general"],
+    channels: channels.length ? channels : ["general", FEEDBACK_CHANNEL],
     kind: (env.SWARL_KIND?.trim() as EndpointKind) || "agent",
   };
 }

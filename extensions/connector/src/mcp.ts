@@ -10,9 +10,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import type { PresenceStatus } from "@swarl/core";
+import { FEEDBACK_CHANNEL, type PresenceStatus } from "@swarl/core";
 import { configFromEnv } from "./config.js";
 import { MeshAgent, type InboxItem } from "./agent.js";
+import { buildReport } from "./feedback.js";
 import { startControlServer } from "./control.js";
 import { controlSocketPath } from "./runtime.js";
 
@@ -221,6 +222,41 @@ async function main(): Promise<void> {
         return fail(
           `Couldn't spawn ${name}: no manager reachable (${(e as Error).message}). Is the manager running?`,
         );
+      }
+    },
+  );
+
+  server.registerTool(
+    "swarl_feedback",
+    {
+      title: "Swarl: report feedback",
+      description:
+        "Report feedback or an issue to the team's #feedback channel. Use when you — or the human " +
+        "you're working with — hit a bug, a rough edge, or have a suggestion, whether about the " +
+        "Swarl protocol itself or about an implementation/repo you're working in. Your identity and " +
+        "the protocol-vs-implementation classification are filled in automatically.",
+      inputSchema: {
+        message: z.string().describe("The feedback or issue, in plain language."),
+        source: z
+          .enum(["agent", "human"])
+          .describe(
+            "Who it's from: 'agent' for your own observation; 'human' if you're relaying it for the person you're working with.",
+          ),
+        severity: z
+          .enum(["info", "warn", "error"])
+          .optional()
+          .describe("How serious it is (default: info)."),
+      },
+    },
+    async ({ message, source, severity }) => {
+      try {
+        const report = buildReport({ message, source, severity });
+        await agent.feedback(report);
+        return text(
+          `Feedback recorded on #${FEEDBACK_CHANNEL} (${report.source} · ${report.domain} · ${report.component} · ${report.severity}).`,
+        );
+      } catch (e) {
+        return fail(`Couldn't send feedback: ${(e as Error).message}`);
       }
     },
   );

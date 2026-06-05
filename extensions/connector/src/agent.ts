@@ -1,8 +1,10 @@
 import { EventEmitter } from "node:events";
 import {
   SwarlEndpoint,
+  FEEDBACK_CHANNEL,
   type ControlReply,
   type Delivery,
+  type FeedbackReport,
   type Presence,
   type PresenceStatus,
   type SwarlMessage,
@@ -166,6 +168,18 @@ export class MeshAgent extends EventEmitter {
   async anycast(role: string, text: string): Promise<SwarlMessage> {
     this.assertConnected();
     return this.ep.anycast(role, text);
+  }
+
+  /** Publish a feedback report on the reserved feedback channel (text + structured data part). */
+  async feedback(report: FeedbackReport): Promise<SwarlMessage> {
+    this.assertConnected();
+    return this.ep.multicast(report.message, {
+      channel: FEEDBACK_CHANNEL,
+      parts: [
+        { kind: "data", data: report },
+        { kind: "text", text: report.message },
+      ],
+    });
   }
 
   /** Resolve a peer by instance id (exact) or display name (case-insensitive, prefer present). */

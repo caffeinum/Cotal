@@ -34,6 +34,7 @@ these to the session:
 | `swarl_anycast` | ask any one agent of a role |
 | `swarl_status` | set your presence (`idle`/`working`/`waiting`) + activity |
 | `swarl_spawn` | ask the manager to spawn a new peer (`name`, optional `role`) — the agent→manager spawn RPC |
+| `swarl_feedback` | report an issue/suggestion to the reserved `#feedback` channel (`message`, `source: agent\|human`, optional `severity`) — protocol-vs-implementation + identity auto-tagged |
 
 ## Message delivery (stream-backed)
 

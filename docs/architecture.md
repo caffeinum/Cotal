@@ -375,6 +375,10 @@ covers three things at once: live delivery, the inbound buffer, and late-join hi
   - anycast → `swarl.<space>.svc.<service>`  — any one instance of a service (role)
   - trace → `swarl.<space>.trace.<instance>`, control → `swarl.<space>.control.<instance>` *(later)*
   - `*` = one token, `>` = trailing tokens; `swarl.<space>.>` taps everything (the `watch` command).
+  - **`feedback`** is a *reserved* channel name (`FEEDBACK_CHANNEL`): the `swarl_feedback` tool
+    publishes a `FeedbackReport` as a `data` part on `chat.feedback`, so feedback is ordinary
+    durable channel traffic (no new message kind). An optional collector endpoint taps it to
+    forward off-mesh; until then it lives in the CHAT backlog and shows up in `watch`/`console`.
 - **Streams (one model, three read patterns):**
   - **`CHAT_<space>`** (multicast) — captures `chat.>`, **Limits** retention with
     `MaxMsgsPerSubject` (a capped per-channel backlog). **Every** agent reads **every**
