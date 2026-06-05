@@ -7,7 +7,7 @@
  * to apply. It must NEVER block the session: any error → exit 0, no output.
  */
 import { connect } from "node:net";
-import { configFromEnv } from "./config.js";
+import { configFromEnv, hasIdentity } from "./config.js";
 import { controlSocketPath } from "./runtime.js";
 
 const TIMEOUT_MS = 2000;
@@ -30,6 +30,7 @@ function done(out: string): never {
 }
 
 async function main(): Promise<void> {
+  if (!hasIdentity()) return done(""); // plain `claude`, not a managed session — no-op
   const raw = (await readStdin()).trim() || "{}";
   const cfg = configFromEnv();
   const sock = connect(controlSocketPath(cfg.space, cfg.name));

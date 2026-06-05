@@ -5,8 +5,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/node_modules/.bin/tsx",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/src/hook.ts"]
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/dist/hook.cjs"]
           }
         ]
       }
@@ -16,8 +16,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/node_modules/.bin/tsx",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/src/hook.ts"]
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/dist/hook.cjs"]
           }
         ]
       }
@@ -28,8 +28,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/node_modules/.bin/tsx",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/src/hook.ts"]
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/dist/hook.cjs"]
           }
         ]
       }
@@ -39,8 +39,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/node_modules/.bin/tsx",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/src/hook.ts"]
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/dist/hook.cjs"]
           }
         ]
       }
@@ -50,8 +50,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/node_modules/.bin/tsx",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/src/hook.ts"]
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/dist/hook.cjs"]
           }
         ]
       }
@@ -61,8 +61,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/node_modules/.bin/tsx",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/src/hook.ts"]
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/dist/hook.cjs"]
           }
         ]
       }

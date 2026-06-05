@@ -11,7 +11,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import type { PresenceStatus } from "@swarl/core";
-import { configFromEnv } from "./config.js";
+import { configFromEnv, hasIdentity } from "./config.js";
 import { MeshAgent, type InboxItem } from "./agent.js";
 import { startControlServer } from "./control.js";
 import { controlSocketPath } from "./runtime.js";
@@ -43,6 +43,13 @@ function channelMeta(i: InboxItem): Record<string, string> {
 }
 
 async function main(): Promise<void> {
+  // No identity → this is a plain `claude`, not a launcher-spawned agent. Stay
+  // inert: never connect to the mesh, so an installed plugin can't make the
+  // operator's own sessions join as stray peers.
+  if (!hasIdentity()) {
+    process.stderr.write("[swarl-connector] no SWARL_NAME — not a managed session; staying off the mesh\n");
+    return;
+  }
   const config = configFromEnv();
   const agent = new MeshAgent(config);
   agent.start(); // background connect with retry — never blocks tool serving

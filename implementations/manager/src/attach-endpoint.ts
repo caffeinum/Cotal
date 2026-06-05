@@ -1,29 +1,67 @@
-import { createServer, type Server } from "node:http";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { AgentHandle } from "./runtime/index.js";
 
+const require = createRequire(import.meta.url);
+const here = dirname(fileURLToPath(import.meta.url));
+
+/** Vendored xterm.js assets (served from node_modules, resolved at startup). */
+const ASSETS: Record<string, { path: string; type: string }> = {
+  "/assets/xterm.js": { path: require.resolve("@xterm/xterm/lib/xterm.js"), type: "text/javascript" },
+  "/assets/xterm.css": { path: require.resolve("@xterm/xterm/css/xterm.css"), type: "text/css" },
+  "/assets/addon-fit.js": { path: require.resolve("@xterm/addon-fit/lib/addon-fit.js"), type: "text/javascript" },
+  "/assets/addon-attach.js": { path: require.resolve("@xterm/addon-attach/lib/addon-attach.js"), type: "text/javascript" },
+};
+
+/** Anything the console page needs to render itself, served from this dir. */
+const PAGE: Record<string, { path: string; type: string }> = {
+  "/": { path: join(here, "console/index.html"), type: "text/html" },
+  "/app.js": { path: join(here, "console/app.js"), type: "text/javascript" },
+};
+
 /**
- * A local HTTP+WebSocket endpoint the manager hosts to stream an agent's PTY to
- * `swarl attach` (and, later, the browser console). PTY frames go over this
- * direct socket — never the mesh — so owning the terminal keeps the manager off
- * the message hot path. Bound to loopback only.
+ * The manager's local HTTP + WebSocket face. It hosts the **console** (a
+ * lightweight xterm.js page) and bridges each agent's PTY to the browser — and to
+ * `swarl attach` — over a direct socket, never the mesh, so owning the terminal
+ * keeps the manager off the message hot path. Bound to loopback.
  *
- * Protocol: server → client sends raw terminal bytes (binary). client → server:
- * binary frames are keystrokes; a text frame `r:<cols>,<rows>` resizes.
+ * Routes: `GET /` console page, `GET /agents` the managed roster (JSON), static
+ * assets under `/assets`, and `WS /attach/<name>` the PTY stream.
+ *
+ * Attach protocol: server → client sends raw terminal bytes (binary). client →
+ * server: binary frames are keystrokes; a text frame `r:<cols>,<rows>` resizes.
  */
 export class AttachEndpoint {
   #http: Server;
   #wss: WebSocketServer;
-  #port = 0;
+  #port: number;
 
-  constructor(private readonly lookup: (name: string) => AgentHandle | undefined) {
-    this.#http = createServer();
-    this.#wss = new WebSocketServer({ server: this.#http });
-    this.#wss.on("connection", (ws, req) => this.#onConnection(ws, req.url ?? "/"));
+  constructor(
+    private readonly lookup: (name: string) => AgentHandle | undefined,
+    private readonly list: () => unknown,
+    port = 0,
+  ) {
+    this.#port = port;
+    this.#http = createServer((req, res) => this.#onRequest(req, res));
+    this.#wss = new WebSocketServer({ noServer: true });
+    this.#http.on("upgrade", (req, socket, head) => {
+      const path = req.url ?? "/";
+      if (!path.startsWith("/attach/")) {
+        socket.destroy();
+        return;
+      }
+      this.#wss.handleUpgrade(req, socket, head, (ws) =>
+        this.#onConnection(ws, decodeURIComponent(path.slice("/attach/".length))),
+      );
+    });
   }
 
   async start(): Promise<void> {
-    await new Promise<void>((resolve) => this.#http.listen(0, "127.0.0.1", resolve));
+    await new Promise<void>((resolve) => this.#http.listen(this.#port, "127.0.0.1", resolve));
     const addr = this.#http.address();
     if (addr && typeof addr === "object") this.#port = addr.port;
   }
@@ -35,11 +73,31 @@ export class AttachEndpoint {
 
   /** The ws URL a client uses to attach to `name`. */
   url(name: string): string {
-    return `ws://127.0.0.1:${this.#port}/${encodeURIComponent(name)}`;
+    return `ws://127.0.0.1:${this.#port}/attach/${encodeURIComponent(name)}`;
   }
 
-  #onConnection(ws: WebSocket, path: string): void {
-    const name = decodeURIComponent(path.replace(/^\//, ""));
+  /** The console page URL. */
+  consoleUrl(): string {
+    return `http://127.0.0.1:${this.#port}/`;
+  }
+
+  #onRequest(req: IncomingMessage, res: ServerResponse): void {
+    const path = (req.url ?? "/").split("?")[0];
+    if (path === "/agents") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(this.list()));
+      return;
+    }
+    const file = PAGE[path] ?? ASSETS[path];
+    if (file) {
+      res.writeHead(200, { "content-type": file.type });
+      res.end(readFileSync(file.path));
+      return;
+    }
+    res.writeHead(404).end("not found");
+  }
+
+  #onConnection(ws: WebSocket, name: string): void {
     const handle = this.lookup(name);
     if (!handle || handle.status() !== "running") {
       ws.close();

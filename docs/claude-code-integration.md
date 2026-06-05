@@ -1,6 +1,34 @@
-# Claude Code hooks
+# Claude Code connector
 
-> Source: [code.claude.com/docs/en/hooks](https://code.claude.com/docs/en/hooks) (Claude Code 2.1.16x — 31 events).
+> Hook source: [code.claude.com/docs/en/hooks](https://code.claude.com/docs/en/hooks) (Claude Code 2.1.16x — 31 events).
+
+The connector turns a real `claude` session into a Swarl mesh peer: a bundled plugin inside the
+session joins NATS, maps lifecycle hooks to presence, and exposes the mesh tools. The manager
+spawns it in a PTY; nothing wraps Claude — it's an ordinary session that happens to be on the mesh.
+
+## How a session joins
+
+[`extensions/connector/src/extension.ts`](../extensions/connector/src/extension.ts) builds the
+launch the manager runs:
+
+```
+claude --dangerously-load-development-channels plugin:swarl@swarl-mesh
+# env: SWARL_SPACE, SWARL_NAME, SWARL_ROLE, SWARL_SERVERS, SWARL_CHANNEL=1
+```
+
+- **Installed, not `--plugin-dir`.** The plugin is installed once
+  (`claude plugin install swarl@swarl-mesh --scope local`) — the wake channel only binds to an
+  *installed* plugin, so `--plugin-dir` (which loads but doesn't "install") isn't enough. Local
+  scope keeps it to this repo (a gitignored `.claude/settings.local.json`), never user-global.
+- **Bundled.** The MCP server and hooks are esbuild-bundled to `dist/*.cjs` and run with plain
+  `node` (`pnpm --filter @swarl/connector bundle`); the [`.mcp.json`](../extensions/connector/.mcp.json)
+  and [`hooks.json`](../extensions/connector/hooks/hooks.json) point at the bundles. Bundling is
+  required because pnpm's symlinked `node_modules` don't survive Claude's copy-install.
+- **Identity-gated.** Connector code requires `SWARL_NAME` (`hasIdentity()` in
+  [`config.ts`](../extensions/connector/src/config.ts)); a plain `claude` with no `SWARL_*` env
+  stays inert and never joins — so an operator's own sessions in the repo don't appear as stray peers.
+- **Hands-free spawn.** The dev-channels flag prints a one-time "Enter to confirm" prompt; the PTY
+  runtime auto-clears it via `LaunchSpec.confirm`, so a supervised launch needs no keypress.
 
 ## Presence mapping
 
@@ -32,11 +60,15 @@ Two things move a message from the inbox to the model — **one delivers, one on
   messages as `additionalContext`, and **ack** them on the stream. This is the single
   authoritative path — gating-free, works on any Claude Code build. A message is acked only here,
   once actually surfaced; a crash before injection redelivers it.
-- **Channel nudge (wake).** If the experimental `claude/channel` capability is active, each
-  arriving message also fires a content-less `notifications/claude/channel` nudge that wakes an
-  idle session into a turn (so the hook drain runs *now* instead of at the next prompt). The nudge
-  never acks or removes anything — if the channel can't run, delivery still happens at the next
-  turn. Enable with `--dangerously-load-development-channels plugin:swarl@…` (research preview).
+- **Channel nudge (wake).** Each arriving message also fires a content-less
+  `notifications/claude/channel` nudge that wakes an *idle* session into a turn, so the hook drain
+  runs *now* instead of at the next prompt. The nudge never acks or removes anything — if the channel
+  can't run, delivery still happens at the next turn. It takes three things together: the plugin's MCP
+  declares the `claude/channel` capability, the session is launched with
+  `--dangerously-load-development-channels plugin:swarl@swarl-mesh` (research preview), **and**
+  `SWARL_CHANNEL=1`. The last one matters: Claude does not echo `claude/channel` back in its MCP
+  client capabilities, so the connector would auto-detect the channel as *off* and never send the
+  nudge — the env flag forces it on.
 
 ### Once per session
 | Event | Fires when | Matchers |

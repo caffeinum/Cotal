@@ -191,10 +191,11 @@ owner for the actual pixels (same stream `swarl attach` consumes, just rendered 
   lightweight UI** (no framework lock-in, no forked dashboard). The manager exposes a local
   **attach endpoint** (HTTP + WebSocket) that bridges PTY ↔ browser; `addon-attach` wires a pane
   straight to that socket, `addon-serialize` replays scrollback on late attach.
-- **Topology:** the manager hosts the attach endpoint (it holds the PTYs); the **console** is a
-  thin client that can run in-process (manager serves the page) now, or split later into a
-  standalone `swarl console` node that discovers managers over the mesh and aggregates their
-  streams.
+- **Topology:** the manager hosts the attach endpoint (it holds the PTYs); the **console** runs
+  **in-process** today — the manager serves the page itself (`GET /` console, `GET /agents` the
+  managed roster, `/assets/*` the vendored xterm bundles, `WS /attach/<name>` the PTY stream) on a
+  loopback port (`SWARL_CONSOLE_PORT`, default `7878`). It can split later into a standalone
+  `swarl console` node that discovers managers over the mesh and aggregates their streams.
 
 **Control schema (first cut):** `start {role, name, agent}` · `stop {instance}` · `ps` ·
 `status {instance}` · `attach {instance}` · `bind {instance, config}` — control-plane

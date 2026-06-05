@@ -16,6 +16,8 @@ export interface ManagerOptions {
   /** Spawn backend. `auto` (default) → pty, or tmux when already inside tmux. */
   runtime?: RuntimeMode;
   workspaceRoot?: string;
+  /** Port for the console + attach HTTP/WS endpoint (loopback). 0 → ephemeral. */
+  consolePort?: number;
 }
 
 interface ManagedAgent {
@@ -48,11 +50,20 @@ export class Manager {
     this.name = opts.name ?? "manager";
     this.workspaceRoot = opts.workspaceRoot ?? findWorkspaceRoot();
     this.runtime = createRuntime(opts.runtime ?? "auto", `swarl-${this.space}`);
-    this.attach = new AttachEndpoint((name) => this.agents.get(name)?.handle);
+    this.attach = new AttachEndpoint(
+      (name) => this.agents.get(name)?.handle,
+      () => this.list(),
+      opts.consolePort ?? 0,
+    );
   }
 
   get runtimeKind(): string {
     return this.runtime.kind;
+  }
+
+  /** The console page URL (manager-hosted, loopback). */
+  get consoleUrl(): string {
+    return this.attach.consoleUrl();
   }
 
   async start(): Promise<void> {
@@ -146,7 +157,9 @@ export class Manager {
       name: a.name,
       role: a.role,
       agent: a.agent,
+      space: this.space,
       mode: a.handle.kind,
+      status: a.handle.status(),
       uptimeMs: Date.now() - a.startedAt,
       mesh: roster.get(a.name)?.status ?? "absent",
     }));

@@ -8,10 +8,10 @@ It's **configurable, not hardwired**: Swarl provides the primitives (addressabil
 presence, a control plane, data sharing); the *topology* — who's "planner" vs "reviewer",
 who delegates to whom — is just how you set it up.
 
-> **Status:** the **walking skeleton** (manual CLI peers) and the **control plane** run
-> today — a manager spawns peers into pseudo-terminals it owns (`pty` runtime) and you
-> stream them with `swarl attach`. Wiring the coding-agent adapters (Claude Code + Codex
-> via hooks/MCP) end-to-end lands next.
+> **Status:** the **walking skeleton** (manual CLI peers), the **control plane** (manager +
+> `pty` runtime + web console), and the **Claude Code adapter** run today — `swarl start --agent
+> claude` spawns a real Claude session that joins the mesh, flips presence from its lifecycle
+> hooks, and wakes on incoming peer messages. The Codex adapter lands next.
 
 ## What it demonstrates
 
@@ -72,32 +72,44 @@ swarl stop  --space demo --name alice                   # kill the process
 
 `swarl start --agent claude` spawns a real Claude Code session the same way (see below).
 
-## Next: a Claude Code agent joins as a peer
+## Watch them in the browser — CLI + manager + web console
 
-*(adapter lands next — documented here so the target flow is concrete)*
-
-A real coding agent joins through the **manager** — you ask it to start an agent and it does
-the native launch (in a terminal pane):
+The manager hosts a **console** (in-process, loopback) — a lightweight xterm.js page that
+shows one live terminal per managed agent. PTY bytes stream over a direct WebSocket (the same
+stream `swarl attach` consumes), never the mesh. One example, all three surfaces together:
 
 ```
-swarl role new builder                       # scaffold .swarl/roles/builder.md once
-swarl start --role builder --name dave        # CLI → control → manager spawns a native claude
+pnpm swarl up                                              # 1. mesh (terminal stays running)
+(cd examples/01-lateral-coordination && pnpm manager)      # 2. manager + console → prints http://127.0.0.1:7878/
+
+# 3. drive it from the CLI — the console updates live
+pnpm swarl start --space demo --agent claude --name ada   --role planner
+pnpm swarl start --space demo --agent claude --name linus --role reviewer
 ```
 
-The manager runs the *real* `claude` with the plugin + identity in the env — an ordinary
-Claude Code terminal, no wrapper in front. The plugin's MCP server reads the env at spawn and
-auto-joins; `SWARL_ROLE` resolves the **role template** (`.swarl/roles/builder.md` — card +
-optional persona + channel/policy defaults), so the role's richness lives in a file. (One-time:
-`/plugin install swarl@swarl-mesh`.)
+Open **http://127.0.0.1:7878/** — two panes appear, each a real Claude Code TUI you can type
+into. `swarl ps` / `stop` / `start` from any terminal and the grid reconciles (panes added,
+removed, status dot flips green→red on exit). Port: `SWARL_CONSOLE_PORT` (default `7878`).
 
-From there the agent is a peer like any other: it appears in
-`/who`, its presence flips `working` / `idle` from lifecycle hooks, and
-mesh messages reach it two ways — **deterministic hook injection** at turn boundaries (the
-spine) and an async **channel** push that wakes it when idle. It talks back to the mesh with
-the `swarl_send`/`swarl_dm`/`swarl_anycast` tools (one per addressing mode). See
-[architecture.md](../../docs/architecture.md) for the surface mapping and
-the accepted limits (no mid-turn interrupt in attach mode; channel push is research-preview
-gated).
+## A Claude Code agent joins as a peer
+
+A real coding agent joins through the **manager** — `swarl start --agent claude` does the native
+launch in a PTY pane (no wrapper in front, an ordinary Claude session):
+
+```
+# one-time, per machine: install the bundled plugin for this repo only
+claude plugin install swarl@swarl-mesh --scope local
+
+swarl start --space demo --agent claude --name dave --role builder   # manager spawns a real claude
+```
+
+The bundled plugin reads `SWARL_*` from the env at spawn and auto-joins the mesh; the manager
+auto-clears the one-time dev-channel prompt, so the launch is hands-free. From there the agent is
+a peer like any other: its presence flips `working` / `idle` from lifecycle hooks, and mesh
+messages reach it two ways — **hook injection** at turn boundaries (the spine) and a **channel
+nudge** that wakes it the instant a message arrives while idle. See
+[claude-code-integration.md](../../docs/claude-code-integration.md) for the launch / install /
+channel mechanics, and [architecture.md](../../docs/architecture.md) for the surface mapping.
 
 ## Inside a `join` session
 
