@@ -51,6 +51,16 @@ JSON
 
 # --- launch claude in the role's repo, wired to the mesh --------------------
 cd "$HERE/$role"
+
+# Claude shows a blocking "load development channels" confirmation at startup (the
+# --dangerously-… flag below) and waits for Enter. Autonomous worker tabs have no human, so
+# auto-confirm by injecting Enter into this cmux surface for a few seconds. Skip the orchestrator
+# — a human drives it, and a stray Enter could submit their half-typed prompt. Skip when not under
+# cmux. Uses the bundled CLI path since bare `cmux` isn't on $PATH inside a surface.
+if [[ "$role" != orchestrator && -n "${CMUX_SURFACE_ID:-}" && -n "${CMUX_BUNDLED_CLI_PATH:-}" ]]; then
+  ( for _ in {1..6}; do sleep 1; "$CMUX_BUNDLED_CLI_PATH" send-key --surface "$CMUX_SURFACE_ID" enter; done ) >/dev/null 2>&1 &
+fi
+
 exec env \
   SWARL_SPACE=todo SWARL_NAME="$role" SWARL_ROLE="$role" SWARL_CHANNEL=1 \
   claude \
