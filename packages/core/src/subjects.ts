@@ -57,6 +57,18 @@ export function spaceWildcard(space: string): string {
   return `${spacePrefix(space)}.>`;
 }
 
+/** The three peer-message delivery modes (control/trace/presence are not deliveries). */
+export type DeliveryMode = "chat" | "anycast" | "unicast";
+
+/**
+ * Inverse of the subject builders: classify a subject's delivery mode, or `null` for
+ * control/trace/etc. Observers (e.g. a feed) use this instead of re-parsing the layout.
+ */
+export function deliveryOf(subject: string): DeliveryMode | null {
+  const kind = subject.split(".")[2]; // swarl.<space>.<kind>.<token>
+  return kind === "chat" ? "chat" : kind === "svc" ? "anycast" : kind === "inst" ? "unicast" : null;
+}
+
 /** Name of the KV bucket holding presence for a space. */
 export function presenceBucket(space: string): string {
   return `swarl_presence_${token(space)}`;
