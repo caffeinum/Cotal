@@ -138,7 +138,9 @@ policy layer keeps them out of peers' attention — they never become injections
 
 The CLI doesn't spawn agents itself — a long-lived **manager** owns their lifecycle, and the
 CLI asks it over the mesh. The manager is itself a **node** (presence + a control subject), so
-managing Swarl agents happens *through Swarl* — the control plane's first real consumer.
+managing Swarl agents happens *through Swarl* — the control plane's first real consumer. It's a
+**singleton per space**: a second manager would share the control queue group and split agent
+state, so on start it probes the control service and refuses if one is already serving.
 
 **Supervisor, not orchestrator.** It owns *process lifecycle + config binding* (start / stop /
 restart, resolve a role, bind env + policy to a session) — **not** what work agents do. Agents

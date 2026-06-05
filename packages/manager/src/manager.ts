@@ -80,8 +80,24 @@ export class Manager {
       card: { name: this.name, role: "manager", kind: "endpoint" },
     });
     await this.ep.start();
+    // Singleton per space: two managers would share the control queue group and split
+    // agent state (spawn/stop/ps load-balanced). Refuse if one is already serving.
+    if (await this.managerAlreadyServing()) {
+      await this.ep.stop();
+      throw new Error(`a manager is already running in space "${this.space}" — only one is allowed`);
+    }
     await this.ep.setActivity(`supervisor (${this.mode})`);
     this.ep.serveControl("manager", (req) => this.handle(req));
+  }
+
+  /** Probe the control service before we start answering — only an existing manager replies. */
+  private async managerAlreadyServing(): Promise<boolean> {
+    try {
+      await this.ep.requestControl("manager", { op: "ps" }, 600);
+      return true; // someone answered
+    } catch {
+      return false; // no responder within the timeout → we're the first
+    }
   }
 
   async stop(): Promise<void> {

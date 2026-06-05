@@ -5,22 +5,30 @@
 
 export type TaskId = string;
 
+export type Priority = "low" | "medium" | "high";
+
+export const PRIORITIES: readonly Priority[] = ["low", "medium", "high"];
+
+export function isPriority(value: unknown): value is Priority {
+  return typeof value === "string" && (PRIORITIES as readonly string[]).includes(value);
+}
+
 export interface Task {
   id: TaskId;
   title: string;
   description?: string;
   completed: boolean;
-  // TODO(demo): add a `priority` field (low | medium | high, default medium).
+  priority: Priority;
   createdAt: string; // ISO timestamp
 }
 
-export function newTask(input: { title: string; description?: string }): Task {
+export function newTask(input: { title: string; description?: string; priority?: Priority }): Task {
   return {
     id: crypto.randomUUID(),
     title: input.title,
     description: input.description,
     completed: false,
-    // TODO(demo): default the new priority field here.
+    priority: input.priority ?? "medium",
     createdAt: new Date().toISOString(),
   };
 }

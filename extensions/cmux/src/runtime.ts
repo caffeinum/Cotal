@@ -21,7 +21,10 @@ export const cmuxRuntime: Runtime = {
 
   spawn(name: string, spec: LaunchSpec, ctx: SpawnContext): SpawnHandle {
     if (!cmux.available())
-      throw new Error("the `cmux` CLI is not reachable — run the manager from inside cmux");
+      throw new Error(
+        "the `cmux` CLI can't reach the app — the manager must run inside a live cmux pane, " +
+          "not detached/headless (cmux's socket rejects callers without a live surface).",
+      );
     const envPrefix = Object.entries(spec.env ?? {}).map(([k, v]) => `${k}=${shellQuote(v)}`);
     const cmd = [...envPrefix, spec.command, ...spec.args.map(shellQuote)].join(" ");
     const script = `#!/usr/bin/env bash\ncd ${shellQuote(ctx.cwd)}\nexec ${cmd}\n`;

@@ -35,7 +35,12 @@ export async function manager(argv: string[]): Promise<void> {
     name: values.name,
     spawnMode: values.spawn ?? "auto",
   });
-  await mgr.start();
+  try {
+    await mgr.start();
+  } catch (e) {
+    console.error(c.red(`✗ ${(e as Error).message}`));
+    process.exit(1);
+  }
 
   console.log(
     c.green("✓ manager up") +

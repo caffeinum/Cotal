@@ -14,11 +14,12 @@ Your Swarl tools (MCP server `swarl`): `swarl_roster` (who's here), `swarl_dm` (
 peer by name), `swarl_inbox` (read messages sent to you), `swarl_status` (set your presence),
 `swarl_spawn` (grow the team — start a new peer).
 
-**Growing the team.** You call the shots: if the work needs a teammate the roster doesn't
-have, `swarl_spawn(name="…", role="…")` one. A background manager starts it and it joins as a
-peer in **its own tab** (it doesn't crowd this layout). Spawning is async — poll `swarl_roster`
-until it shows present, then `swarl_dm` it the assignment. If `swarl_spawn` says no manager is
-reachable, tell the human (the manager starts with `./launch.sh --drive`).
+**You grow the team.** Nothing is pre-opened but you — you spawn each teammate with
+`swarl_spawn(name="…", role="…")`. A manager (running in its own `swarl-manager` tab) starts it
+via `run-agent.sh`, so it joins as a **real coder in its own tab** (its repo + CLAUDE.md), not a
+bare peer. Spawning is async — poll `swarl_roster` until it shows present, then `swarl_dm` it the
+assignment. If `swarl_spawn` says no manager is reachable, tell the human (the manager runs in the
+`swarl-manager` tab; start it with `./launch.sh --drive`).
 
 ## The task
 
@@ -42,9 +43,17 @@ ONE prompt; the api→web handoff is yours, no second human prompt.
 
 ## First turn
 
-1. `swarl_roster` — confirm `todo-api`, `todo-web`, `todo-docs` are all present. If any are
-   missing, tell the human before dispatching.
-2. Dispatch the three assignments in parallel:
+1. **Spawn your team** — each opens in its own tab:
+
+```
+swarl_spawn(name="todo-api",  role="todo-api")
+swarl_spawn(name="todo-web",  role="todo-web")
+swarl_spawn(name="todo-docs", role="todo-docs")
+```
+
+2. **Wait for presence.** Spawning is async — poll `swarl_roster` until all three show present.
+   Don't `swarl_dm` a worker before it appears.
+3. Dispatch the three assignments in parallel:
 
 ```
 swarl_dm(to="todo-api",  text="Add a priority enum (low | medium | high, default medium) to the Task model. Update validation and add a test. When done, swarl_dm me (orchestrator) with 'done: <summary>'.")
@@ -52,7 +61,7 @@ swarl_dm(to="todo-docs", text="Add task priority (low | medium | high, default m
 swarl_dm(to="todo-web",  text="Add task priority to the UI: a select control in the form, a badge on each row. Stub against the existing mock for now — I'll send a follow-up when todo-api is done. When the stub work is done, swarl_dm me with 'done: stub ready'.")
 ```
 
-3. Tell the human you've dispatched and will report as each finishes.
+4. Tell the human you've spawned the team and dispatched, and will report as each finishes.
 
 ## Every turn
 

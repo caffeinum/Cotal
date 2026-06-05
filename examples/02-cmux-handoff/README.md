@@ -1,9 +1,9 @@
 # Example 02 — Orchestrated handoff in cmux
 
-Four **real Claude Code agents**, one per [cmux](https://cmux.com) pane, coordinate over the
-Swarl mesh to ship one change across three repos. The human types **one** prompt; the agents
-discover each other, fan the work out in parallel, and route the API→web handoff themselves —
-no second human prompt.
+**Real Claude Code agents** coordinate over the Swarl mesh to ship one change across three repos.
+You start with just a console + an **orchestrator**; the human types **one** prompt and the
+orchestrator **spawns** todo-api / todo-web / todo-docs into their own [cmux](https://cmux.com)
+tabs, fans the work out in parallel, and routes the API→web handoff itself — no second human prompt.
 
 > Ported from the [haa](https://github.com/) demo (A2A-over-MQTT) onto Swarl/NATS. The story
 > is identical; the transport and the agent wiring are Swarl's.
@@ -20,6 +20,8 @@ no second human prompt.
 
 - **Real agents as lateral peers** — cmux runs the parallel sessions; Swarl is the layer that
   lets them actually talk to each other (presence + direct messages), which cmux alone doesn't.
+- **Spawn on demand** — nothing is pre-opened but the orchestrator; it `swarl_spawn`s each worker
+  into its own tab (a real coder, repo + `CLAUDE.md`), not a pre-arranged grid.
 - **Human → agent → agent** — one prompt to the orchestrator; the rest is agent-to-agent.
 - **Automatic handoff** — the orchestrator watches its inbox and routes `todo-api` → `todo-web`
   with no human in the loop.
@@ -33,8 +35,10 @@ no second human prompt.
 | todo-web | `todo-web` | `todo-web/` | add the priority UI; then connect the real API |
 | todo-docs | `todo-docs` | `todo-docs/` | document `priority` |
 
-Each repo starts with `TODO(demo)` markers where the work lands. Identity is set purely by the
-`SWARL_*` env on each pane's launch line — both the MCP server and the presence hooks inherit it.
+Each repo starts with `TODO(demo)` markers where the work lands. The orchestrator is the only pane
+you open; it spawns the three workers (each via `run-agent.sh <role>` in its own tab). Identity is
+set purely by the `SWARL_*` env on each launch line — both the MCP server and the presence hooks
+inherit it.
 
 ## One-time setup
 
@@ -55,33 +59,30 @@ From **inside a cmux terminal** (the cmux CLI talks to the app over its socket):
 ./launch.sh --drive    # starts the mesh, opens ONE workspace in the demo layout
 ```
 
-That opens a single `swarl-todo` workspace, split like this:
+That starts the mesh, opens a `swarl-manager` tab (the manager that spawns workers), and a
+`swarl-todo` workspace split into just two panes:
 
 ```
-┌───────────────┬───────────────┐
-│ swarl console │   todo-api    │
-├───────────────┤───────────────┤
-│ orchestrator  │   todo-web    │
-│   (claude)    ├───────────────┤
-│               │   todo-docs   │
-└───────────────┴───────────────┘
+┌───────────────┐
+│ swarl console │   live agent panel + message log
+├───────────────┤
+│ orchestrator  │   claude — give it the one prompt
+│   (claude)    │
+└───────────────┘
 ```
 
-Left column: the live **console** dashboard (`swarl console` — agent panel + traffic) on top,
-the **orchestrator** below. Right
-column: the three subagents. Each pane `cd`s into its repo and starts `claude` with its
-`SWARL_*` identity. The workspace opens as its own cmux tab — that tab *is* the container
-holding the four panes. (If the columns/rows come out mirrored, swap `horizontal`/`vertical`
-in `launch.sh`'s `build_layout`.)
+The **console** dashboard (`swarl console` — agent panel + traffic) on top, the **orchestrator**
+below. Each opens as its own cmux tab. The orchestrator spawns todo-api / todo-web / todo-docs
+later — each lands in a fresh, unfocused tab (a real coder `cd`'d into its repo).
 
 > Every pane command is wrapped in `bash -lc '…'` on purpose: cmux launches panes in your
 > default login shell (here that's **nushell**), which doesn't understand `&&` or inline
 > `VAR=val cmd` env prefixes — so we run the body in bash regardless.
 
-Plain `./launch.sh` (no flag) just verifies the mesh and prints the commands — including the
-single `cmux new-workspace --layout …` line, and per-pane commands you can paste into plain
-terminals or trigger from the **command palette** (`cmux.json`). Each pane just runs
-`run-agent.sh <role>`, which `cd`s into the role's repo and starts claude wired to the mesh:
+Plain `./launch.sh` (no flag) just verifies the mesh and prints the commands — the
+`cmux new-workspace --layout …` line plus the per-role command you can paste into a plain
+terminal or trigger from the **command palette** (`cmux.json`). Each runs `run-agent.sh <role>`,
+which `cd`s into the role's repo and starts claude wired to the mesh:
 
 ```bash
 ./run-agent.sh orchestrator   # → claude with the swarl MCP server, hooks, and channel push
@@ -94,43 +95,13 @@ Then, in the **orchestrator** pane, give it the one prompt:
 
 ## What you'll see
 
-1. Orchestrator calls `swarl_roster`, confirms the three workers are present, and `swarl_dm`s
-   each a task. cmux rings the other panes as messages land.
-2. `todo-api`, `todo-web`, `todo-docs` each drain their inbox, do the work in their own repo,
-   and `swarl_dm` back `done: …`.
+1. The orchestrator `swarl_spawn`s `todo-api`, `todo-web`, `todo-docs` — three new tabs open
+   (unfocused) and fill in on the dashboard. It polls `swarl_roster` until all three are present.
+2. It `swarl_dm`s each a task; cmux rings the tabs as messages land. Each worker drains its inbox,
+   does the work in its own repo, and `swarl_dm`s back `done: …`.
 3. The orchestrator sees `todo-api`'s `done:` and **automatically** messages `todo-web`:
    "remove the mock, connect the real `/tasks` endpoint." (The money shot.)
 4. `todo-web` does the follow-up and reports done. The orchestrator tells you it's complete.
-
-## Variant: spawn the team on demand (`--spawn`)
-
-The static layout above launches everyone up front. The `--spawn` flow instead starts with
-**just the left column** and grows the rest live:
-
-```bash
-./launch.sh --spawn     # mesh + manager (headless), then opens dashboard + spawner only
-```
-
-```
-┌───────────────┐
-│   dashboard   │   swarl console — live agent panel + message log
-├───────────────┤
-│   spawner     │   claude — talk to it here
-│   (claude)    │
-└───────────────┘
-```
-
-A **manager** runs headless in `cmux` spawn mode (log: `.manager.log`). Tell the spawner, e.g.:
-
-> spin up two workers and say hi to each
-
-The spawner calls `swarl_spawn` per worker → the manager opens each as a **new cmux tab** running
-a `swarl join` peer → the spawner waits for each to appear in `swarl_roster`, then `swarl_dm`s it a
-greeting. New tabs appear (unfocused, so you stay on the spawner) and the dashboard panel fills in;
-switch to a worker's tab to watch it. (The workers here are generic mesh peers, not coders.)
-
-The same wiring is on in `--drive`: a headless manager runs there too, so the **orchestrator** can
-`swarl_spawn` an extra teammate mid-run — it opens in its own tab without disturbing the 4-pane layout.
 
 ## How it maps to Swarl
 
@@ -148,10 +119,11 @@ The role contracts live in each folder's `CLAUDE.md`.
   `run-agent.sh`) wakes an idle worker the moment a peer messages it. It's research-preview
   gated, so claude shows a one-time confirmation per pane — accept it. If you don't (or it's
   off), messages still arrive; the worker just acts on them on its next turn (press Enter).
-- The `--drive` path uses `cmux new-workspace --layout`; if the columns/rows render mirrored,
-  swap `horizontal`/`vertical` in `launch.sh`'s `build_layout`.
+- The `--drive` path uses `cmux new-workspace --layout`; tweak the split in `launch.sh`'s
+  `build_layout`. Spawned workers open via the manager in the `swarl-manager` tab, which launches
+  each through `run-agent.sh` (see `src/manager.ts`).
 - Agents only touch their own repo (the contracts forbid reaching into peers') — coordination
   happens over the mesh, not the filesystem.
 
-When you're done, stop the mesh with `Ctrl-C` in the `pnpm swarl up` process (or
-`pkill -f nats-server`).
+When you're done, stop the manager with `./launch.sh --stop` (or just close its tab), and the mesh
+with `Ctrl-C` in the `pnpm swarl up` process (or `pkill -f nats-server`).

@@ -1,36 +1,42 @@
 /**
- * MOCK api — returns canned data so the UI runs without a backend.
- *
- * In the API→web handoff, the orchestrator will tell you to remove this mock
- * and connect to the real todo-api `/tasks` endpoint.
+ * todo-api client — talks to the real `/tasks` endpoint.
  */
+
+export type Priority = "low" | "medium" | "high";
 
 export interface Task {
   id: string;
   title: string;
   description?: string;
   completed: boolean;
+  priority: Priority;
   createdAt: string;
-  // TODO(demo): the priority field arrives with the API; surface it in the UI.
 }
-
-const MOCK: Task[] = [
-  { id: "1", title: "Write the demo", completed: true, createdAt: "2026-05-29T09:00:00Z" },
-  { id: "2", title: "Ship task priority", completed: false, createdAt: "2026-05-29T10:00:00Z" },
-];
 
 export async function listTasks(): Promise<Task[]> {
-  return Promise.resolve(MOCK);
+  const res = await fetch("/tasks");
+  if (!res.ok) throw new Error(`listTasks failed: ${res.status}`);
+  return res.json();
 }
 
-export async function createTask(input: { title: string; description?: string }): Promise<Task> {
-  const t: Task = {
-    id: crypto.randomUUID(),
-    title: input.title,
-    description: input.description,
-    completed: false,
-    createdAt: new Date().toISOString(),
-  };
-  MOCK.push(t);
-  return Promise.resolve(t);
+export async function createTask(input: {
+  title: string;
+  description?: string;
+  priority?: Priority;
+}): Promise<Task> {
+  const res = await fetch("/tasks", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: input.title,
+      description: input.description,
+      priority: input.priority ?? "medium",
+    }),
+  });
+  if (res.status === 400) {
+    const detail = (await res.text()).trim();
+    throw new Error(`createTask: invalid priority${detail ? ` — ${detail}` : ""}`);
+  }
+  if (!res.ok) throw new Error(`createTask failed: ${res.status}`);
+  return res.json();
 }

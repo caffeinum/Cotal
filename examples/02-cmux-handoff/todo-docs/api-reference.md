@@ -11,7 +11,7 @@ Base URL: `http://localhost:3001`
 | `description` | string   | no       | Longer free-text body.               |
 | `completed`   | boolean  | yes      | Whether the task is done.            |
 | `createdAt`   | ISO date | yes      | When the task was created.           |
-<!-- TODO(demo): add a `priority` row (one of low, medium, high; defaults to medium). -->
+| `priority`    | string   | no       | One of `low`, `medium`, `high`. Defaults to `medium`. |
 
 ## Endpoints
 
@@ -28,11 +28,13 @@ Create a new task.
 ```json
 {
   "title": "Ship the priority feature",
-  "description": "End to end across api, web, docs"
+  "description": "End to end across api, web, docs",
+  "priority": "high"
 }
 ```
 
-<!-- TODO(demo): document the optional `priority` field in the request body. -->
+The `priority` field is optional and accepts `low`, `medium`, or `high`. When omitted it
+defaults to `medium`.
 
 **Response:** `201 Created` with the new Task object.
 

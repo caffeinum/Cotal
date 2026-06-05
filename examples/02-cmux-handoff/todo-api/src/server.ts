@@ -4,7 +4,7 @@
  */
 import express from "express";
 import type { Task } from "./types.js";
-import { newTask } from "./types.js";
+import { newTask, isPriority } from "./types.js";
 
 const app = express();
 app.use(express.json());
@@ -16,13 +16,20 @@ app.get("/tasks", (_req, res) => {
 });
 
 app.post("/tasks", (req, res) => {
-  const { title, description } = req.body as { title?: string; description?: string };
+  const { title, description, priority } = req.body as {
+    title?: string;
+    description?: string;
+    priority?: unknown;
+  };
   if (typeof title !== "string" || title.length === 0) {
     res.status(400).json({ error: "title required" });
     return;
   }
-  // TODO(demo): validate an optional `priority` (low | medium | high) before creating.
-  const t = newTask({ title, description });
+  if (priority !== undefined && !isPriority(priority)) {
+    res.status(400).json({ error: "priority must be low, medium, or high" });
+    return;
+  }
+  const t = newTask({ title, description, priority });
   tasks.set(t.id, t);
   res.status(201).json(t);
 });
