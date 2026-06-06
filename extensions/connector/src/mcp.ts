@@ -10,7 +10,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import type { PresenceStatus } from "@swarl/core";
+import { isConcreteChannel, type PresenceStatus } from "@swarl/core";
 import { configFromEnv, hasIdentity } from "./config.js";
 import { MeshAgent, type InboxItem } from "./agent.js";
 import { startControlServer } from "./control.js";
@@ -124,7 +124,9 @@ async function main(): Promise<void> {
         channel: z
           .string()
           .optional()
-          .describe(`Channel to send on (default: ${config.channels[0]}).`),
+          .describe(
+            `Channel to send on (default: ${config.channels.find(isConcreteChannel) ?? "general"}). Concrete only — not a wildcard like team.>; reply on the channel you received a message on.`,
+          ),
       },
     },
     async ({ text: msg, channel }) => {

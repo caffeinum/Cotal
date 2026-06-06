@@ -36,9 +36,11 @@ import {
   chatStream,
   chatDurable,
   chatSubject,
+  collapseFilterSubjects,
   controlServiceSubject,
   dmStream,
   dmDurable,
+  isConcreteChannel,
   presenceBucket,
   spacePrefix,
   spaceWildcard,
@@ -205,7 +207,12 @@ export class SwarlEndpoint extends EventEmitter {
     text: string,
     opts?: { channel?: string; parts?: Part[]; replyTo?: string; contextId?: string },
   ): Promise<SwarlMessage> {
-    const channel = opts?.channel ?? this.channels[0] ?? "general";
+    // Publish must target a concrete sub-channel — you can't broadcast to a
+    // wildcard. Default to the first concrete channel we're on (channels[0] may
+    // itself be a wildcard subscription like `team.>`).
+    const channel = opts?.channel ?? this.channels.find(isConcreteChannel) ?? "general";
+    if (!isConcreteChannel(channel))
+      throw new Error(`cannot publish to wildcard channel "${channel}" — pick a concrete sub-channel`);
     const msg: SwarlMessage = {
       id: randomUUID(),
       ts: Date.now(),
@@ -340,6 +347,59 @@ export class SwarlEndpoint extends EventEmitter {
     await this.publishPresence();
   }
 
+  // ---- channel discovery ---------------------------------------------------
+
+  /** List channels that have messages in the chat stream, with message counts.
+   *  Works even on observer endpoints (no consumers needed). */
+  async listChannels(): Promise<{ channel: string; messages: number }[]> {
+    if (!this.nc) throw new Error("endpoint not started");
+    const mgr = await jetstreamManager(this.nc);
+    let info;
+    try {
+      info = await mgr.streams.info(chatStream(this.space));
+    } catch {
+      return [];
+    }
+    const prefix = `${spacePrefix(this.space)}.chat.`;
+    const channels: { channel: string; messages: number }[] = [];
+    if (info.state.subjects) {
+      for (const [subject, count] of Object.entries(info.state.subjects)) {
+        if (subject.startsWith(prefix)) {
+          channels.push({ channel: subject.slice(prefix.length), messages: count });
+        }
+      }
+    }
+    return channels.sort((a, b) => a.channel.localeCompare(b.channel));
+  }
+
+  /** Fetch recent messages from a channel's JetStream backlog. */
+  async channelHistory(
+    channel: string,
+    opts?: { limit?: number },
+  ): Promise<SwarlMessage[]> {
+    if (!this.nc) throw new Error("endpoint not started");
+    const js = jetstream(this.nc);
+    const subject = chatSubject(this.space, channel);
+    const limit = opts?.limit ?? 100;
+    const msgs: SwarlMessage[] = [];
+    try {
+      const consumer = await js.consumers.get(chatStream(this.space), {
+        filter_subjects: [subject],
+      });
+      const iter = await consumer.fetch({ max_messages: limit });
+      for await (const m of iter) {
+        try {
+          msgs.push(m.json<SwarlMessage>());
+        } catch {
+          /* skip undecodable */
+        }
+      }
+    } catch {
+      /* stream or consumer may not exist yet */
+    }
+    return msgs;
+  }
+
   // ---- internals -----------------------------------------------------------
 
   private async publishMsg(subject: string, msg: SwarlMessage): Promise<void> {
@@ -396,7 +456,9 @@ export class SwarlEndpoint extends EventEmitter {
     if (this.channels.length) {
       await this.jsm.consumers.add(chatStream(this.space), {
         durable_name: chatDurable(id),
-        filter_subjects: this.channels.map((ch) => chatSubject(this.space, ch)),
+        // Wildcard channels (team.>) may subsume concrete ones (team.backend);
+        // JetStream rejects overlapping filter_subjects, so collapse first.
+        filter_subjects: collapseFilterSubjects(this.channels.map((ch) => chatSubject(this.space, ch))),
         ack_policy: AckPolicy.Explicit,
         ack_wait,
         deliver_policy: DeliverPolicy.All,

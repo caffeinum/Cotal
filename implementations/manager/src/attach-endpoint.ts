@@ -23,14 +23,21 @@ const PAGE: Record<string, { path: string; type: string }> = {
   "/app.js": { path: join(here, "console/app.js"), type: "text/javascript" },
 };
 
+/** One Server-Sent-Events frame: a named event carrying JSON data. */
+export interface FeedEvent {
+  event: string;
+  data: unknown;
+}
+
 /**
  * The manager's local HTTP + WebSocket face. It hosts the **console** (a
  * lightweight xterm.js page) and bridges each agent's PTY to the browser — and to
  * `swarl attach` — over a direct socket, never the mesh, so owning the terminal
  * keeps the manager off the message hot path. Bound to loopback.
  *
- * Routes: `GET /` console page, `GET /agents` the managed roster (JSON), static
- * assets under `/assets`, and `WS /attach/<name>` the PTY stream.
+ * Routes: `GET /` console page, `GET /agents` the managed roster (JSON),
+ * `GET /feed` the live mesh feed (SSE: presence roster + comms), static assets
+ * under `/assets`, and `WS /attach/<name>` the PTY stream.
  *
  * Attach protocol: server → client sends raw terminal bytes (binary). client →
  * server: binary frames are keystrokes; a text frame `r:<cols>,<rows>` resizes.
@@ -39,10 +46,14 @@ export class AttachEndpoint {
   #http: Server;
   #wss: WebSocketServer;
   #port: number;
+  #sse = new Set<ServerResponse>();
+  #ping?: ReturnType<typeof setInterval>;
 
   constructor(
     private readonly lookup: (name: string) => AgentHandle | undefined,
     private readonly list: () => unknown,
+    /** Events replayed to each console as it connects to `/feed` (e.g. the current roster). */
+    private readonly snapshot: () => FeedEvent[],
     port = 0,
   ) {
     this.#port = port;
@@ -64,11 +75,23 @@ export class AttachEndpoint {
     await new Promise<void>((resolve) => this.#http.listen(this.#port, "127.0.0.1", resolve));
     const addr = this.#http.address();
     if (addr && typeof addr === "object") this.#port = addr.port;
+    // Comment ping keeps idle SSE connections from being dropped; no-op with none.
+    this.#ping = setInterval(() => {
+      for (const res of this.#sse) if (!res.writableEnded) res.write(": ping\n\n");
+    }, 20_000);
   }
 
   async stop(): Promise<void> {
+    if (this.#ping) clearInterval(this.#ping);
+    for (const res of this.#sse) res.end();
+    this.#sse.clear();
     for (const ws of this.#wss.clients) ws.terminate();
     await new Promise<void>((resolve) => this.#http.close(() => resolve()));
+  }
+
+  /** Push a named event to every connected console (SSE). */
+  publish(event: string, data: unknown): void {
+    for (const res of this.#sse) this.#writeEvent(res, event, data);
   }
 
   /** The ws URL a client uses to attach to `name`. */
@@ -88,6 +111,10 @@ export class AttachEndpoint {
       res.end(JSON.stringify(this.list()));
       return;
     }
+    if (path === "/feed") {
+      this.#openFeed(res);
+      return;
+    }
     const file = PAGE[path] ?? ASSETS[path];
     if (file) {
       res.writeHead(200, { "content-type": file.type });
@@ -95,6 +122,28 @@ export class AttachEndpoint {
       return;
     }
     res.writeHead(404).end("not found");
+  }
+
+  /** Open an SSE stream, replay the snapshot, and keep it on the broadcast set. */
+  #openFeed(res: ServerResponse): void {
+    res.writeHead(200, {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache",
+      connection: "keep-alive",
+    });
+    res.write("retry: 2000\n\n");
+    this.#sse.add(res);
+    try {
+      for (const ev of this.snapshot()) this.#writeEvent(res, ev.event, ev.data);
+    } catch {
+      /* mesh not up yet — the console will get live events once it is */
+    }
+    res.on("close", () => this.#sse.delete(res));
+  }
+
+  #writeEvent(res: ServerResponse, event: string, data: unknown): void {
+    if (res.writableEnded) return;
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   }
 
   #onConnection(ws: WebSocket, name: string): void {

@@ -54,6 +54,8 @@ export class Manager {
     this.attach = new AttachEndpoint(
       (name) => this.agents.get(name)?.handle,
       () => this.list(),
+      // Initial /feed replay for a connecting console: the current peer roster.
+      () => [{ event: "roster", data: this.ep?.getRoster() ?? [] }],
       opts.consolePort ?? 0,
     );
   }

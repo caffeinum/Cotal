@@ -1,7 +1,7 @@
 /**
  * Subject naming — the routing half of the wire contract (v0).
  *
- *   swarl.<space>.chat.<channel>      multicast to a named channel
+ *   swarl.<space>.chat.<channel>      multicast to a channel (dotted + hierarchical: team.backend, subscribe team.>)
  *   swarl.<space>.svc.<service>       anycast to any one instance of a service (queue group)
  *   swarl.<space>.inst.<instance>     unicast to one specific instance
  *   swarl.<space>.ctl.<service>       control request/reply to a service (e.g. manager)
@@ -25,8 +25,57 @@ export function spacePrefix(space: string): string {
   return `${ROOT}.${token(space)}`;
 }
 
+/**
+ * Build the channel portion of a chat subject, preserving NATS hierarchy: split on
+ * `.`, sanitize each segment to a safe token, but keep whole-segment wildcards
+ * (`*` = one level, `>` = the rest). So `team.backend` → `team.backend` (a
+ * sub-channel) and `team.>` → `team.>` (its whole subtree). `>` is only legal as
+ * the final segment; empty segments are dropped.
+ */
+function channelPath(channel: string): string {
+  const segs = channel.split(".").map((s) => s.trim()).filter((s) => s.length > 0);
+  if (segs.length === 0) return "_";
+  return segs
+    .map((s, i) => {
+      if (s === ">") {
+        if (i !== segs.length - 1)
+          throw new Error(`channel "${channel}": '>' is only valid as the last segment`);
+        return ">";
+      }
+      return s === "*" ? "*" : token(s);
+    })
+    .join(".");
+}
+
 export function chatSubject(space: string, channel: string): string {
-  return `${spacePrefix(space)}.chat.${token(channel)}`;
+  return `${spacePrefix(space)}.chat.${channelPath(channel)}`;
+}
+
+/** True if a channel names a concrete sub-channel (no `*`/`>`) — i.e. it can be
+ *  *published* to. Subscriptions may be wildcard; publishes must be concrete. */
+export function isConcreteChannel(channel: string): boolean {
+  return !channel.split(".").some((s) => s.trim() === "*" || s.trim() === ">");
+}
+
+/** Does NATS subject `pattern` (with `*`/`>`) match `subject`? */
+function subjectMatches(pattern: string, subject: string): boolean {
+  const p = pattern.split(".");
+  const s = subject.split(".");
+  for (let i = 0; i < p.length; i++) {
+    if (p[i] === ">") return true; // matches all remaining tokens
+    if (i >= s.length) return false;
+    if (p[i] === "*") continue;
+    if (p[i] !== s[i]) return false;
+  }
+  return p.length === s.length;
+}
+
+/** Drop exact duplicates and any subject subsumed by a more-general one — JetStream
+ *  rejects a consumer whose `filter_subjects` overlap, so `[team.>, team.backend]`
+ *  must collapse to `[team.>]` before binding the chat consumer. */
+export function collapseFilterSubjects(subjects: string[]): string[] {
+  const uniq = [...new Set(subjects)];
+  return uniq.filter((x) => !uniq.some((y) => y !== x && subjectMatches(y, x)));
 }
 
 /** Unicast: a specific instance's inbox. */

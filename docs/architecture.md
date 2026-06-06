@@ -8,7 +8,7 @@
 Swarl borrows vocabulary and shapes from two agent frameworks so we stay interoperable
 rather than siloed — but implements them over NATS/JetStream.
 
-**From A2A** — the *data shapes*: `AgentCard` (identity / role / capabilities / skills),
+**From A2A** — the *data shapes*: `AgentCard` (identity / role / tags / skills),
 `Message` / `Part` (text & data), `Artifact`, and correlation ids (`contextId`). We do
 **not** adopt A2A's HTTP/JSON-RPC transport, `Task` RPCs, or its request/response server
 model — those don't fit lateral pub/sub.
@@ -19,8 +19,11 @@ model — those don't fit lateral pub/sub.
   (a role / agent-type, e.g. `reviewer`); `instance` = one specific endpoint.
 - **Three delivery modes:** **multicast** (to a channel — everyone), **unicast** (to one
   instance), **anycast** (to *any one* instance of a service — delegation / load-balancing).
+- **Hierarchical channels** (NATS-subject style): a channel name is dotted — publish to a
+  concrete `team.backend`, subscribe to a subtree with `team.>` (or one level with `team.*`).
+  Flat names (`general`) still work. Publishing is always concrete; only subscriptions wildcard.
 - **Sessions + moderator** (managed groups with admit/remove) — *deferred*, but the design
-  leaves room for it; channels are open for now.
+  leaves room for it.
 
 We do **not** adopt SLIM's Rust data plane, gRPC transport, or MLS encryption — NATS/
 JetStream replaces that layer and adds the durability + presence SLIM leaves to the app.

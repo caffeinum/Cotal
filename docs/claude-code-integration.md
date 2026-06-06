@@ -43,8 +43,8 @@ Markdown file with YAML-ish frontmatter, the same shape Claude Code uses for sub
 name: dave              # → SWARL_NAME / card.name
 role: builder           # → SWARL_ROLE / card.role (presence + anycast)
 description: …          # → card.description (A2A-style)
-capabilities: [edit, test]
-channels: [general]     # → SWARL_CHANNELS
+tags: [edit, test]
+channels: [general, team.>]   # → SWARL_CHANNELS; channels are hierarchical (subscribe a subtree)
 model: opus             # optional → claude --model
 ---
 You are a builder on a shared mesh of peer agents…   ← the body is the persona
