@@ -66,8 +66,8 @@ differ only in how they *run* the spec:
 
 | Launcher | How to point at a file |
 |---|---|
-| Manager (supervised PTY) | `swarl start --name dave` (auto-discovers `.swarl/agents/dave.md` in the manager's workspace) or `--config <path>` |
-| No-manager script | `scripts/join-claude.sh <name-or-path>` (foreground `claude`) |
+| Manager (supervised PTY) | `swarl start --name dave` (auto-discovers `.swarl/agents/dave.md` in the manager's workspace) or `--config <path>` — detached; view via console / `swarl attach` |
+| Foreground (`@swarl/launcher`) | `swarl spawn <name-or-path>` — the real Claude TUI takes over this terminal (run it inside a cmux/tmux pane to multiplex) |
 
 `.swarl/` is gitignored (user-local, like `.claude/`); the demo ships committed example files under
 [`examples/01-lateral-coordination/agents/`](../examples/01-lateral-coordination/agents/) to point at

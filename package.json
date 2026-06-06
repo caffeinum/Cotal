@@ -17,6 +17,7 @@
     "@swarl/cli": "workspace:*",
     "@swarl/connector": "workspace:*",
     "@swarl/core": "workspace:*",
+    "@swarl/launcher": "workspace:*",
     "@swarl/manager": "workspace:*"
   },
   "devDependencies": {

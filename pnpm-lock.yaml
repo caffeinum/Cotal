@@ -17,6 +17,9 @@ importers:
       '@swarl/core':
         specifier: workspace:*
         version: link:packages/core
+      '@swarl/launcher':
+        specifier: workspace:*
+        version: link:implementations/launcher
       '@swarl/manager':
         specifier: workspace:*
         version: link:implementations/manager
@@ -67,6 +70,12 @@ importers:
         version: 4.22.4
 
   implementations/cli:
+    dependencies:
+      '@swarl/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+
+  implementations/launcher:
     dependencies:
       '@swarl/core':
         specifier: workspace:*

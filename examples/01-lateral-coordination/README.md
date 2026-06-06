@@ -109,8 +109,9 @@ Role + identity + a persona can come from an [agent file](./agents/) instead of 
 frontmatter is the identity, the Markdown body is the system prompt:
 
 ```
-swarl start --agent claude --name dave --config examples/01-lateral-coordination/agents/dave.md
-scripts/join-claude.sh examples/01-lateral-coordination/agents/dave.md   # same thing, no manager
+swarl start --agent claude --name dave --config examples/01-lateral-coordination/agents/dave.md  # manager, detached PTY
+swarl spawn --agent claude --name dave --config examples/01-lateral-coordination/agents/dave.md  # foreground, in this terminal
+swarl spawn dave                                                                                 # …or the shorthand (./.swarl/agents/dave.md)
 ```
 
 A bare `swarl start --name dave` also auto-discovers `.swarl/agents/dave.md` in the manager's
