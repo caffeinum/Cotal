@@ -3,8 +3,10 @@
 > Hook source: [code.claude.com/docs/en/hooks](https://code.claude.com/docs/en/hooks) (Claude Code 2.1.16x — 31 events).
 
 The connector turns a real `claude` session into a Swarl mesh peer: a bundled plugin inside the
-session joins NATS, maps lifecycle hooks to presence, and exposes the mesh tools. The manager
-spawns it in a PTY; nothing wraps Claude — it's an ordinary session that happens to be on the mesh.
+session joins NATS, maps lifecycle hooks to presence, and exposes the mesh tools — messaging,
+presence, and `swarl_spawn` (ask the manager to grow the team; the new teammate joins as a
+lateral peer). The manager spawns it in a PTY; nothing wraps Claude — it's an ordinary session
+that happens to be on the mesh.
 
 ## How a session joins
 
@@ -67,7 +69,7 @@ differ only in how they *run* the spec:
 | Launcher | How to point at a file |
 |---|---|
 | Manager (supervised PTY) | `swarl start --name dave` (auto-discovers `.swarl/agents/dave.md` in the manager's workspace) or `--config <path>` — detached; view via console / `swarl attach` |
-| Foreground (`@swarl/launcher`) | `swarl spawn <name-or-path>` — the real Claude TUI takes over this terminal (run it inside a cmux/tmux pane to multiplex) |
+| Foreground (`swarl spawn`) | `swarl spawn <name-or-path>` — the real Claude TUI takes over this terminal (run it inside a cmux/tmux pane to multiplex) |
 
 `.swarl/` is gitignored (user-local, like `.claude/`); the demo ships committed example files under
 [`examples/01-lateral-coordination/agents/`](../examples/01-lateral-coordination/agents/) to point at

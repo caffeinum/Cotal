@@ -1,0 +1,29 @@
+{
+  "commands": [
+    {
+      "name": "Swarl: start mesh",
+      "keywords": ["swarl", "nats", "mesh", "up"],
+      "command": "bash -lc 'cd $(git rev-parse --show-toplevel) && pnpm swarl up'"
+    },
+    {
+      "name": "Swarl: launch orchestrator",
+      "keywords": ["swarl", "orchestrator", "claude"],
+      "command": "bash -lc '$(git rev-parse --show-toplevel)/examples/02-cmux-handoff/run-agent.sh orchestrator'"
+    },
+    {
+      "name": "Swarl: launch todo-api",
+      "keywords": ["swarl", "api", "claude"],
+      "command": "bash -lc '$(git rev-parse --show-toplevel)/examples/02-cmux-handoff/run-agent.sh todo-api'"
+    },
+    {
+      "name": "Swarl: launch todo-web",
+      "keywords": ["swarl", "web", "claude"],
+      "command": "bash -lc '$(git rev-parse --show-toplevel)/examples/02-cmux-handoff/run-agent.sh todo-web'"
+    },
+    {
+      "name": "Swarl: launch todo-docs",
+      "keywords": ["swarl", "docs", "claude"],
+      "command": "bash -lc '$(git rev-parse --show-toplevel)/examples/02-cmux-handoff/run-agent.sh todo-docs'"
+    }
+  ]
+}

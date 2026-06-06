@@ -1,6 +1,6 @@
 import type { LaunchSpec } from "@swarl/core";
 
-export type RuntimeKind = "pty" | "tmux";
+export type RuntimeKind = "pty" | "tmux" | "cmux";
 
 /** A live attach onto a running agent's terminal — the stream `swarl attach`
  *  (and, later, the browser console) consumes. PTY frames flow here directly,

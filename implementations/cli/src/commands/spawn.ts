@@ -6,28 +6,23 @@ import {
   loadAgentFile,
   registry,
   type AgentDef,
-  type Command,
   type Connector,
 } from "@swarl/core";
 
 /**
- * @swarl/launcher — an opinionated CLI surface that launches an agent in the
- * FOREGROUND of the current terminal from a local agent file, joined to the mesh
- * with its persona.
+ * `swarl spawn <name-or-path>` — launch an agent in the FOREGROUND of this
+ * terminal from a local agent file, joined to the mesh with its persona.
  *
  * Unlike `swarl start` (the manager spawns into a detached PTY you attach to),
  * `swarl spawn` hands the terminal straight to the agent: run it in your shell,
  * or inside a cmux/tmux pane, and the real Claude TUI takes over.
  *
- *   swarl spawn <name-or-path> [--space <s>] [--server <url>] [--agent <a>] [--role <r>]
- *
- * Process-spawning belongs in an implementation (like the manager's runtime), not
- * in @swarl/cli (thin NATS clients). The connector is resolved from the registry
- * by agent type — composed at the root — and its `buildLaunch` is reused verbatim;
- * only *how the spec runs* differs (foreground exec vs supervised PTY). Self-
- * registers its command on import.
+ * The launch recipe is the connector's `buildLaunch` (the single source of truth,
+ * shared with the manager); only *how the spec runs* differs — foreground exec
+ * here vs. a supervised runtime in the manager. The connector is resolved from
+ * the registry by agent type, composed at the root.
  */
-async function spawn(argv: string[]): Promise<void> {
+export async function spawn(argv: string[]): Promise<void> {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
@@ -91,14 +86,3 @@ async function spawn(argv: string[]): Promise<void> {
     });
   });
 }
-
-export const spawnCommand: Command = {
-  kind: "command",
-  name: "spawn",
-  group: "Agents",
-  summary:
-    "launch an agent in this terminal from a file (interactive) — spawn <name-or-path> | --name <n> --config <path> [--agent <a>] [--role <r>]",
-  run: spawn,
-};
-
-registry.register(spawnCommand);

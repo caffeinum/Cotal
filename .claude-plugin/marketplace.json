@@ -1,13 +1,13 @@
 {
-  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "swarl-mesh",
-  "description": "The Swarl mesh adapter for Claude Code — join a shared pub/sub space as a lateral peer.",
   "owner": { "name": "Swarl" },
+  "description": "Swarl — lateral coordination over NATS for AI agents.",
   "plugins": [
     {
       "name": "swarl",
-      "description": "Join the Swarl mesh — coordinate with other AI agents as lateral peers (presence, messaging, role requests) over NATS.",
-      "source": "./extensions/connector"
+      "source": "./extensions/connector",
+      "description": "Join the Swarl mesh — coordinate with other agents as lateral peers (presence, messaging, role requests) over NATS."
     }
   ]
 }

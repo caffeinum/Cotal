@@ -11,6 +11,9 @@ export const c = {
   gray: (s: string) => `\x1b[90m${s}\x1b[0m`,
 };
 
+/** 256-color foreground wrapper (xterm color index 0-255). */
+export const color256 = (n: number) => (s: string) => `\x1b[38;5;${n}m${s}\x1b[0m`;
+
 export function statusBadge(status: PresenceStatus): string {
   switch (status) {
     case "working":

@@ -169,6 +169,10 @@ abstracted behind one interface (`spawn → handle`, `stop`, `status`, `attach`,
   control (group-kill, restart). No external software to install.
 - **`tmux` / `iTerm2` (opt-in)** — for users already living in a multiplexer who want native
   panes / persistence; auto-detect (if already inside tmux, use it).
+- **`cmux` (opt-in)** — each agent gets its own [cmux](https://github.com/) tab via the
+  `@swarl/cmux` driver. Like tmux you watch it natively, so `attach` points you at the tab
+  rather than streaming. The manager must run inside a live cmux surface (cmux only authorizes
+  its control socket from a real pane). Drives [`examples/02`](../examples/02-cmux-handoff/README.md).
 - **`byo` (floor)** — the manager doesn't own the process; a human runs `swarl claude --role …`
   in their own terminal and the manager just tracks it via presence.
 - **`host` (upgrade)** — headless via the Agent SDK / Codex app-server for structured control +

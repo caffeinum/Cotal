@@ -1,0 +1,33 @@
+{
+  "name": "swarl-remotion",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio",
+    "render:mesh": "remotion render PeerMesh out/peer-mesh.gif --codec=gif --every-nth-frame=3",
+    "render:observer": "remotion render Observer out/observer.gif --codec=gif --every-nth-frame=3",
+    "render:wire": "remotion render WireTrace out/wire-trace.gif --codec=gif --every-nth-frame=3",
+    "render:triptych": "remotion render Triptych out/triptych.gif --codec=gif --every-nth-frame=3",
+    "render:all": "pnpm render:mesh && pnpm render:observer && pnpm render:wire && pnpm render:triptych",
+    "render:frame": "remotion render MeshFrame out/mesh-frame.gif --codec=gif --every-nth-frame=3",
+    "render:full": "remotion render MeshFull out/mesh-full.gif --codec=gif --every-nth-frame=3",
+    "render:banner": "remotion render MeshBanner out/mesh-banner.gif --codec=gif --every-nth-frame=3",
+    "render:ring": "remotion render MeshRing out/mesh-ring.gif --codec=gif --every-nth-frame=3",
+    "render:new": "pnpm render:frame && pnpm render:full && pnpm render:banner && pnpm render:ring"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.465",
+    "@remotion/google-fonts": "4.0.465",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.465"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.12",
+    "typescript": "5.6.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  }
+}

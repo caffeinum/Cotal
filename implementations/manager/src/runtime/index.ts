@@ -2,13 +2,14 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { PtyRuntime } from "./pty.js";
 import { TmuxRuntime, tmuxAvailable } from "./tmux.js";
+import { CmuxRuntime, cmuxAvailable } from "./cmux.js";
 import type { Runtime, RuntimeKind } from "./types.js";
 
 export type { Runtime, RuntimeKind, AgentHandle, AttachSession } from "./types.js";
 
 /** How a manager picks its backend. `auto` → tmux iff already inside a tmux
- *  session, else pty (the default). No silent fallback: an explicit `tmux` with
- *  tmux missing throws. */
+ *  session, else pty (the default). `cmux` is opt-in only (a tab per agent). No
+ *  silent fallback: an explicit backend whose tool is missing throws. */
 export type RuntimeMode = RuntimeKind | "auto";
 
 /** Build the runtime a manager will spawn through. `session` names the tmux
@@ -18,6 +19,11 @@ export function createRuntime(mode: RuntimeMode, session: string): Runtime {
   if (kind === "tmux") {
     if (!tmuxAvailable()) throw new Error("tmux runtime requested but tmux is not installed");
     return new TmuxRuntime(session);
+  }
+  if (kind === "cmux") {
+    if (!cmuxAvailable())
+      throw new Error("cmux runtime requested but the cmux app is not reachable");
+    return new CmuxRuntime();
   }
   return new PtyRuntime();
 }
