@@ -1,6 +1,7 @@
 export * from "./types.js";
 export * from "./subjects.js";
 export * from "./link.js";
+export * from "./identity.js";
 export * from "./agent-file.js";
 export * from "./endpoint.js";
 export * from "./connector.js";

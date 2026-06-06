@@ -71,6 +71,7 @@ export class MeshAgent extends EventEmitter {
       tls: config.tls,
       channels: config.channels,
       card: {
+        id: config.id,
         name: config.name,
         role: config.role,
         kind: config.kind,

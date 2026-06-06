@@ -9,6 +9,9 @@ import { DEFAULT_SERVER, loadAgentFile, parseJoinLink, type AgentDef, type Endpo
  */
 export interface AgentConfig {
   space: string;
+  /** Stable agent id (nkey public key) from the launcher; falls back to a random
+   *  uuid in the endpoint when absent (unmanaged sessions). */
+  id?: string;
   name: string;
   role?: string;
   description?: string;
@@ -55,6 +58,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AgentConfig
   const channels = splitList(env.SWARL_CHANNELS);
   return {
     space: env.SWARL_SPACE?.trim() || link?.space || "demo",
+    id: env.SWARL_ID?.trim() || undefined,
     name,
     role: env.SWARL_ROLE?.trim() || def?.role || undefined,
     description: def?.description,

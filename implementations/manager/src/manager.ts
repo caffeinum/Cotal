@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { SwarlEndpoint, agentFilePath, loadAgentFile, registry } from "@swarl/core";
+import { SwarlEndpoint, agentFilePath, loadAgentFile, newIdentity, registry } from "@swarl/core";
 import type { Connector, ControlReply, ControlRequest } from "@swarl/core";
 import {
   createRuntime,
@@ -25,6 +25,10 @@ interface ManagedAgent {
   name: string;
   role?: string;
   agent: string;
+  /** Stable id (nkey public key) the manager assigned this agent at spawn. */
+  id: string;
+  /** Private nkey seed, kept so a later step can mint matching creds for this id. */
+  seed: string;
   startedAt: number;
   handle: AgentHandle;
 }
@@ -129,6 +133,9 @@ export class Manager {
     }
     // --role overrides the file; the file fills it in for bookkeeping otherwise.
     let role = args.role ? String(args.role) : undefined;
+    // A stable nkey identity assigned at spawn: the public key is the agent's card.id
+    // (threaded via SWARL_ID); the seed is retained to mint matching creds later.
+    const identity = newIdentity();
     let handle: AgentHandle;
     try {
       const connector = registry.resolve<Connector>("connector", agent);
@@ -137,6 +144,7 @@ export class Manager {
         space: this.space,
         name,
         role,
+        id: identity.id,
         servers: this.servers,
         configPath,
       });
@@ -144,8 +152,16 @@ export class Manager {
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    this.agents.set(name, { name, role, agent, startedAt: Date.now(), handle });
-    return { ok: true, data: { name, role, agent, mode: handle.kind } };
+    this.agents.set(name, {
+      name,
+      role,
+      agent,
+      id: identity.id,
+      seed: identity.seed,
+      startedAt: Date.now(),
+      handle,
+    });
+    return { ok: true, data: { name, role, agent, id: identity.id, mode: handle.kind } };
   }
 
   private opStop(args: Record<string, unknown>): ControlReply {
