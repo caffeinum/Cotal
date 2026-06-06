@@ -1,0 +1,25 @@
+{
+  "name": "@swarl/openai-agents",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@openai/agents": "^0.11.6",
+    "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "@swarl/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@swarl/core": "workspace:*",
+    "tsx": "^4.22.4"
+  }
+}
