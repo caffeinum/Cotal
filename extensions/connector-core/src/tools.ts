@@ -166,4 +166,34 @@ export function registerSwarlTools(server: McpServer, agent: MeshAgent, config: 
       }
     },
   );
+
+  server.registerTool(
+    "swarl_spawn",
+    {
+      title: "Swarl: spawn a new teammate",
+      description:
+        "Ask the manager to start a new peer endpoint in your space. It joins the mesh as a lateral peer (and, when the manager runs the cmux runtime, appears in its own tab). Use when the team needs another agent.",
+      inputSchema: {
+        name: z.string().describe("Unique name for the new peer."),
+        role: z
+          .string()
+          .optional()
+          .describe("Optional role for the new peer (e.g. worker, reviewer)."),
+      },
+    },
+    async ({ name, role }) => {
+      try {
+        const reply = await agent.spawn(name, role);
+        if (!reply.ok) return fail(`Couldn't spawn ${name}: ${reply.error ?? "manager refused"}`);
+        const mode = (reply.data as { mode?: string } | undefined)?.mode;
+        return text(
+          `Spawning ${role ? `${name}/${role}` : name}${mode ? ` (${mode})` : ""} — it will appear in the roster shortly.`,
+        );
+      } catch (e) {
+        return fail(
+          `Couldn't spawn ${name}: no manager reachable (${(e as Error).message}). Is the manager running?`,
+        );
+      }
+    },
+  );
 }

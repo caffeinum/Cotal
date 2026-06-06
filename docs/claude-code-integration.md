@@ -3,8 +3,10 @@
 > Hook source: [code.claude.com/docs/en/hooks](https://code.claude.com/docs/en/hooks) (Claude Code 2.1.16x — 31 events).
 
 The connector turns a real `claude` session into a Swarl mesh peer: a bundled plugin inside the
-session joins NATS, maps lifecycle hooks to presence, and exposes the mesh tools. The manager
-spawns it in a PTY; nothing wraps Claude — it's an ordinary session that happens to be on the mesh.
+session joins NATS, maps lifecycle hooks to presence, and exposes the mesh tools — messaging,
+presence, and `swarl_spawn` (ask the manager to grow the team; the new teammate joins as a
+lateral peer). The manager spawns it in a PTY; nothing wraps Claude — it's an ordinary session
+that happens to be on the mesh.
 
 > The mesh runtime — agent, `swarl_*` tools, hook relay — lives in
 > [`@swarl/connector-core`](../extensions/connector-core); this package is the Claude-specific adapter
@@ -28,11 +30,73 @@ claude --dangerously-load-development-channels plugin:swarl@swarl-mesh
   `node` (`pnpm --filter @swarl/connector-claude-code bundle`); the [`.mcp.json`](../extensions/connector-claude-code/.mcp.json)
   and [`hooks.json`](../extensions/connector-claude-code/hooks/hooks.json) point at the bundles. Bundling is
   required because pnpm's symlinked `node_modules` don't survive Claude's copy-install.
-- **Identity-gated.** Connector code requires `SWARL_NAME` (`hasIdentity()` in
+- **Identity-gated.** Connector code requires `SWARL_NAME` *or* `SWARL_LINK` (`hasIdentity()` in
   [`config.ts`](../extensions/connector-core/src/config.ts)); a plain `claude` with no `SWARL_*` env
   stays inert and never joins — so an operator's own sessions in the repo don't appear as stray peers.
 - **Hands-free spawn.** The dev-channels flag prints a one-time "Enter to confirm" prompt; the PTY
   runtime auto-clears it via `LaunchSpec.confirm`, so a supervised launch needs no keypress.
+
+## Agent files (persona + identity)
+
+An agent's identity and persona can live in a local file instead of being passed flag-by-flag — a
+Markdown file with YAML-ish frontmatter, the same shape Claude Code uses for subagents:
+
+```
+.swarl/agents/<name>.md
+---
+name: dave              # → SWARL_NAME / card.name
+role: builder           # → SWARL_ROLE / card.role (presence + anycast)
+description: …          # → card.description (A2A-style)
+tags: [edit, test]      # → card.tags ("what it can do")
+channels: [general]     # → SWARL_CHANNELS
+model: opus             # optional → claude --model
+---
+You are a builder on a shared mesh of peer agents…   ← the body is the persona
+```
+
+- **Frontmatter = identity** (an [`AgentCard`](../packages/core/src/types.ts)); **body = persona** —
+  appended to the session's system prompt with `claude --append-system-prompt`. That's the only
+  field that *must* be applied at launch; the session can't change its system prompt afterward.
+- **Discovery is by name.** A launcher resolves a bare name to `.swarl/agents/<name>.md` (via
+  [`agentFilePath`/`loadAgentFile`](../packages/core/src/agent-file.ts)) — the directory convention,
+  not an HTTP `/.well-known` card. Mesh discovery stays NATS presence: the card built from the file
+  is what gets broadcast.
+- **One ref, like the join link.** The launcher sets `SWARL_AGENT_FILE=<abs path>` (the *who*) the
+  way `SWARL_LINK` carries the *where*; the joined session reads its card straight from the file via
+  `configFromEnv`. Individual `SWARL_*` vars still override it.
+- **Persona is a short contract, not a title.** Expert-persona prompts ("you are a world-class…")
+  don't reliably improve accuracy — keep the body to what the agent does and how it coordinates.
+
+Every launcher consumes a file the same way (`loadAgentFile → connector.buildLaunch → run`); they
+differ only in how they *run* the spec:
+
+| Launcher | How to point at a file |
+|---|---|
+| Manager (supervised PTY) | `swarl start --name dave` (auto-discovers `.swarl/agents/dave.md` in the manager's workspace) or `--config <path>` — detached; view via console / `swarl attach` |
+| Foreground (`swarl spawn`) | `swarl spawn <name-or-path>` — the real Claude TUI takes over this terminal (run it inside a cmux/tmux pane to multiplex) |
+
+`.swarl/` is gitignored (user-local, like `.claude/`); the demo ships committed example files under
+[`examples/01-lateral-coordination/agents/`](../examples/01-lateral-coordination/agents/) to point at
+with `--config`.
+
+## One-link join
+
+A single **join link** carries server + auth + space, so a peer joins by pasting one string
+instead of setting several env vars:
+
+```
+swarls://<token>@host:4222/<space>?channel=general   # swarls:// = TLS, swarl:// = plaintext
+```
+
+- Humans: `swarl join --link swarls://…` (name defaults to the OS user).
+- Agents: `SWARL_LINK=swarls://… claude …` — the connector expands it into space / servers /
+  token and auto-joins; setting `SWARL_LINK` alone satisfies `hasIdentity()`. Individual
+  `SWARL_*` vars (and `SWARL_TOKEN` / `SWARL_TLS=1`) still override the link.
+
+The nats.js client does **not** read credentials from a URL, so the link is *ours*: we parse it
+([`link.ts`](../packages/core/src/link.ts)) and pass `token` / `user`+`pass` / `tls` as explicit
+`connect()` options. Isolation is **soft** — one shared token, one NATS account, spaces separated
+only by the `swarl.<space>.*` subject prefix. Hard isolation (account-per-space) stays deferred.
 
 ## Presence mapping
 

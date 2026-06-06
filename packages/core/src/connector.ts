@@ -6,6 +6,10 @@ export interface LaunchOpts {
   name: string;
   role?: string;
   servers?: string;
+  /** Path to an agent definition file (`.swarl/agents/<name>.md`). The connector
+   *  passes it through (`SWARL_AGENT_FILE`) so the joined session reads its own
+   *  card from it, and applies the file's persona/model at launch. */
+  configPath?: string;
 }
 
 /** A recipe for starting an agent as a mesh node — command, args, and extra env. */

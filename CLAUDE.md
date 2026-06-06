@@ -21,12 +21,13 @@ pnpm + TypeScript ESM monorepo — four dependency tiers, one-way deps, Node ≥
 - **`packages/*` — the protocol** (generic, the standard).
   - **@swarl/core** — endpoint, subjects, message types; the NATS client layer + extension contracts (`Connector`, `Command`) and the `Registry` they self-register into.
 - **`extensions/*` — pluggable adapters** (peer-depend core; self-register on import).
-  - **@swarl/connector-core** — shared MCP-bridge runtime (mesh agent, `swarl_*` tools, hook relay); the two adapters are thin clients over it.
+  - **@swarl/connector-core** — shared MCP-bridge runtime (mesh agent, `swarl_*` tools incl. `swarl_spawn`, hook relay); the two adapters are thin clients over it.
   - **@swarl/connector-claude-code** — Claude Code adapter (installed plugin + `claude/channel` push).
   - **@swarl/connector-codex** — Codex adapter (pull-only MCP server injected via `codex -c`; no plugin, no hooks).
+  - **@swarl/cmux** — thin driver over the [cmux](https://github.com/) CLI (open a workspace/tab, send keys); used by the manager's `cmux` runtime and example launch scripts.
 - **`implementations/*` — opinionated surfaces** over core (self-contained; never import each other).
-  - **@swarl/cli** — minimal mesh CLI: `up`, `join`, `watch` (thin NATS clients, no process logic).
-  - **@swarl/manager** — agent supervisor: a mesh endpoint that spawns/manages nodes via a pluggable `Runtime` (`pty` default / `tmux` opt-in), plus its own control-plane commands (`start`/`stop`/`ps`/`attach`) and a WS attach endpoint.
+  - **@swarl/cli** — mesh CLI: `up`, `join`, `watch`, `console` (thin NATS clients) plus `spawn` — a foreground agent launch reusing the connector's launch recipe.
+  - **@swarl/manager** — agent supervisor: a mesh endpoint that spawns/manages nodes via a pluggable `Runtime` (`pty` default / `tmux` / `cmux`), plus its own control-plane commands (`start`/`stop`/`ps`/`attach`) and a WS attach endpoint.
 - **`bin/swarl.ts` — composition root** for the `swarl` binary: imports the implementations it wants (which self-register their commands) and runs them.
 - **`examples/*` — use-cases** (composition roots; private, never published).
 

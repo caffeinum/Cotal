@@ -1,0 +1,75 @@
+/**
+ * The Swarl join link — the onboarding half of the wire contract (v0).
+ *
+ *   swarl://[token@]host[:port]/space[?channel=a,b]    plaintext
+ *   swarls://[token@]host[:port]/space[?channel=a,b]   TLS required
+ *   swarl://user:pass@host/space                       user/password auth
+ *
+ * One copy-pasteable string carries server + credentials + space, so a peer
+ * joins with a single value. The nats.js client does NOT read credentials from
+ * a URL, so we parse them out here and hand them to connect() as options.
+ */
+export interface JoinLink {
+  /** nats:// server URL (auth is carried separately, never in this string). */
+  servers: string;
+  space: string;
+  /** Channels from the link, if any (?channel=a,b). */
+  channels?: string[];
+  /** Whether a TLS connection is required. */
+  tls: boolean;
+  /** Bare token (userinfo without a password). */
+  token?: string;
+  /** Username (userinfo with a password). */
+  user?: string;
+  pass?: string;
+}
+
+/** Parse a `swarl://` / `swarls://` join link. Throws on anything malformed. */
+export function parseJoinLink(link: string): JoinLink {
+  const tls = link.startsWith("swarls://");
+  if (!tls && !link.startsWith("swarl://"))
+    throw new Error(`not a Swarl link (expected swarl:// or swarls://): ${link}`);
+
+  // Reparse under a "special" scheme so the WHATWG URL parser populates the
+  // authority (credentials/host/port) reliably — non-special schemes don't.
+  const u = new URL(link.replace(/^swarls?:\/\//, tls ? "https://" : "http://"));
+  if (!u.hostname) throw new Error(`Swarl link has no host: ${link}`);
+
+  const space = decodeURIComponent(u.pathname.replace(/^\/+/, "").split("/")[0] ?? "");
+  if (!space) throw new Error(`Swarl link has no space (swarl://host/<space>): ${link}`);
+
+  const chParam = u.searchParams.get("channels") ?? u.searchParams.get("channel");
+  const channels = chParam
+    ? chParam.split(",").map((s) => s.trim()).filter(Boolean)
+    : undefined;
+
+  const user = u.username ? decodeURIComponent(u.username) : undefined;
+  const pass = u.password ? decodeURIComponent(u.password) : undefined;
+
+  return {
+    servers: `nats://${u.hostname}:${u.port || "4222"}`,
+    space,
+    channels,
+    tls,
+    // userinfo with no ':' is a bare token; with ':' it's user/password.
+    token: user && !pass ? user : undefined,
+    user: pass ? user : undefined,
+    pass: pass || undefined,
+  };
+}
+
+/** Build a join link from its parts (for an operator handing one out). */
+export function formatJoinLink(opts: {
+  host: string;
+  port?: number;
+  space: string;
+  token?: string;
+  tls?: boolean;
+  channels?: string[];
+}): string {
+  const scheme = opts.tls ? "swarls" : "swarl";
+  const cred = opts.token ? `${encodeURIComponent(opts.token)}@` : "";
+  const port = opts.port ? `:${opts.port}` : "";
+  const query = opts.channels?.length ? `?channel=${opts.channels.join(",")}` : "";
+  return `${scheme}://${cred}${opts.host}${port}/${encodeURIComponent(opts.space)}${query}`;
+}

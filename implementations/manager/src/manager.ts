@@ -1,4 +1,5 @@
-import { SwarlEndpoint, registry } from "@swarl/core";
+import { existsSync } from "node:fs";
+import { SwarlEndpoint, agentFilePath, loadAgentFile, registry } from "@swarl/core";
 import type { Connector, ControlReply, ControlRequest } from "@swarl/core";
 import {
   createRuntime,
@@ -109,16 +110,30 @@ export class Manager {
     const name = String(args.name ?? "").trim();
     if (!name) return { ok: false, error: "name required" };
     if (this.agents.has(name)) return { ok: false, error: `agent "${name}" already running` };
-    const role = args.role ? String(args.role) : undefined;
     const agent = args.agent ? String(args.agent) : "swarl";
+
+    // Resolve an agent file from the manager's own workspace — an explicit
+    // --config must exist; otherwise discover .swarl/agents/<name>.md if present.
+    let configPath: string | undefined;
+    if (args.config) {
+      configPath = agentFilePath(this.workspaceRoot, String(args.config));
+      if (!existsSync(configPath)) return { ok: false, error: `agent file not found: ${configPath}` };
+    } else {
+      const f = agentFilePath(this.workspaceRoot, name);
+      if (existsSync(f)) configPath = f;
+    }
+    // --role overrides the file; the file fills it in for bookkeeping otherwise.
+    let role = args.role ? String(args.role) : undefined;
     let handle: AgentHandle;
     try {
       const connector = registry.resolve<Connector>("connector", agent);
+      if (configPath && !role) role = loadAgentFile(configPath).role;
       const spec = connector.buildLaunch({
         space: this.space,
         name,
         role,
         servers: this.servers,
+        configPath,
       });
       handle = this.runtime.spawn(name, spec, this.workspaceRoot);
     } catch (e) {

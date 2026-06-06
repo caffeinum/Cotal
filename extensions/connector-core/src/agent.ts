@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import {
   SwarlEndpoint,
+  type ControlReply,
   type Delivery,
   type Presence,
   type PresenceStatus,
@@ -64,8 +65,18 @@ export class MeshAgent extends EventEmitter {
     this.ep = new SwarlEndpoint({
       space: config.space,
       servers: config.servers,
+      token: config.token,
+      user: config.user,
+      pass: config.pass,
+      tls: config.tls,
       channels: config.channels,
-      card: { name: config.name, role: config.role, kind: config.kind },
+      card: {
+        name: config.name,
+        role: config.role,
+        kind: config.kind,
+        description: config.description,
+        capabilities: config.capabilities,
+      },
     });
     this.ep.on("message", (m: SwarlMessage, d: Delivery) => this.ingest(m, d));
     this.ep.on("error", (e: Error) => this.log(`endpoint error: ${e.message}`));
@@ -186,6 +197,16 @@ export class MeshAgent extends EventEmitter {
     if (!peer) throw new Error(`no peer "${target}" in space "${this.config.space}"`);
     const msg = await this.ep.unicast(peer.card.id, text);
     return { msg, peer };
+  }
+
+  // ---- supervision ---------------------------------------------------------
+
+  /** Ask the manager to spawn a new teammate into this space (its `start` op).
+   *  How it lands — a detached PTY, a tmux window, a cmux tab — is the manager's
+   *  runtime; from here it just joins the mesh as a lateral peer. */
+  async spawn(name: string, role?: string): Promise<ControlReply> {
+    this.assertConnected();
+    return this.ep.requestControl("manager", { op: "start", args: { name, role } });
   }
 
   // ---- presence ------------------------------------------------------------

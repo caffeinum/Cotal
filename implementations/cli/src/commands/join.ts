@@ -1,8 +1,10 @@
 import { parseArgs } from "node:util";
+import { userInfo } from "node:os";
 import * as readline from "node:readline";
 import {
   SwarlEndpoint,
   isReachable,
+  parseJoinLink,
   DEFAULT_SERVER,
   type Delivery,
   type EndpointKind,
@@ -22,27 +24,37 @@ export async function join(argv: string[]): Promise<void> {
       channel: { type: "string" },
       server: { type: "string" },
       kind: { type: "string" },
+      link: { type: "string" },
+      token: { type: "string" },
+      tls: { type: "boolean" },
     },
   });
 
-  const space = values.space ?? "demo";
-  const name = values.name;
-  if (!name) {
-    console.error(c.red("--name is required"));
-    process.exit(1);
-  }
-  const server = values.server ?? DEFAULT_SERVER;
-  const channel = values.channel ?? "general";
+  // A join link carries server + auth + space; explicit flags still override it.
+  const link = values.link ? parseJoinLink(values.link) : undefined;
+  const space = values.space ?? link?.space ?? "demo";
+  const name = values.name ?? userInfo().username;
+  const server = values.server ?? link?.servers ?? DEFAULT_SERVER;
+  const channel = values.channel ?? link?.channels?.[0] ?? "general";
+  const auth = {
+    token: values.token ?? link?.token,
+    user: link?.user,
+    pass: link?.pass,
+    tls: values.tls ?? link?.tls ?? false,
+  };
 
-  if (!(await isReachable(server))) {
+  if (!(await isReachable(server, auth))) {
     console.error(c.red(`Can't reach NATS at ${server}.`));
-    console.error(c.dim("Start it in another terminal:  pnpm swarl up"));
+    console.error(
+      c.dim(link ? "Check the join link and that the host is up." : "Start it in another terminal:  pnpm swarl up"),
+    );
     process.exit(1);
   }
 
   const ep = new SwarlEndpoint({
     space,
     servers: server,
+    ...auth,
     channels: [channel],
     card: {
       name,

@@ -12,6 +12,8 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "nats": "^2.27.0"
+    "@nats-io/jetstream": "^3.4.0",
+    "@nats-io/kv": "^3.4.0",
+    "@nats-io/transport-node": "^3.4.0"
   }
 }

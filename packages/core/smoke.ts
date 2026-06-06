@@ -3,7 +3,8 @@
  * Requires a nats-server running locally (pnpm swarl up).
  */
 import { randomUUID } from "node:crypto";
-import { connect } from "nats";
+import { connect } from "@nats-io/transport-node";
+import { jetstreamManager } from "@nats-io/jetstream";
 import {
   SwarlEndpoint,
   isReachable,
@@ -106,7 +107,7 @@ await a.stop();
 
 // Tear down this run's (uniquely-named) streams + presence bucket — race-free, no litter.
 const cleanup = await connect();
-const jsm = await cleanup.jetstreamManager();
+const jsm = await jetstreamManager(cleanup);
 for (const s of [chatStream(space), dmStream(space), taskStream(space), `KV_${presenceBucket(space)}`]) {
   await jsm.streams.delete(s).catch(() => {});
 }
