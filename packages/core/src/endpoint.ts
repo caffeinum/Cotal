@@ -83,7 +83,14 @@ export interface EndpointOptions {
   inactiveThresholdMs?: number;
 }
 
-/** Events: "message" (SwarlMessage), "presence" (PresenceEvent), "roster" (Presence[]), "error" (Error). */
+/**
+ * Events: "message" (SwarlMessage), "presence" (PresenceEvent), "roster" (Presence[]), "error" (Error).
+ *
+ * Callers MUST attach an "error" listener before `start()`: async faults (incl. NATS
+ * permission denials, surfaced via `watchStatus`) are emitted as "error", and Node throws
+ * synchronously on an unhandled "error" — a missing listener turns any such fault into a
+ * process crash instead of a logged denial.
+ */
 export class SwarlEndpoint extends EventEmitter {
   readonly card: AgentCard;
   readonly space: string;

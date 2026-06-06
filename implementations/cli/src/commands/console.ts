@@ -29,6 +29,7 @@ export async function console_(argv: string[]): Promise<void> {
     watchPresence: true,
     card: { name: "console", kind: "endpoint" },
   });
+  ep.on("error", (e: Error) => console.error(c.red("! " + e.message)));
 
   // Dashboard needs a real terminal; piped/--plain falls back to the classic log.
   if (values.plain || process.stdout.isTTY !== true) await runLog(ep, space);

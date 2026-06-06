@@ -37,6 +37,8 @@ const b = new SwarlEndpoint({
   heartbeatMs: 500,
   ttlMs: 2000,
 });
+a.on("error", (e: Error) => console.error("! alice:", e.message));
+b.on("error", (e: Error) => console.error("! bob:", e.message));
 
 const got: string[] = [];
 b.on("message", (m, d: Delivery) => {
@@ -75,6 +77,7 @@ const carol = new SwarlEndpoint({
   heartbeatMs: 500,
   ttlMs: 2000,
 });
+carol.on("error", (e: Error) => console.error("! carol:", e.message));
 const carolGot: string[] = [];
 carol.on("message", (m, d: Delivery) => {
   carolGot.push(m.parts.map((p) => (p.kind === "text" ? p.text : "")).join(""));

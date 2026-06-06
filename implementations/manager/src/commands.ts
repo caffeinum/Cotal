@@ -47,6 +47,7 @@ async function ask(
     watchPresence: false,
     card: { name: "cli", kind: "endpoint" },
   });
+  ep.on("error", (e: Error) => console.error(c.red("! " + e.message)));
   await ep.start();
   try {
     return await ep.requestControl("manager", { op, args });
