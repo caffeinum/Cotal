@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import signal
 import sys
 import uuid
@@ -92,7 +93,8 @@ def _should_respond(inbox: Inbox, *, self_name: str) -> bool:
     if inbox.kind == "channel":
         if msg.channel == FEEDBACK_CHANNEL:
             return False
-        return self_name.lower() in msg.text().lower()
+        # Whole-word match so a short name (e.g. "ai") doesn't fire on "available".
+        return re.search(rf"\b{re.escape(self_name)}\b", msg.text(), re.IGNORECASE) is not None
     return True
 
 

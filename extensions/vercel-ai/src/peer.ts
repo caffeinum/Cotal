@@ -1,10 +1,16 @@
 import { generateText, tool, stepCountIs } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
-import { MeshAgent, configFromEnv } from "@swarl/core";
+import { MeshAgent, configFromEnv, FEEDBACK_CHANNEL } from "@swarl/core";
 import type { InboxItem } from "@swarl/core";
 
 const MODEL = process.env.OPENAI_MODEL ?? "gpt-4.1";
+
+/** Whole-word, case-insensitive mention check (so a short name like "ai" doesn't match "available"). */
+function mentions(text: string, name: string): boolean {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\b${escaped}\\b`, "i").test(text);
+}
 
 export async function runVercelAgentPeer(): Promise<void> {
   const mesh = new MeshAgent(configFromEnv());
@@ -69,7 +75,7 @@ export async function runVercelAgentPeer(): Promise<void> {
         if (item.kind === "channel") {
           await mesh.send(reply, item.channel);
         } else {
-          await mesh.dm(item.fromName, reply);
+          await mesh.dm(item.fromId, reply);
         }
       }
     } catch (e) {
@@ -85,12 +91,9 @@ export async function runVercelAgentPeer(): Promise<void> {
     // Skip our own echoes.
     if (item.fromId === mesh.id) return;
     // Ignore the feedback channel.
-    if (item.kind === "channel" && item.channel === "feedback") return;
+    if (item.kind === "channel" && item.channel === FEEDBACK_CHANNEL) return;
     // Channel messages: only respond when we're explicitly mentioned.
-    if (item.kind === "channel") {
-      const name = mesh.config.name.toLowerCase();
-      if (!item.text.toLowerCase().includes(name)) return;
-    }
+    if (item.kind === "channel" && !mentions(item.text, mesh.config.name)) return;
     queue.push(item);
     void processNext();
   });

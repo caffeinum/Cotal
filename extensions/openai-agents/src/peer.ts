@@ -1,9 +1,15 @@
 import { Agent, run, tool } from "@openai/agents";
 import { z } from "zod";
-import { MeshAgent, configFromEnv } from "@swarl/core";
+import { MeshAgent, configFromEnv, FEEDBACK_CHANNEL } from "@swarl/core";
 import type { InboxItem } from "@swarl/core";
 
 const DEFAULT_MODEL = "gpt-4o-mini";
+
+/** Whole-word, case-insensitive mention check (so a short name like "ai" doesn't match "available"). */
+function mentions(text: string, name: string): boolean {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\b${escaped}\\b`, "i").test(text);
+}
 
 /**
  * Read-only/awareness tools. Replies are NOT sent by the model — the run loop
@@ -77,7 +83,7 @@ export async function runOpenAIAgentPeer(): Promise<void> {
         if (item.kind === "channel") {
           await mesh.send(output, item.channel);
         } else {
-          await mesh.dm(item.fromName, output);
+          await mesh.dm(item.fromId, output);
         }
       }
     } catch (e) {
@@ -89,18 +95,13 @@ export async function runOpenAIAgentPeer(): Promise<void> {
     }
   }
 
-  const FEEDBACK_CHANNEL = "feedback";
-
   mesh.on("incoming", (item: InboxItem) => {
     // Drop our own echoes.
     if (item.fromId === mesh.id) return;
     // Ignore feedback channel.
     if (item.kind === "channel" && item.channel === FEEDBACK_CHANNEL) return;
     // For channel messages, only respond when mentioned by name.
-    if (item.kind === "channel") {
-      const name = mesh.config.name.toLowerCase();
-      if (!item.text.toLowerCase().includes(name)) return;
-    }
+    if (item.kind === "channel" && !mentions(item.text, mesh.config.name)) return;
     queue.push(item);
     void processNext();
   });
