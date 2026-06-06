@@ -2,7 +2,7 @@
 name: ada
 role: planner
 description: Breaks work into tasks and routes them to the right peers.
-capabilities: [plan, delegate]
+tags: [plan, delegate]
 channels: [general]
 ---
 

@@ -12,7 +12,7 @@ export interface AgentConfig {
   name: string;
   role?: string;
   description?: string;
-  capabilities?: string[];
+  tags?: string[];
   servers: string;
   channels: string[];
   kind: EndpointKind;
@@ -41,7 +41,7 @@ export function hasIdentity(env: NodeJS.ProcessEnv = process.env): boolean {
 /** Build an {@link AgentConfig} from `SWARL_*` environment variables. Two refs
  *  fill many fields at once: `SWARL_LINK` (swarl://token@host/space) supplies the
  *  *where* (server, auth, space); `SWARL_AGENT_FILE` (.swarl/agents/<name>.md)
- *  supplies the *who* (name, role, kind, channels, description, capabilities).
+ *  supplies the *who* (name, role, kind, channels, description, tags).
  *  Individual `SWARL_*` vars override both. Identity is NOT silently defaulted
  *  unless a link is present — guard with {@link hasIdentity} first. */
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AgentConfig {
@@ -58,7 +58,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AgentConfig
     name,
     role: env.SWARL_ROLE?.trim() || def?.role || undefined,
     description: def?.description,
-    capabilities: def?.capabilities,
+    tags: def?.tags,
     servers: env.SWARL_SERVERS?.trim() || link?.servers || DEFAULT_SERVER,
     channels: channels.length ? channels : (def?.channels ?? link?.channels ?? ["general"]),
     kind: (env.SWARL_KIND?.trim() as EndpointKind) || def?.kind || "agent",

@@ -75,7 +75,7 @@ export class MeshAgent extends EventEmitter {
         role: config.role,
         kind: config.kind,
         description: config.description,
-        capabilities: config.capabilities,
+        tags: config.tags,
       },
     });
     this.ep.on("message", (m: SwarlMessage, d: Delivery) => this.ingest(m, d));

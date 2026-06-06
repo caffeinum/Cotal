@@ -41,7 +41,7 @@ Inside a `join` session, type a line to broadcast it; `/who`, `/dm`, `/anycast`,
 ## Core model
 
 - **Endpoint** — any software on the mesh: a long-lived connection with its own presence.
-- **Agent node** — an endpoint with identity, role, and capabilities (an A2A-style `AgentCard`).
+- **Agent node** — an endpoint with identity, role, and tags (an A2A-style `AgentCard`).
 - **Space** — one collaboration, isolated from other spaces.
 - **Channel** — a named topic participants broadcast on and subscribe to.
 - **Presence** — a live roster with each peer's card and state: `idle` / `waiting` /

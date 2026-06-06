@@ -26,7 +26,8 @@ export interface AgentCard {
   role?: string;
   /** A2A-style one-line summary of what this agent does (discovery / observability). */
   description?: string;
-  capabilities?: string[];
+  /** Swarl: free-form "what it can do" tags (A2A skill-tags, flattened) — discovery only. */
+  tags?: string[];
   skills?: AgentSkill[];
   meta?: Record<string, unknown>;
 }

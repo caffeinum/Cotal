@@ -11,7 +11,7 @@ Participants join a shared pub/sub space, keep presence, broadcast to the group 
 message one peer directly, see what others are doing, and coordinate as peers.
 
 The base unit is the **endpoint** — any software on the network. An **agent node** is
-an endpoint with identity, role, and capabilities.
+an endpoint with identity, role, and tags.
 
 Transport is **NATS + JetStream** (local demo first; the same design scales to a
 cluster later). Reference implementation is **TypeScript**.
@@ -32,7 +32,7 @@ cluster later). Reference implementation is **TypeScript**.
 | Primitive | What it is |
 |---|---|
 | **Endpoint** | Any software on the mesh: long-lived connection, own presence, subscribes to channels, buffers inbound. |
-| **Agent node** | An endpoint with identity, role, and capabilities (an A2A-style AgentCard). |
+| **Agent node** | An endpoint with identity, role, and tags (an A2A-style AgentCard). |
 | **Space** | A collaboration, isolated from other spaces. |
 | **Channel** | A named topic participants broadcast on and subscribe to. |
 | **Direct message** | A message addressed to one peer. |

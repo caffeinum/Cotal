@@ -6,7 +6,7 @@
  *   name: builder          # AgentCard-shaped identity in the frontmatter
  *   role: builder
  *   description: …
- *   capabilities: [edit, test]
+ *   tags: [edit, test]
  *   channels: [general]
  *   model: opus            # optional CLI/model override
  *   ---
@@ -26,7 +26,7 @@ export interface AgentDef {
   role?: string;
   kind?: EndpointKind;
   description?: string;
-  capabilities?: string[];
+  tags?: string[];
   channels?: string[];
   /** Model override handed to the agent CLI (e.g. `claude --model`). */
   model?: string;
@@ -97,7 +97,7 @@ export function loadAgentFile(path: string): AgentDef {
     role: str("role"),
     kind: kind as EndpointKind | undefined,
     description: str("description"),
-    capabilities: list("capabilities"),
+    tags: list("tags"),
     channels: list("channels"),
     model: str("model"),
     persona: persona || undefined,
