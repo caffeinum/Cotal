@@ -2,21 +2,23 @@ import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import {
   connect,
-  JSONCodec,
   nanos,
+  type NatsConnection,
+  type Subscription,
+} from "@nats-io/transport-node";
+import {
+  jetstream,
+  jetstreamManager,
   AckPolicy,
   DeliverPolicy,
   DiscardPolicy,
   RetentionPolicy,
   StorageType,
-  type NatsConnection,
-  type Subscription,
   type JetStreamClient,
   type JetStreamManager,
   type ConsumerMessages,
-  type KV,
-  type KvEntry,
-} from "nats";
+} from "@nats-io/jetstream";
+import { Kvm, type KV, type KvEntry } from "@nats-io/kv";
 
 import type {
   AgentCard,
@@ -110,7 +112,6 @@ export class SwarlEndpoint extends EventEmitter {
   private activity?: string;
   private stopped = false;
 
-  private readonly codec = JSONCodec();
 
   constructor(opts: EndpointOptions) {
     super();
@@ -142,10 +143,10 @@ export class SwarlEndpoint extends EventEmitter {
       name: `swarl:${this.card.name}`,
       ...authOpts({ token: this.token, user: this.user, pass: this.pass, tls: this.tls }),
     });
-    this.js = this.nc.jetstream();
+    this.js = jetstream(this.nc);
 
     if (this.doWatch || this.doRegister) {
-      this.kv = await this.js.views.kv(presenceBucket(this.space), { ttl: this.ttlMs });
+      this.kv = await new Kvm(this.nc).create(presenceBucket(this.space), { ttl: this.ttlMs });
     }
 
     if (this.doWatch) {
@@ -164,7 +165,7 @@ export class SwarlEndpoint extends EventEmitter {
     }
 
     if (this.doConsume) {
-      this.jsm = await this.nc.jetstreamManager();
+      this.jsm = await jetstreamManager(this.nc);
       await this.ensureStreams();
       await this.startConsumers();
     }
@@ -268,7 +269,7 @@ export class SwarlEndpoint extends EventEmitter {
       for await (const m of sub) {
         let decoded: SwarlMessage | undefined;
         try {
-          decoded = this.codec.decode(m.data) as SwarlMessage;
+          decoded = m.json<SwarlMessage>();
         } catch {
           decoded = undefined;
         }
@@ -293,12 +294,12 @@ export class SwarlEndpoint extends EventEmitter {
       for await (const m of sub) {
         let reply: ControlReply;
         try {
-          reply = await handler(this.codec.decode(m.data) as ControlRequest);
+          reply = await handler(m.json<ControlRequest>());
         } catch (e) {
           reply = { ok: false, error: (e as Error).message };
         }
         try {
-          m.respond(this.codec.encode(reply));
+          m.respond(JSON.stringify(reply));
         } catch {
           /* no reply inbox */
         }
@@ -315,10 +316,10 @@ export class SwarlEndpoint extends EventEmitter {
     if (!this.nc) throw new Error("endpoint not started");
     const m = await this.nc.request(
       controlServiceSubject(this.space, service),
-      this.codec.encode({ ...req, from: req.from ?? this.ref() }),
+      JSON.stringify({ ...req, from: req.from ?? this.ref() }),
       { timeout: timeoutMs },
     );
-    return this.codec.decode(m.data) as ControlReply;
+    return m.json<ControlReply>();
   }
 
   // ---- presence ------------------------------------------------------------
@@ -344,7 +345,7 @@ export class SwarlEndpoint extends EventEmitter {
   private async publishMsg(subject: string, msg: SwarlMessage): Promise<void> {
     if (!this.js) throw new Error("endpoint not started");
     // msgID = message id → free server-side dedup across JetStream redelivery.
-    await this.js.publish(subject, this.codec.encode(msg), { msgID: msg.id });
+    await this.js.publish(subject, JSON.stringify(msg), { msgID: msg.id });
   }
 
   /** Create the three backing streams for this space (idempotent). */
@@ -426,7 +427,7 @@ export class SwarlEndpoint extends EventEmitter {
       for await (const m of msgs) {
         let msg: SwarlMessage;
         try {
-          msg = this.codec.decode(m.data) as SwarlMessage;
+          msg = m.json<SwarlMessage>();
         } catch (e) {
           m.term(); // undecodable — never redeliver
           this.emit("error", e as Error);
@@ -452,7 +453,7 @@ export class SwarlEndpoint extends EventEmitter {
       activity: this.activity,
       ts: Date.now(),
     };
-    await this.kv.put(this.card.id, this.codec.encode(p));
+    await this.kv.put(this.card.id, JSON.stringify(p));
   }
 
   private async startPresenceWatch(): Promise<void> {
@@ -470,7 +471,7 @@ export class SwarlEndpoint extends EventEmitter {
     }
     let p: Presence;
     try {
-      p = this.codec.decode(e.value) as Presence;
+      p = e.json<Presence>();
     } catch {
       return;
     }
