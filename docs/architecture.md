@@ -62,9 +62,11 @@ examples ──→ one-or-more implementations ──→ core ←(peer)── ex
                       (interoperate at runtime over NATS, not via imports)
 ```
 
-The migration is done: `demos/` use-cases are now `examples/`, `@swarl/connector` is an
-`extensions/` connector that **peer-depends** on core and exports a `Connector`
-(`claudeConnector`), and `@swarl/cli` + `@swarl/manager` are `implementations/` packages.
+The migration is done: `demos/` use-cases are now `examples/`, the connector is split into
+`@swarl/connector-core` (shared mesh runtime) plus two thin adapters — `@swarl/connector-claude-code`
+(`claudeConnector`) and `@swarl/connector-codex` (`codexConnector`) — `extensions/` packages that
+**peer-depend** on core and export a `Connector`, and `@swarl/cli` + `@swarl/manager` are
+`implementations/` packages.
 Assembly lives at the **composition root** — an example (`examples/01/src/manager.ts`) imports
 the manager + the connectors it wants and hands them to the manager (`new Manager({ connectors:
 […] })`), which resolves one by agent type when spawning (unknown ⇒ throws). Implementations
@@ -80,10 +82,10 @@ four surfaces collapse into a **single dual-purpose MCP server**:
 
 | | Claude Code | Codex CLI |
 |---|---|---|
-| **Outbound — ambient** | `http` lifecycle hooks → POST to the local daemon (native http hook, no curl shim) | Hooks + `notify`, or `codex exec --json` event stream → mesh |
+| **Outbound — ambient** | `http` lifecycle hooks → POST to the local daemon (native http hook, no curl shim) | — (hooks are sandboxed; presence is self-reported via `swarl_status`) |
 | **Outbound — deliberate** | MCP tools `swarl_send`/`swarl_dm`/`swarl_anycast` *(same server as the channel)* | MCP tools (same) |
 | **Inbound — pull** | MCP tool `swarl_inbox` *(same server)* | MCP tool (same) |
-| **Inbound — push** | Two native paths — see below | app-server `turn/*` (live) / `resume` (between-turns) |
+| **Inbound — push** | Two native paths — see below | — (pull-only: `swarl_inbox`) |
 
 **The dual-purpose server.** A Claude Code *channel* **is** an MCP server that declares the
 `claude/channel` capability and pushes events via `notifications/claude/channel`. So one
@@ -93,6 +95,13 @@ Swarl MCP server is simultaneously the channel (push), the deliberate-out tools
 Inbound mesh messages arrive in context as
 `<channel source="swarl" from="bob" kind="dm" channel="general">…</channel>`; each meta key
 becomes a tag attribute the agent can read for routing.
+
+**Codex.** The Codex adapter ships the same `swarl_*` MCP server, injected at launch via `codex -c`
+config overrides (no plugin; the operator's `~/.codex` is never written). Codex is **pull-only**: it
+sandboxes lifecycle hooks (they can't reach a control socket), so there is no hook injection or
+`claude/channel` push — the agent reads peer messages with `swarl_inbox` and reports presence with
+`swarl_status`. Spawned agents run autonomously (`approval_policy="never"` +
+`sandbox_mode="workspace-write"`).
 
 **Two injection paths (different control profiles), composed.**
 

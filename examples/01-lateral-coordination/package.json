@@ -9,7 +9,7 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@swarl/connector": "workspace:*",
+    "@swarl/connector-claude-code": "workspace:*",
     "@swarl/core": "workspace:*",
     "@swarl/manager": "workspace:*"
   },

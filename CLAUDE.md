@@ -21,7 +21,9 @@ pnpm + TypeScript ESM monorepo — four dependency tiers, one-way deps, Node ≥
 - **`packages/*` — the protocol** (generic, the standard).
   - **@swarl/core** — endpoint, subjects, message types; the NATS client layer + extension contracts (`Connector`, `Command`) and the `Registry` they self-register into.
 - **`extensions/*` — pluggable adapters** (peer-depend core; self-register on import).
-  - **@swarl/connector** — MCP bridge (`@modelcontextprotocol/sdk`, zod) for Claude Code / Codex.
+  - **@swarl/connector-core** — shared MCP-bridge runtime (mesh agent, `swarl_*` tools, hook relay); the two adapters are thin clients over it.
+  - **@swarl/connector-claude-code** — Claude Code adapter (installed plugin + `claude/channel` push).
+  - **@swarl/connector-codex** — Codex adapter (pull-only MCP server injected via `codex -c`; no plugin, no hooks).
 - **`implementations/*` — opinionated surfaces** over core (self-contained; never import each other).
   - **@swarl/cli** — minimal mesh CLI: `up`, `join`, `watch` (thin NATS clients, no process logic).
   - **@swarl/manager** — agent supervisor: a mesh endpoint that spawns/manages nodes via a pluggable `Runtime` (`pty` default / `tmux` opt-in), plus its own control-plane commands (`start`/`stop`/`ps`/`attach`) and a WS attach endpoint.

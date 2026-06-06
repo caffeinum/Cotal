@@ -1,10 +1,11 @@
 /**
- * Swarl lifecycle hook — a stateless relay.
+ * Swarl lifecycle hook relay — stateless.
  *
- * Claude Code runs this on a lifecycle event and pipes the event JSON (which
- * includes `hook_event_name`) on stdin. We forward it to this session's
- * connector over its local control socket and print the reply for Claude Code
- * to apply. It must NEVER block the session: any error → exit 0, no output.
+ * The agent runtime runs a hook on a lifecycle event and pipes the event JSON (which
+ * includes `hook_event_name`) on stdin. We forward it to this session's connector over
+ * its local control socket and print the reply for the runtime to apply. It must NEVER
+ * block the session: any error → exit 0, no output. Both the Claude Code and Codex hook
+ * entry points are one-liners over {@link runHookRelay}.
  */
 import { connect } from "node:net";
 import { configFromEnv, hasIdentity } from "./config.js";
@@ -23,14 +24,18 @@ function readStdin(): Promise<string> {
   });
 }
 
-function done(out: string): never {
+function done(out: string): void {
   const t = out.trim();
-  if (t) process.stdout.write(t + "\n");
-  process.exit(0); // fail open — a connector that's down or slow never blocks Claude
+  if (!t) return process.exit(0); // fail open — never blocks the session
+  // Flush before exiting: stdout to a pipe is async, so exit()ing right after write() can
+  // truncate a large reply. Exit from the write callback; a 1s backstop guarantees we still leave.
+  process.stdout.write(t + "\n", () => process.exit(0));
+  setTimeout(() => process.exit(0), 1000);
 }
 
-async function main(): Promise<void> {
-  if (!hasIdentity()) return done(""); // plain `claude`, not a managed session — no-op
+/** Relay one hook event from stdin to the connector's control socket and print the reply. */
+export async function runHookRelay(): Promise<void> {
+  if (!hasIdentity()) return done(""); // plain session, not a managed one — no-op
   const raw = (await readStdin()).trim() || "{}";
   const cfg = configFromEnv();
   const sock = connect(controlSocketPath(cfg.space, cfg.name));
@@ -68,5 +73,3 @@ async function main(): Promise<void> {
     finish(reply);
   });
 }
-
-main().catch(() => done(""));

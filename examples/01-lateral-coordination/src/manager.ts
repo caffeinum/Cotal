@@ -1,7 +1,7 @@
 /**
  * Composition root for Demo 1's manager daemon. It picks which connectors this
  * demo can spawn: the built-in `swarl` CLI peer (defined + registered here) plus
- * the Claude Code connector (self-registers when `@swarl/connector` is imported).
+ * the Claude Code connector (self-registers when `@swarl/connector-claude-code` is imported).
  * The manager resolves them from the registry — it never sees this list directly.
  */
 import {
@@ -13,7 +13,7 @@ import {
   type LaunchSpec,
 } from "@swarl/core";
 import { Manager } from "@swarl/manager";
-import "@swarl/connector"; // self-registers the `claude` connector
+import "@swarl/connector-claude-code"; // self-registers the `claude` connector
 
 /** The walking-skeleton peer: a manual CLI endpoint launched via `swarl join`. */
 const swarlConnector: Connector = {
