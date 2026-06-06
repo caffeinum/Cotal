@@ -30,9 +30,9 @@ importers:
 
   examples/01-lateral-coordination:
     dependencies:
-      '@swarl/connector':
+      '@swarl/connector-claude-code':
         specifier: workspace:*
-        version: link:../../extensions/connector
+        version: link:../../extensions/connector-claude-code
       '@swarl/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -44,7 +44,42 @@ importers:
         specifier: ^4.22.4
         version: 4.22.4
 
-  extensions/connector:
+  extensions/connector-claude-code:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.4.3)
+      '@swarl/connector-core':
+        specifier: workspace:*
+        version: link:../connector-core
+    devDependencies:
+      '@swarl/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      esbuild:
+        specifier: ^0.28.0
+        version: 0.28.0
+      tsx:
+        specifier: ^4.22.4
+        version: 4.22.4
+
+  extensions/connector-codex:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.4.3)
+      '@swarl/connector-core':
+        specifier: workspace:*
+        version: link:../connector-core
+      tsx:
+        specifier: ^4.22.4
+        version: 4.22.4
+    devDependencies:
+      '@swarl/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+
+  extensions/connector-core:
     dependencies:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
@@ -56,12 +91,6 @@ importers:
       '@swarl/core':
         specifier: workspace:*
         version: link:../../packages/core
-      esbuild:
-        specifier: ^0.28.0
-        version: 0.28.0
-      tsx:
-        specifier: ^4.22.4
-        version: 4.22.4
 
   implementations/cli:
     dependencies:

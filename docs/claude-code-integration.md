@@ -6,9 +6,13 @@ The connector turns a real `claude` session into a Swarl mesh peer: a bundled pl
 session joins NATS, maps lifecycle hooks to presence, and exposes the mesh tools. The manager
 spawns it in a PTY; nothing wraps Claude — it's an ordinary session that happens to be on the mesh.
 
+> The mesh runtime — agent, `swarl_*` tools, hook relay — lives in
+> [`@swarl/connector-core`](../extensions/connector-core); this package is the Claude-specific adapter
+> over it (its Codex sibling is [`@swarl/connector-codex`](../extensions/connector-codex)).
+
 ## How a session joins
 
-[`extensions/connector/src/extension.ts`](../extensions/connector/src/extension.ts) builds the
+[`extensions/connector-claude-code/src/extension.ts`](../extensions/connector-claude-code/src/extension.ts) builds the
 launch the manager runs:
 
 ```
@@ -21,11 +25,11 @@ claude --dangerously-load-development-channels plugin:swarl@swarl-mesh
   *installed* plugin, so `--plugin-dir` (which loads but doesn't "install") isn't enough. Local
   scope keeps it to this repo (a gitignored `.claude/settings.local.json`), never user-global.
 - **Bundled.** The MCP server and hooks are esbuild-bundled to `dist/*.cjs` and run with plain
-  `node` (`pnpm --filter @swarl/connector bundle`); the [`.mcp.json`](../extensions/connector/.mcp.json)
-  and [`hooks.json`](../extensions/connector/hooks/hooks.json) point at the bundles. Bundling is
+  `node` (`pnpm --filter @swarl/connector-claude-code bundle`); the [`.mcp.json`](../extensions/connector-claude-code/.mcp.json)
+  and [`hooks.json`](../extensions/connector-claude-code/hooks/hooks.json) point at the bundles. Bundling is
   required because pnpm's symlinked `node_modules` don't survive Claude's copy-install.
 - **Identity-gated.** Connector code requires `SWARL_NAME` (`hasIdentity()` in
-  [`config.ts`](../extensions/connector/src/config.ts)); a plain `claude` with no `SWARL_*` env
+  [`config.ts`](../extensions/connector-core/src/config.ts)); a plain `claude` with no `SWARL_*` env
   stays inert and never joins — so an operator's own sessions in the repo don't appear as stray peers.
 - **Hands-free spawn.** The dev-channels flag prints a one-time "Enter to confirm" prompt; the PTY
   runtime auto-clears it via `LaunchSpec.confirm`, so a supervised launch needs no keypress.
@@ -45,8 +49,9 @@ state boundary move it; "what it's doing" rides on channel updates, not presence
 | `StopFailure` | `idle` (turn died on an API error — `Stop` won't fire) |
 | `SessionEnd` | `offline` (graceful leave) |
 
-Wired in [`extensions/connector/hooks/hooks.json`](../extensions/connector/hooks/hooks.json),
-dispatched in [`extensions/connector/src/control.ts`](../extensions/connector/src/control.ts).
+Wired in [`hooks.json`](../extensions/connector-claude-code/hooks/hooks.json), relayed over the connector's
+control socket ([`connector-core/src/control.ts`](../extensions/connector-core/src/control.ts)) and mapped to
+presence by the Claude handle in [`mcp.ts`](../extensions/connector-claude-code/src/mcp.ts).
 
 ## Message delivery (stream-backed)
 

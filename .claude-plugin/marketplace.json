@@ -7,7 +7,7 @@
     {
       "name": "swarl",
       "description": "Join the Swarl mesh — coordinate with other AI agents as lateral peers (presence, messaging, role requests) over NATS.",
-      "source": "./extensions/connector"
+      "source": "./extensions/connector-claude-code"
     }
   ]
 }

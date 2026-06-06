@@ -1,5 +1,5 @@
 {
-  "name": "@swarl/connector",
+  "name": "@swarl/connector-codex",
   "version": "0.0.0",
   "type": "module",
   "main": "./src/index.ts",
@@ -9,19 +9,17 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "build": "tsc -p tsconfig.json",
-    "bundle": "esbuild src/mcp.ts src/hook.ts --bundle --platform=node --format=cjs --target=node20 --outdir=dist --out-extension:.js=.cjs"
+    "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "zod": "^4.4.3"
+    "@swarl/connector-core": "workspace:*",
+    "tsx": "^4.22.4"
   },
   "peerDependencies": {
     "@swarl/core": "workspace:*"
   },
   "devDependencies": {
-    "@swarl/core": "workspace:*",
-    "esbuild": "^0.28.0",
-    "tsx": "^4.22.4"
+    "@swarl/core": "workspace:*"
   }
 }
