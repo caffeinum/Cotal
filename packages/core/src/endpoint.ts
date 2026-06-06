@@ -356,7 +356,7 @@ export class SwarlEndpoint extends EventEmitter {
     const mgr = await jetstreamManager(this.nc);
     let info;
     try {
-      info = await mgr.streams.info(chatStream(this.space));
+      info = await mgr.streams.info(chatStream(this.space), { subjects_filter: ">" });
     } catch {
       return [];
     }

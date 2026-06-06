@@ -56,7 +56,10 @@ runtime + `attach`) are in; wiring the coding-agent adapters end-to-end lands ne
 work aimed at making Demo 1 demonstrable — see
 [examples/01-lateral-coordination/README.md](examples/01-lateral-coordination/README.md).
 
-## Working on features
+## Research & web tools
+
+- **For searching the web** (open-ended queries, finding docs, looking up current info), prefer the **Tavily MCP** (`tavily_search` / `tavily_research`) — it returns higher-signal results than built-in search.
+- **For fetching a specific known URL**, use the built-in `WebFetch` — don't route those through Tavily.
 
 When implementing a feature, **always research online first** (NATS/JetStream APIs,
 MCP SDK, A2A/SLIM conventions, etc.) before replying or writing code — verify current behavior against real docs rather than relying on memory.
