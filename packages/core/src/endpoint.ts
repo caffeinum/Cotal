@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import {
   connect,
   nanos,
+  PermissionViolationError,
   type NatsConnection,
   type Subscription,
 } from "@nats-io/transport-node";
@@ -145,6 +146,7 @@ export class SwarlEndpoint extends EventEmitter {
       name: `swarl:${this.card.name}`,
       ...authOpts({ token: this.token, user: this.user, pass: this.pass, tls: this.tls }),
     });
+    this.watchStatus();
     this.js = jetstream(this.nc);
 
     if (this.doWatch || this.doRegister) {
@@ -402,6 +404,24 @@ export class SwarlEndpoint extends EventEmitter {
 
   // ---- internals -----------------------------------------------------------
 
+  /**
+   * Surface the connection's async status errors on our `error` event. NATS reports
+   * publish permission violations *only* here (subscription/request ones too), never on
+   * the failing call — so without this an over-tight ACL silently drops the agent's
+   * traffic and it just looks "absent". We annotate permission denials explicitly so a
+   * denial is never mistaken for absence (which already has a benign cause: MCP reconnect).
+   */
+  private watchStatus(): void {
+    if (!this.nc) return;
+    void (async () => {
+      for await (const s of this.nc!.status()) {
+        if (s.type === "error") this.emit("error", describeStatusError(s.error));
+      }
+    })().catch((e) => {
+      if (!this.stopped) this.emit("error", e as Error);
+    });
+  }
+
   private async publishMsg(subject: string, msg: SwarlMessage): Promise<void> {
     if (!this.js) throw new Error("endpoint not started");
     // msgID = message id → free server-side dedup across JetStream redelivery.
@@ -611,6 +631,19 @@ interface AuthOpts {
 
 function authOpts(a: AuthOpts) {
   return { token: a.token, user: a.user, pass: a.pass, tls: a.tls ? {} : undefined };
+}
+
+/** Turn a raw async-status error into one whose message says *why* — a permission
+ *  violation looks like absence unless it's named as a denial. */
+function describeStatusError(err: Error): Error {
+  if (err instanceof PermissionViolationError) {
+    return new Error(
+      `NATS permission denied: cannot ${err.operation} "${err.subject}" — check this ` +
+        `endpoint's ACLs (a denied peer looks "absent" rather than blocked)`,
+      { cause: err },
+    );
+  }
+  return err;
 }
 
 /** Quick check whether a NATS server is accepting (authenticated) connections. */

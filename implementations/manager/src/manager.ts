@@ -77,6 +77,9 @@ export class Manager {
       channels: [],
       card: { name: this.name, role: "manager", kind: "endpoint" },
     });
+    // Surface endpoint errors (incl. NATS permission denials) — without a listener an
+    // emitted "error" would crash the supervisor.
+    this.ep.on("error", (e: Error) => console.error(`! manager endpoint: ${e.message}`));
     await this.ep.start();
     await this.ep.setActivity(`supervisor (${this.runtime.kind})`);
     this.ep.serveControl("manager", (req) => this.handle(req));
