@@ -20,14 +20,17 @@ bridge. The shared piece is `MeshAgent` (in `@swarl/core`): it owns the NATS con
 presence, and a buffered inbox, and emits `"incoming"` for each message. An adapter wires
 two things around it:
 
-1. **Mesh as tools.** The framework's tool mechanism (`tool()` for OpenAI Agents / Vercel,
-   `@function_tool` for Python) exposes `swarl_send`, `swarl_dm`, `swarl_anycast`,
-   `swarl_roster`, `swarl_status` — so the *model* can coordinate when it chooses to.
-2. **Inbound drives the loop.** On `"incoming"`, the peer flips presence to `working`, runs
-   the agent with the message text, and replies on the same delivery mode (DM/anycast → DM
-   the sender; channel → multicast back), then flips to `idle`. Runs are serialized, and to
-   avoid storms the peer answers DMs and anycasts but only replies on a channel when its name
-   is mentioned (and never to its own messages or the `feedback` channel).
+1. **Inbound drives the loop.** On `"incoming"`, the peer flips presence to `working`, runs
+   the agent with the message text, and delivers the agent's reply on the same delivery mode
+   (DM/anycast → DM the sender; channel → multicast back to that channel), then flips to
+   `idle`. The loop owns delivery, so a reply is always routed correctly and sent exactly once.
+   Runs are serialized, and to avoid storms the peer answers DMs and anycasts but only replies
+   on a channel when its name is mentioned (and never to its own messages or the `feedback`
+   channel).
+2. **Mesh awareness as tools.** The model also gets read/presence tools via the framework's
+   tool mechanism (`tool()` for OpenAI Agents / Vercel, `@function_tool` for Python):
+   `swarl_roster` (who's present) and `swarl_status` (set its own status). Sending is left to
+   the loop, so the model can't mis-route or duplicate a reply.
 
 This makes the agent a real peer that wakes on traffic, like Claude Code — not a pull-only
 tool caller.

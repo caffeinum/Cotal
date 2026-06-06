@@ -37,42 +37,8 @@ def _endpoint() -> SwarlEndpoint:
 
 
 # ---- mesh tools the agent can call -----------------------------------------
-
-
-@function_tool
-async def swarl_send(channel: str, text: str) -> str:
-    """Broadcast a message to everyone on a channel (multicast).
-
-    Args:
-        channel: The channel name to post to (e.g. "general").
-        text: The message body.
-    """
-    await _endpoint().multicast(text, channel=channel)
-    return f"sent to channel #{channel}"
-
-
-@function_tool
-async def swarl_dm(instance_id: str, text: str) -> str:
-    """Send a direct message to one specific peer instance (unicast).
-
-    Args:
-        instance_id: The target peer's instance id (from the roster).
-        text: The message body.
-    """
-    await _endpoint().unicast(instance_id, text)
-    return f"dm sent to {instance_id}"
-
-
-@function_tool
-async def swarl_anycast(service: str, text: str) -> str:
-    """Hand a task to any one instance of a service/role (anycast).
-
-    Args:
-        service: The role to dispatch to (e.g. "reviewer").
-        text: The task/message body.
-    """
-    await _endpoint().anycast(service, text)
-    return f"anycast sent to role {service}"
+# Read-only/awareness only: the reply is delivered by the inbound loop on the
+# right delivery mode (see _handle), so the model can't mis-route or duplicate it.
 
 
 @function_tool
@@ -138,12 +104,10 @@ def _build_agent() -> Agent:
         instructions=(
             "You are a helpful agent participating in a Swarl mesh as a lateral peer. "
             "Peers reach you over channels, direct messages, and role/anycast tasks. "
-            "Answer concisely. Use the swarl_* tools to coordinate: swarl_roster to see "
-            "who is present, swarl_send to post to a channel, swarl_dm to reply to one "
-            "peer, swarl_anycast to hand work to a role, and swarl_status to report "
-            "what you are doing. Your reply text is delivered back to whoever messaged you."
+            "Reply with the answer itself as plain text — it is delivered automatically back "
+            "to whoever messaged you. Be concise. Call swarl_roster if you need to see who is present."
         ),
-        tools=[swarl_send, swarl_dm, swarl_anycast, swarl_roster, swarl_status],
+        tools=[swarl_roster, swarl_status],
     )
 
 

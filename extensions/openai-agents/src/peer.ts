@@ -5,49 +5,16 @@ import type { InboxItem } from "@swarl/core";
 
 const DEFAULT_MODEL = "gpt-4o-mini";
 
+/**
+ * Read-only/awareness tools. Replies are NOT sent by the model — the run loop
+ * delivers the agent's final text on the right delivery mode (see processNext),
+ * so the model can't mis-route or duplicate a reply. These tools just let it see
+ * who is present and report its own status.
+ */
 function buildTools(mesh: MeshAgent) {
-  const swarl_send = tool({
-    name: "swarl_send",
-    description: "Broadcast a message to a channel on the Swarl mesh.",
-    parameters: z.object({
-      text: z.string().describe("Message text"),
-      channel: z.string().optional().describe("Channel name; defaults to general"),
-    }),
-    execute: async ({ text, channel }) => {
-      await mesh.send(text, channel);
-      return `sent to #${channel ?? "general"}`;
-    },
-  });
-
-  const swarl_dm = tool({
-    name: "swarl_dm",
-    description: "Send a direct message to a named peer on the Swarl mesh.",
-    parameters: z.object({
-      to: z.string().describe("Peer name or id"),
-      text: z.string().describe("Message text"),
-    }),
-    execute: async ({ to, text }) => {
-      await mesh.dm(to, text);
-      return `dm sent to ${to}`;
-    },
-  });
-
-  const swarl_anycast = tool({
-    name: "swarl_anycast",
-    description: "Send a message to any one peer with a given role on the Swarl mesh.",
-    parameters: z.object({
-      role: z.string().describe("Target role"),
-      text: z.string().describe("Message text"),
-    }),
-    execute: async ({ role, text }) => {
-      await mesh.anycast(role, text);
-      return `anycast sent to role "${role}"`;
-    },
-  });
-
   const swarl_roster = tool({
     name: "swarl_roster",
-    description: "List peers currently present on the Swarl mesh.",
+    description: "List the peers currently present on the Swarl mesh.",
     parameters: z.object({}),
     execute: async () => {
       const peers = mesh.roster();
@@ -71,7 +38,7 @@ function buildTools(mesh: MeshAgent) {
     },
   });
 
-  return [swarl_send, swarl_dm, swarl_anycast, swarl_roster, swarl_status];
+  return [swarl_roster, swarl_status];
 }
 
 export async function runOpenAIAgentPeer(): Promise<void> {
@@ -85,7 +52,8 @@ export async function runOpenAIAgentPeer(): Promise<void> {
     model,
     instructions:
       "You are a peer on a Swarl mesh — a shared pub/sub space where agents coordinate laterally. " +
-      "Answer concisely. Use the swarl_* tools to communicate with other peers when needed.",
+      "Reply with the answer itself as plain text; it is delivered automatically back to whoever " +
+      "messaged you. Be concise. Call swarl_roster if you need to see who is present.",
     tools: buildTools(mesh),
   });
 
@@ -101,13 +69,16 @@ export async function runOpenAIAgentPeer(): Promise<void> {
       await mesh.setStatus("working", `handling ${item.kind} from ${item.fromName}`);
       const prefix = `from ${item.fromName} via ${item.kind}: `;
       const result = await run(agent, prefix + item.text);
-      const output = typeof result.finalOutput === "string"
-        ? result.finalOutput
-        : JSON.stringify(result.finalOutput);
-      if (item.kind === "channel") {
-        await mesh.send(output, item.channel);
-      } else {
-        await mesh.dm(item.fromName, output);
+      const output =
+        typeof result.finalOutput === "string"
+          ? result.finalOutput
+          : JSON.stringify(result.finalOutput);
+      if (output) {
+        if (item.kind === "channel") {
+          await mesh.send(output, item.channel);
+        } else {
+          await mesh.dm(item.fromName, output);
+        }
       }
     } catch (e) {
       process.stderr.write(`[openai-peer] error handling item: ${(e as Error).message}\n`);

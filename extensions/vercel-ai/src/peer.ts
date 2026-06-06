@@ -10,40 +10,9 @@ export async function runVercelAgentPeer(): Promise<void> {
   const mesh = new MeshAgent(configFromEnv());
   mesh.start();
 
+  // Read-only/awareness tools. Replies are delivered by the loop (see processNext)
+  // on the correct delivery mode, so the model can't mis-route or duplicate them.
   const tools = {
-    swarl_send: tool({
-      description: "Send a message to a channel (multicast).",
-      inputSchema: z.object({
-        text: z.string().describe("Message text"),
-        channel: z.string().optional().describe("Channel name; defaults to the peer's primary channel"),
-      }),
-      execute: async ({ text, channel }) => {
-        await mesh.send(text, channel);
-        return `sent to channel ${channel ?? "general"}`;
-      },
-    }),
-    swarl_dm: tool({
-      description: "Send a direct message to a named peer.",
-      inputSchema: z.object({
-        to: z.string().describe("Peer name or instance id"),
-        text: z.string().describe("Message text"),
-      }),
-      execute: async ({ to, text }) => {
-        await mesh.dm(to, text);
-        return `dm sent to ${to}`;
-      },
-    }),
-    swarl_anycast: tool({
-      description: "Send a message to any one peer with a given role (anycast).",
-      inputSchema: z.object({
-        role: z.string().describe("Target role"),
-        text: z.string().describe("Message text"),
-      }),
-      execute: async ({ role, text }) => {
-        await mesh.anycast(role, text);
-        return `anycast sent to role ${role}`;
-      },
-    }),
     swarl_roster: tool({
       description: "List all peers currently on the mesh.",
       inputSchema: z.object({}),
@@ -82,7 +51,7 @@ export async function runVercelAgentPeer(): Promise<void> {
       const context = `from ${item.fromName} via ${item.kind}`;
       const prompt = [
         "You are a peer on a Swarl mesh — a shared pub/sub space where AI agents coordinate as lateral equals.",
-        "Answer concisely and directly. Use the swarl_* tools only when explicitly needed.",
+        "Reply with the answer itself as plain text; it is delivered automatically back to whoever messaged you. Be concise.",
         "",
         `[${context}]`,
         item.text,
