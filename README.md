@@ -60,3 +60,8 @@ Today: presence and all three delivery modes over `@swarl/core` with stream-back
 (JetStream durable consumers), an extension registry the manager resolves connectors through,
 and the Claude Code connector under `extensions/`. Manual CLI peers drive `examples/01`; real
 coding-agent panes land in `examples/02`. Not yet built: agent-directed control commands.
+
+## License
+
+Apache-2.0 — see [LICENSE](LICENSE). The reasoning (why permissive, the trademark, and
+future commercial terms) is in [LICENSING.md](LICENSING.md).
