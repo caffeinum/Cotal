@@ -9,6 +9,9 @@ export interface LaunchOpts {
    *  as its `card.id` instead of generating a random one — so the id the launcher
    *  provisioned is the id the agent presents, and later ACLs key on it. */
   id?: string;
+  /** Path to a minted creds file (auth mode). Passed to the session so it authenticates
+   *  as `id`; absent when the mesh runs open. */
+  creds?: string;
   servers?: string;
   /** Path to an agent definition file (`.swarl/agents/<name>.md`). The connector
    *  passes it through (`SWARL_AGENT_FILE`) so the joined session reads its own

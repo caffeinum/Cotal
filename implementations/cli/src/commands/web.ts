@@ -31,12 +31,14 @@ export async function web(argv: string[]): Promise<void> {
       server: { type: "string" },
       port: { type: "string" },
       "no-open": { type: "boolean" },
+      creds: { type: "string" },
     },
   });
   const space = values.space ?? "demo";
   const server = values.server ?? DEFAULT_SERVER;
   const port = values.port ? Number(values.port) : 7799;
-  if (!(await isReachable(server))) {
+  const creds = values.creds ? readFileSync(values.creds, "utf8") : undefined;
+  if (!(await isReachable(server, { creds }))) {
     console.error(c.red(`Can't reach NATS at ${server}. Run: pnpm swarl up`));
     process.exit(1);
   }
@@ -45,6 +47,7 @@ export async function web(argv: string[]): Promise<void> {
   const ep = new SwarlEndpoint({
     space,
     servers: server,
+    creds,
     channels: [],
     registerPresence: false,
     watchPresence: true,

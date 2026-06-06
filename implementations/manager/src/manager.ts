@@ -1,6 +1,16 @@
-import { existsSync } from "node:fs";
-import { SwarlEndpoint, agentFilePath, loadAgentFile, newIdentity, registry } from "@swarl/core";
-import type { Connector, ControlReply, ControlRequest } from "@swarl/core";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import {
+  SwarlEndpoint,
+  agentFilePath,
+  authDir,
+  loadAgentFile,
+  loadSpaceAuth,
+  mintCreds,
+  newIdentity,
+  registry,
+} from "@swarl/core";
+import type { Connector, ControlReply, ControlRequest, SpaceAuth } from "@swarl/core";
 import {
   createRuntime,
   findWorkspaceRoot,
@@ -48,6 +58,9 @@ export class Manager {
   private readonly agents = new Map<string, ManagedAgent>();
   private readonly attach: AttachEndpoint;
   private ep!: SwarlEndpoint;
+  /** Space trust material when the mesh runs in auth mode (`.swarl/auth` present);
+   *  the manager mints per-agent creds from it at spawn. Undefined when the mesh is open. */
+  private auth?: SpaceAuth;
 
   constructor(opts: ManagerOptions) {
     this.space = opts.space;
@@ -75,11 +88,22 @@ export class Manager {
 
   async start(): Promise<void> {
     await this.attach.start();
+    // In auth mode the manager is just another user in the space's account — it mints
+    // itself creds from the same signing key it uses for the agents it spawns.
+    this.auth = loadSpaceAuth(authDir(this.workspaceRoot));
+    let creds: string | undefined;
+    let id: string | undefined;
+    if (this.auth) {
+      const identity = newIdentity();
+      id = identity.id;
+      creds = await mintCreds(this.auth, identity, "agent");
+    }
     this.ep = new SwarlEndpoint({
       space: this.space,
       servers: this.servers,
       channels: [],
-      card: { name: this.name, role: "manager", kind: "endpoint" },
+      creds,
+      card: { id, name: this.name, role: "manager", kind: "endpoint" },
     });
     // Surface endpoint errors (incl. NATS permission denials) — without a listener an
     // emitted "error" would crash the supervisor.
@@ -115,7 +139,7 @@ export class Manager {
     }
   }
 
-  private opStart(args: Record<string, unknown>): ControlReply {
+  private async opStart(args: Record<string, unknown>): Promise<ControlReply> {
     const name = String(args.name ?? "").trim();
     if (!name) return { ok: false, error: "name required" };
     if (this.agents.has(name)) return { ok: false, error: `agent "${name}" already running` };
@@ -140,11 +164,21 @@ export class Manager {
     try {
       const connector = registry.resolve<Connector>("connector", agent);
       if (configPath && !role) role = loadAgentFile(configPath).role;
+      // In auth mode, mint the agent's creds from the space signing key and write them
+      // where the spawned session reads them (SWARL_CREDS path). Open mesh → no creds.
+      let credsPath: string | undefined;
+      if (this.auth) {
+        const creds = await mintCreds(this.auth, identity, "agent");
+        credsPath = join(authDir(this.workspaceRoot), "creds", `${name}.creds`);
+        mkdirSync(dirname(credsPath), { recursive: true });
+        writeFileSync(credsPath, creds, { mode: 0o600 });
+      }
       const spec = connector.buildLaunch({
         space: this.space,
         name,
         role,
         id: identity.id,
+        creds: credsPath,
         servers: this.servers,
         configPath,
       });

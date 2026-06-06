@@ -1,5 +1,6 @@
 import { parseArgs } from "node:util";
 import { userInfo } from "node:os";
+import { readFileSync } from "node:fs";
 import * as readline from "node:readline";
 import {
   SwarlEndpoint,
@@ -26,6 +27,7 @@ export async function join(argv: string[]): Promise<void> {
       kind: { type: "string" },
       link: { type: "string" },
       token: { type: "string" },
+      creds: { type: "string" },
       tls: { type: "boolean" },
     },
   });
@@ -40,6 +42,7 @@ export async function join(argv: string[]): Promise<void> {
     token: values.token ?? link?.token,
     user: link?.user,
     pass: link?.pass,
+    creds: values.creds ? readFileSync(values.creds, "utf8") : undefined,
     tls: values.tls ?? link?.tls ?? false,
   };
 

@@ -2,11 +2,13 @@ import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import {
   connect,
+  credsAuthenticator,
   nanos,
   PermissionViolationError,
   type NatsConnection,
   type Subscription,
 } from "@nats-io/transport-node";
+import { idFromCreds } from "./identity.js";
 import {
   jetstream,
   jetstreamManager,
@@ -63,6 +65,9 @@ export interface EndpointOptions {
   /** Username/password auth (both required together). */
   user?: string;
   pass?: string;
+  /** NATS user creds file *content* (JWT + nkey seed). When set, the endpoint
+   *  authenticates as that user and adopts the creds' identity as its card.id. */
+  creds?: string;
   /** Require a TLS connection to the server. */
   tls?: boolean;
   /** Channels to subscribe to; the first is the default broadcast target. */
@@ -100,6 +105,7 @@ export class SwarlEndpoint extends EventEmitter {
   private readonly token?: string;
   private readonly user?: string;
   private readonly pass?: string;
+  private readonly creds?: string;
   private readonly tls: boolean;
   private readonly heartbeatMs: number;
   private readonly ttlMs: number;
@@ -126,12 +132,20 @@ export class SwarlEndpoint extends EventEmitter {
   constructor(opts: EndpointOptions) {
     super();
     this.space = opts.space;
-    const id = opts.card.id ?? randomUUID();
+    // Identity precedence: an explicit card.id, else the creds' identity, else a random
+    // uuid. When both an id and creds are given they MUST name the same nkey — otherwise
+    // the subject sender token wouldn't match the authenticated user and every publish
+    // would be denied (a silent-failure class).
+    const credId = opts.creds ? idFromCreds(opts.creds) : undefined;
+    if (opts.card.id && credId && opts.card.id !== credId)
+      throw new Error(`card.id ${opts.card.id} != creds identity ${credId} — they must be the same nkey`);
+    const id = opts.card.id ?? credId ?? randomUUID();
     this.card = { ...opts.card, id };
     this.servers = opts.servers ?? DEFAULT_SERVER;
     this.token = opts.token;
     this.user = opts.user;
     this.pass = opts.pass;
+    this.creds = opts.creds;
     this.tls = opts.tls ?? false;
     this.channels = opts.channels ?? ["general"];
     this.heartbeatMs = opts.heartbeatMs ?? 2000;
@@ -151,7 +165,7 @@ export class SwarlEndpoint extends EventEmitter {
     this.nc = await connect({
       servers: this.servers,
       name: `swarl:${this.card.name}`,
-      ...authOpts({ token: this.token, user: this.user, pass: this.pass, tls: this.tls }),
+      ...authOpts({ token: this.token, user: this.user, pass: this.pass, creds: this.creds, tls: this.tls }),
     });
     this.watchStatus();
     this.js = jetstream(this.nc);
@@ -633,11 +647,15 @@ interface AuthOpts {
   token?: string;
   user?: string;
   pass?: string;
+  creds?: string;
   tls?: boolean;
 }
 
 function authOpts(a: AuthOpts) {
-  return { token: a.token, user: a.user, pass: a.pass, tls: a.tls ? {} : undefined };
+  const tls = a.tls ? {} : undefined;
+  // creds (JWT/nkey) take precedence and are mutually exclusive with token/user/pass.
+  if (a.creds) return { authenticator: credsAuthenticator(new TextEncoder().encode(a.creds)), tls };
+  return { token: a.token, user: a.user, pass: a.pass, tls };
 }
 
 /** Turn a raw async-status error into one whose message says *why* — a permission

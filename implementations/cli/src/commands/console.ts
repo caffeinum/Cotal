@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util";
+import { readFileSync } from "node:fs";
 import { SwarlEndpoint, isReachable, DEFAULT_SERVER } from "@swarl/core";
 import { c } from "../ui.js";
 import { runLog, runDashboard } from "../render.js";
@@ -11,11 +12,13 @@ export async function console_(argv: string[]): Promise<void> {
       space: { type: "string" },
       server: { type: "string" },
       plain: { type: "boolean" },
+      creds: { type: "string" },
     },
   });
   const space = values.space ?? "demo";
   const server = values.server ?? DEFAULT_SERVER;
-  if (!(await isReachable(server))) {
+  const creds = values.creds ? readFileSync(values.creds, "utf8") : undefined;
+  if (!(await isReachable(server, { creds }))) {
     console.error(c.red(`Can't reach NATS at ${server}. Run: pnpm swarl up`));
     process.exit(1);
   }
@@ -24,6 +27,7 @@ export async function console_(argv: string[]): Promise<void> {
   const ep = new SwarlEndpoint({
     space,
     servers: server,
+    creds,
     channels: [],
     registerPresence: false,
     watchPresence: true,

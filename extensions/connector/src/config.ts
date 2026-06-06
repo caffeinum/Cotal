@@ -1,4 +1,5 @@
 import { userInfo } from "node:os";
+import { readFileSync } from "node:fs";
 import { DEFAULT_SERVER, loadAgentFile, parseJoinLink, type AgentDef, type EndpointKind } from "@swarl/core";
 
 /**
@@ -12,6 +13,8 @@ export interface AgentConfig {
   /** Stable agent id (nkey public key) from the launcher; falls back to a random
    *  uuid in the endpoint when absent (unmanaged sessions). */
   id?: string;
+  /** Minted creds file content (auth mode); the endpoint authenticates with it. */
+  creds?: string;
   name: string;
   role?: string;
   description?: string;
@@ -56,9 +59,11 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AgentConfig
   if (!name)
     throw new Error("SWARL_NAME, SWARL_AGENT_FILE or SWARL_LINK is required — a Swarl session needs an explicit identity from its launcher");
   const channels = splitList(env.SWARL_CHANNELS);
+  const credsPath = env.SWARL_CREDS?.trim();
   return {
     space: env.SWARL_SPACE?.trim() || link?.space || "demo",
     id: env.SWARL_ID?.trim() || undefined,
+    creds: credsPath ? readFileSync(credsPath, "utf8") : undefined,
     name,
     role: env.SWARL_ROLE?.trim() || def?.role || undefined,
     description: def?.description,

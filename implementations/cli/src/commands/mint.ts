@@ -1,0 +1,39 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { resolve, join, dirname } from "node:path";
+import { parseArgs } from "node:util";
+import { authDir, loadSpaceAuth, mintCreds, newIdentity, type Profile } from "@swarl/core";
+import { c } from "../ui.js";
+
+/** Out-of-band cred minting: generate an identity, sign a profile-scoped user JWT with the
+ *  space's account signing key, and write a creds file the agent/observer loads to join. */
+export async function mint(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: { profile: { type: "string" }, out: { type: "string" } },
+  });
+  const name = positionals[0];
+  if (!name) {
+    console.error(c.red("usage: swarl mint <name> --profile <agent|observer> [--out <path>]"));
+    process.exit(1);
+  }
+  const profile = (values.profile ?? "agent") as Profile;
+  if (profile !== "agent" && profile !== "observer") {
+    console.error(c.red(`unknown profile "${profile}" — expected agent or observer`));
+    process.exit(1);
+  }
+  const dir = authDir(process.cwd());
+  const auth = loadSpaceAuth(dir);
+  if (!auth) {
+    console.error(c.red("no space auth found here — run `swarl up --auth` first"));
+    process.exit(1);
+  }
+  const identity = newIdentity();
+  const creds = await mintCreds(auth, identity, profile);
+  const out = resolve(values.out ?? join(dir, "creds", `${name}.creds`));
+  mkdirSync(dirname(out), { recursive: true });
+  writeFileSync(out, creds, { mode: 0o600 });
+  console.log(c.green(`✓ minted ${profile} creds for "${name}"`));
+  console.log(c.dim(`  id:    ${identity.id}`));
+  console.log(c.dim(`  creds: ${out}`));
+}

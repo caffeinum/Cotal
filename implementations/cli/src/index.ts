@@ -5,6 +5,7 @@ import { watch } from "./commands/watch.js";
 import { console_ } from "./commands/console.js";
 import { web } from "./commands/web.js";
 import { spawn } from "./commands/spawn.js";
+import { mint } from "./commands/mint.js";
 
 /** The minimal mesh CLI: thin NATS clients (up/join/watch), plus `spawn` — a
  *  foreground agent launch that reuses the connector's launch recipe. Self-registers
@@ -53,6 +54,13 @@ const baseCommands: Command[] = [
     summary:
       "launch an agent in this terminal from a file — spawn <name-or-path> | --name <n> --config <path> [--agent <a>] [--role <r>]",
     run: spawn,
+  },
+  {
+    kind: "command",
+    name: "mint",
+    group: "Mesh",
+    summary: "mint a creds file for a space (auth mode) — mint <name> --profile <agent|observer> [--out <path>]",
+    run: mint,
   },
 ];
 

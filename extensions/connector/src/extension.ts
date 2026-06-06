@@ -27,6 +27,7 @@ export const claudeConnector: Connector = {
     };
     if (opts.role) env.SWARL_ROLE = opts.role;
     if (opts.id) env.SWARL_ID = opts.id;
+    if (opts.creds) env.SWARL_CREDS = opts.creds;
     if (opts.servers) env.SWARL_SERVERS = opts.servers;
 
     const args = ["--dangerously-load-development-channels", CHANNEL_REF];
