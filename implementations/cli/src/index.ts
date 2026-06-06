@@ -3,8 +3,8 @@ import { up } from "./commands/up.js";
 import { join } from "./commands/join.js";
 import { watch } from "./commands/watch.js";
 import { console_ } from "./commands/console.js";
+import { web } from "./commands/web.js";
 import { spawn } from "./commands/spawn.js";
-import { channels } from "./commands/channels.js";
 
 /** The minimal mesh CLI: thin NATS clients (up/join/watch), plus `spawn` — a
  *  foreground agent launch that reuses the connector's launch recipe. Self-registers
@@ -41,10 +41,10 @@ const baseCommands: Command[] = [
   },
   {
     kind: "command",
-    name: "channels",
+    name: "web",
     group: "Mesh",
-    summary: "browse channels and messages in a space — --space <s> [--plain]",
-    run: channels,
+    summary: "browser observability dashboard — presence, channels, live feed — --space <s> [--port <n>] [--no-open]",
+    run: web,
   },
   {
     kind: "command",

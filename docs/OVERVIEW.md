@@ -58,8 +58,9 @@ Four core capabilities, plus observability, history, and isolation.
 - **Coordination** — agents announce intent and watch peers' presence/activity, then
   divide work and delegate over channels and DMs. They share one workspace with **no
   isolation** (no worktrees), staying out of each other's way by coordinating.
-- **Observability** — traces and presence are on the mesh, so a dashboard can be built
-  later; the first demo needs none (the user just watches the terminals).
+- **Observability** — traces and presence are on the mesh, so any observer can render
+  them: `swarl console` (terminal) or `swarl web` (browser dashboard — presence, channels,
+  live feed).
 - **History & late join** — a late participant replays recent messages and the current
   roster, then goes live.
 - **Isolation** — spaces don't see each other; many can run on one machine.
