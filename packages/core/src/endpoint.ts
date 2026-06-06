@@ -1,7 +1,9 @@
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import {
   connect,
+  credsAuthenticator,
   JSONCodec,
   nanos,
   AckPolicy,
@@ -9,6 +11,7 @@ import {
   DiscardPolicy,
   RetentionPolicy,
   StorageType,
+  type ConnectionOptions,
   type NatsConnection,
   type Subscription,
   type JetStreamClient,
@@ -47,12 +50,43 @@ import {
 
 export const DEFAULT_SERVER = "nats://127.0.0.1:4222";
 
+/** Optional NATS authentication. None set → anonymous (the default). */
+export interface NatsAuth {
+  /** Shared token (matches nats-server `--auth`). */
+  token?: string;
+  user?: string;
+  pass?: string;
+  /** Path to a NATS `.creds` file (NKey/JWT). Takes precedence over token / user-pass. */
+  credsPath?: string;
+}
+
+/** Read {@link NatsAuth} from `SWARL_NATS_*` env vars; `undefined` if none are set. */
+export function natsAuthFromEnv(env: NodeJS.ProcessEnv = process.env): NatsAuth | undefined {
+  const token = env.SWARL_NATS_TOKEN?.trim() || undefined;
+  const credsPath = env.SWARL_NATS_CREDS?.trim() || undefined;
+  const user = env.SWARL_NATS_USER?.trim() || undefined;
+  const pass = env.SWARL_NATS_PASS?.trim() || undefined;
+  if (!token && !credsPath && !user && !pass) return undefined;
+  return { token, credsPath, user, pass };
+}
+
+/** Map {@link NatsAuth} to nats.js connect options (creds > token > user/pass). */
+function connectAuth(auth?: NatsAuth): Partial<ConnectionOptions> {
+  if (!auth) return {};
+  if (auth.credsPath) return { authenticator: credsAuthenticator(readFileSync(auth.credsPath)) };
+  if (auth.token) return { token: auth.token };
+  if (auth.user || auth.pass) return { user: auth.user, pass: auth.pass };
+  return {};
+}
+
 export interface EndpointOptions {
   /** The collaboration to join. */
   space: string;
   /** Identity. `id` is generated if omitted. */
   card: Omit<AgentCard, "id"> & { id?: string };
   servers?: string;
+  /** NATS auth. Defaults to {@link natsAuthFromEnv} (SWARL_NATS_*), else anonymous. */
+  auth?: NatsAuth;
   /** Channels to subscribe to; the first is the default broadcast target. */
   channels?: string[];
   /** Presence heartbeat interval (ms). */
@@ -78,6 +112,7 @@ export class SwarlEndpoint extends EventEmitter {
   readonly channels: string[];
 
   private readonly servers: string;
+  private readonly auth?: NatsAuth;
   private readonly heartbeatMs: number;
   private readonly ttlMs: number;
   private readonly doRegister: boolean;
@@ -107,6 +142,7 @@ export class SwarlEndpoint extends EventEmitter {
     const id = opts.card.id ?? randomUUID();
     this.card = { ...opts.card, id };
     this.servers = opts.servers ?? DEFAULT_SERVER;
+    this.auth = opts.auth ?? natsAuthFromEnv();
     this.channels = opts.channels ?? ["general"];
     this.heartbeatMs = opts.heartbeatMs ?? 2000;
     this.ttlMs = opts.ttlMs ?? 6000;
@@ -125,6 +161,7 @@ export class SwarlEndpoint extends EventEmitter {
     this.nc = await connect({
       servers: this.servers,
       name: `swarl:${this.card.name}`,
+      ...connectAuth(this.auth),
     });
     this.js = this.nc.jetstream();
 
@@ -526,6 +563,7 @@ export class SwarlEndpoint extends EventEmitter {
 export async function isReachable(
   servers: string = DEFAULT_SERVER,
   timeoutMs = 1000,
+  auth: NatsAuth | undefined = natsAuthFromEnv(),
 ): Promise<boolean> {
   try {
     const nc = await connect({
@@ -533,6 +571,7 @@ export async function isReachable(
       timeout: timeoutMs,
       reconnect: false,
       maxReconnectAttempts: 0,
+      ...connectAuth(auth),
     });
     await nc.close();
     return true;

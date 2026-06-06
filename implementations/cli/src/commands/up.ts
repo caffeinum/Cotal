@@ -12,9 +12,11 @@ export async function up(argv: string[]): Promise<void> {
     options: {
       server: { type: "string" },
       "store-dir": { type: "string" },
+      token: { type: "string" },
     },
   });
   const server = values.server ?? DEFAULT_SERVER;
+  const token = values.token ?? process.env.SWARL_NATS_TOKEN?.trim();
   if (await isReachable(server)) {
     console.log(c.green(`✓ NATS already running at ${server}`));
     return;
@@ -22,8 +24,11 @@ export async function up(argv: string[]): Promise<void> {
   const storeDir = resolve(values["store-dir"] ?? ".swarl/nats");
   mkdirSync(storeDir, { recursive: true });
   console.log(c.dim(`Starting nats-server (JetStream) — store: ${storeDir}`));
+  if (token) console.log(c.dim("Auth: token required (SWARL_NATS_TOKEN)."));
   console.log(c.dim("Press Ctrl-C to stop.\n"));
-  const child = spawn("nats-server", ["-js", "-sd", storeDir], {
+  const args = ["-js", "-sd", storeDir];
+  if (token) args.push("--auth", token);
+  const child = spawn("nats-server", args, {
     stdio: "inherit",
   });
   child.on("error", (err) => {

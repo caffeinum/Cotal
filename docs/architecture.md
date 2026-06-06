@@ -422,6 +422,14 @@ covers three things at once: live delivery, the inbound buffer, and late-join hi
   which brings built-in **discovery** (`$SRV.PING`/`INFO`) and **stats** for free. The
   `ControlRequest`/`ControlReply` envelope is unchanged; only the transport underneath swaps.
 - **Isolation:** one NATS **account** per space (later: split `space` into `org/namespace`).
+- **Authentication:** optional and off by default (anonymous, for local dev). Every endpoint
+  (and `isReachable`) reads `NatsAuth` from `natsAuthFromEnv()` — `SWARL_NATS_TOKEN` (demo),
+  `SWARL_NATS_CREDS` (a `.creds` file → NKey/JWT, for real deployments), or
+  `SWARL_NATS_USER`/`PASS` — or takes an explicit `auth` option. The launcher forwards
+  `SWARL_NATS_*` to spawned agents; `swarl up --token` starts a token-guarded server. When
+  subject **permissions** are used they must allow `swarl.<space>.>` **plus** the presence KV
+  (`$KV.swarl_presence_<space>.>`), `$JS.API.>`, and `_INBOX.>`, or presence / durable
+  consumers / request-reply break.
 - **Transport choice:** JetStream streams for all three delivery modes (durability + per-reader
   bookmarks + history), KV for presence, Object Store for artifacts, and the Services API for
   the control plane.
