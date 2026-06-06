@@ -103,6 +103,19 @@ claude plugin install swarl@swarl-mesh --scope local
 swarl start --space demo --agent claude --name dave --role builder   # manager spawns a real claude
 ```
 
+### Personas from a file
+
+Role + identity + a persona can come from an [agent file](./agents/) instead of flags — the
+frontmatter is the identity, the Markdown body is the system prompt:
+
+```
+swarl start --agent claude --name dave --config examples/01-lateral-coordination/agents/dave.md
+scripts/join-claude.sh examples/01-lateral-coordination/agents/dave.md   # same thing, no manager
+```
+
+A bare `swarl start --name dave` also auto-discovers `.swarl/agents/dave.md` in the manager's
+workspace (gitignored, user-local). See [agent files](../../docs/claude-code-integration.md#agent-files-persona--identity).
+
 The bundled plugin reads `SWARL_*` from the env at spawn and auto-joins the mesh; the manager
 auto-clears the one-time dev-channel prompt, so the launch is hands-free. From there the agent is
 a peer like any other: its presence flips `working` / `idle` from lifecycle hooks, and mesh

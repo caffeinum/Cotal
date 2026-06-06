@@ -1,4 +1,5 @@
-import { registry, type Connector, type LaunchOpts, type LaunchSpec } from "@swarl/core";
+import { resolve } from "node:path";
+import { loadAgentFile, registry, type Connector, type LaunchOpts, type LaunchSpec } from "@swarl/core";
 
 /** Channel ref for the locally-installed `swarl` plugin (marketplace `swarl-mesh`).
  *  `--dangerously-load-development-channels <ref>` turns on the plugin's
@@ -26,9 +27,22 @@ export const claudeConnector: Connector = {
     };
     if (opts.role) env.SWARL_ROLE = opts.role;
     if (opts.servers) env.SWARL_SERVERS = opts.servers;
+
+    const args = ["--dangerously-load-development-channels", CHANNEL_REF];
+
+    // An agent file carries identity (read in-session via SWARL_AGENT_FILE) plus
+    // persona + model, which can only be applied to a `claude` session at launch.
+    if (opts.configPath) {
+      const path = resolve(opts.configPath);
+      env.SWARL_AGENT_FILE = path;
+      const def = loadAgentFile(path);
+      if (def.persona) args.push("--append-system-prompt", def.persona);
+      if (def.model) args.push("--model", def.model);
+    }
+
     return {
       command: "claude",
-      args: ["--dangerously-load-development-channels", CHANNEL_REF],
+      args,
       env,
       // The dev-channels flag shows a one-time "Enter to confirm" prompt; the
       // manager auto-clears it so a supervised launch needs no human keypress.

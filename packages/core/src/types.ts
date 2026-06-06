@@ -24,6 +24,8 @@ export interface AgentCard {
   kind: EndpointKind;
   /** Swarl addition: the role this participant plays (planner, reviewer, …). */
   role?: string;
+  /** A2A-style one-line summary of what this agent does (discovery / observability). */
+  description?: string;
   capabilities?: string[];
   skills?: AgentSkill[];
   meta?: Record<string, unknown>;

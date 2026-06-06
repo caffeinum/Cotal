@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@swarl/cli": "workspace:*",
+    "@swarl/connector": "workspace:*",
     "@swarl/core": "workspace:*",
     "@swarl/manager": "workspace:*"
   },

@@ -11,6 +11,9 @@ importers:
       '@swarl/cli':
         specifier: workspace:*
         version: link:implementations/cli
+      '@swarl/connector':
+        specifier: workspace:*
+        version: link:extensions/connector
       '@swarl/core':
         specifier: workspace:*
         version: link:packages/core

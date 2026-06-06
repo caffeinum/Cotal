@@ -404,6 +404,11 @@ covers three things at once: live delivery, the inbound buffer, and late-join hi
 - **Transport choice:** JetStream streams for all three delivery modes (durability + per-reader
   bookmarks + history), KV for presence, Object Store for artifacts, and the Services API for
   the control plane.
+- **Auth & onboarding:** connection auth (token or user/password, optional TLS) is passed as
+  explicit `connect()` options — nats.js ignores credentials embedded in a URL — and bundled into a
+  one-string join link (`swarl(s)://token@host/space`, [`link.ts`](../packages/core/src/link.ts)).
+  Today this is **soft** multi-tenancy: one shared account, spaces isolated by the `swarl.<space>.*`
+  subject prefix. Hard isolation (a NATS account per space) is the deferred step below.
 
 ## Deferred (designed-for, not built)
 

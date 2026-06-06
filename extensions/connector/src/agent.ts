@@ -64,8 +64,18 @@ export class MeshAgent extends EventEmitter {
     this.ep = new SwarlEndpoint({
       space: config.space,
       servers: config.servers,
+      token: config.token,
+      user: config.user,
+      pass: config.pass,
+      tls: config.tls,
       channels: config.channels,
-      card: { name: config.name, role: config.role, kind: config.kind },
+      card: {
+        name: config.name,
+        role: config.role,
+        kind: config.kind,
+        description: config.description,
+        capabilities: config.capabilities,
+      },
     });
     this.ep.on("message", (m: SwarlMessage, d: Delivery) => this.ingest(m, d));
     this.ep.on("error", (e: Error) => this.log(`endpoint error: ${e.message}`));

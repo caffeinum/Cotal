@@ -53,6 +53,13 @@ export interface EndpointOptions {
   /** Identity. `id` is generated if omitted. */
   card: Omit<AgentCard, "id"> & { id?: string };
   servers?: string;
+  /** Connection token (soft-shared auth). Mutually exclusive with user/pass. */
+  token?: string;
+  /** Username/password auth (both required together). */
+  user?: string;
+  pass?: string;
+  /** Require a TLS connection to the server. */
+  tls?: boolean;
   /** Channels to subscribe to; the first is the default broadcast target. */
   channels?: string[];
   /** Presence heartbeat interval (ms). */
@@ -78,6 +85,10 @@ export class SwarlEndpoint extends EventEmitter {
   readonly channels: string[];
 
   private readonly servers: string;
+  private readonly token?: string;
+  private readonly user?: string;
+  private readonly pass?: string;
+  private readonly tls: boolean;
   private readonly heartbeatMs: number;
   private readonly ttlMs: number;
   private readonly doRegister: boolean;
@@ -107,6 +118,10 @@ export class SwarlEndpoint extends EventEmitter {
     const id = opts.card.id ?? randomUUID();
     this.card = { ...opts.card, id };
     this.servers = opts.servers ?? DEFAULT_SERVER;
+    this.token = opts.token;
+    this.user = opts.user;
+    this.pass = opts.pass;
+    this.tls = opts.tls ?? false;
     this.channels = opts.channels ?? ["general"];
     this.heartbeatMs = opts.heartbeatMs ?? 2000;
     this.ttlMs = opts.ttlMs ?? 6000;
@@ -125,6 +140,7 @@ export class SwarlEndpoint extends EventEmitter {
     this.nc = await connect({
       servers: this.servers,
       name: `swarl:${this.card.name}`,
+      ...authOpts({ token: this.token, user: this.user, pass: this.pass, tls: this.tls }),
     });
     this.js = this.nc.jetstream();
 
@@ -522,17 +538,30 @@ export class SwarlEndpoint extends EventEmitter {
   }
 }
 
-/** Quick check whether a NATS server is accepting connections. */
+/** Auth subset of connect() options, shared by the endpoint and isReachable. */
+interface AuthOpts {
+  token?: string;
+  user?: string;
+  pass?: string;
+  tls?: boolean;
+}
+
+function authOpts(a: AuthOpts) {
+  return { token: a.token, user: a.user, pass: a.pass, tls: a.tls ? {} : undefined };
+}
+
+/** Quick check whether a NATS server is accepting (authenticated) connections. */
 export async function isReachable(
   servers: string = DEFAULT_SERVER,
-  timeoutMs = 1000,
+  opts: AuthOpts & { timeoutMs?: number } = {},
 ): Promise<boolean> {
   try {
     const nc = await connect({
       servers,
-      timeout: timeoutMs,
+      timeout: opts.timeoutMs ?? 1000,
       reconnect: false,
       maxReconnectAttempts: 0,
+      ...authOpts(opts),
     });
     await nc.close();
     return true;

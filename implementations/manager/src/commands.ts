@@ -22,6 +22,7 @@ function parse(argv: string[]): Values {
       name: { type: "string" },
       role: { type: "string" },
       agent: { type: "string" },
+      config: { type: "string" },
     },
   });
   return values as Values;
@@ -73,6 +74,7 @@ async function start(argv: string[]): Promise<void> {
     name: v.name,
     role: v.role,
     agent: v.agent,
+    config: v.config,
   });
   failIfNotOk(reply);
   const d = reply.data as { name: string; role?: string; agent: string; mode: string };
@@ -154,7 +156,8 @@ const managerCommands: Command[] = [
     kind: "command",
     name: "start",
     group: "Control plane",
-    summary: "ask the manager to spawn an agent — --name <n> [--role <r>] [--agent <a>]",
+    summary:
+      "ask the manager to spawn an agent — --name <n> [--role <r>] [--agent <a>] [--config <file>] (auto-discovers .swarl/agents/<n>.md)",
     run: start,
   },
   {
