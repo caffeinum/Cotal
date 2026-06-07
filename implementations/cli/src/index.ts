@@ -3,6 +3,7 @@ import { up } from "./commands/up.js";
 import { join } from "./commands/join.js";
 import { watch } from "./commands/watch.js";
 import { console_ } from "./commands/console.js";
+import { consoleInk } from "./commands/console-ink.js";
 import { web } from "./commands/web.js";
 import { spawn } from "./commands/spawn.js";
 import { mint } from "./commands/mint.js";
@@ -39,6 +40,13 @@ const baseCommands: Command[] = [
     group: "Mesh",
     summary: "live agent dashboard for a space — --space <s> [--plain]",
     run: console_,
+  },
+  {
+    kind: "command",
+    name: "console-ink",
+    group: "Mesh",
+    summary: "live agent dashboard (Ink/React TUI, lazygit-style) — --space <s> [--plain]",
+    run: consoleInk,
   },
   {
     kind: "command",

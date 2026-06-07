@@ -1,0 +1,18 @@
+{
+  "name": "@cotal/example-04-self-improving-console",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "manager": "tsx src/manager.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@cotal/core": "workspace:*",
+    "@cotal/manager": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.4"
+  }
+}
