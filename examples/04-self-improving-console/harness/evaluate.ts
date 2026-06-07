@@ -16,7 +16,8 @@ type Rec = {
   type: string;
   mode?: string;
   from?: string;
-  to?: string;
+  fromId?: string;
+  to?: string; // instance id for unicast — resolve via the id→name map
   channel?: string;
   text?: string;
 };
@@ -59,14 +60,22 @@ try {
 }
 
 // --- comms analysis ---
-const ORCH = "orchestrator";
-const isWorker = (n?: string): boolean => !!n && n !== ORCH && n !== "harness-observer";
+// "Hubs" are not peers: a DM to/from any of these is orchestrator-routed, not peer-to-peer.
+const HUB = new Set(["orchestrator", "manager", "cli", "harness-observer"]);
+// `to` is an instance id; resolve it to a name via the id→name map built from `from`/`fromId`.
+const idToName: Record<string, string> = {};
+for (const m of msgs) if (m.fromId && m.from) idToName[m.fromId] = m.from;
+const nameOf = (x?: string): string | undefined => (x && idToName[x] ? idToName[x] : x);
 
 const dms = msgs.filter((m) => m.mode === "unicast");
 const chats = msgs.filter((m) => m.mode === "chat");
-// peer-to-peer DM: a worker initiates a DM to someone other than the orchestrator.
-const peerDms = dms.filter((m) => isWorker(m.from) && m.to !== ORCH);
-const peerPairs = [...new Set(peerDms.map((m) => `${m.from}->${m.to ?? "?"}`))];
+// peer-to-peer DM: both ends are workers (neither is a hub), and it's not a self-message.
+const peerDms = dms.filter((m) => {
+  const from = m.from;
+  const to = nameOf(m.to);
+  return !!from && !!to && !HUB.has(from) && !HUB.has(to) && from !== to;
+});
+const peerPairs = [...new Set(peerDms.map((m) => `${m.from}->${nameOf(m.to) ?? "?"}`))];
 const complete = msgs.some((m) => (m.text ?? "").includes("DEMO COMPLETE"));
 const peerToPeer = peerDms.length >= 1;
 const green = buildOk && peerToPeer;

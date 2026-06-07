@@ -17,6 +17,7 @@ examples/04-self-improving-console/harness/run-once.sh <iter>
 |------|---------|-------|----------------------|--------------|-------------|
 | 0 | scaffold | n/a | n/a | — | Phase A built (see below) |
 | 1 | 🔴 RED | ok | none | no-traffic — orchestrator EOF-exited immediately | spawn orchestrator via manager PTY (`cotal start`) + manager headless; drop `script` |
+| 2 | 🟡 partial | — | spawn+coordinate works | worktree isolation LEAKS — research wrote SPEC to MAIN, workers read worktree placeholder | switch harness to main + git-reset between runs; fix peer-to-peer metric (resolve `to` id→name) |
 
 ---
 
@@ -63,3 +64,26 @@ manager spawns inherits headless mode. This makes the orchestrator and the worke
 
 **Next risks to watch:** does the orchestrator actually act on the GOAL init under the PTY runtime and
 `cotal_spawn` the workers? Do the workers wake on its DMs? Is `DEMO COMPLETE` ever broadcast?
+
+## Iteration 2 — orchestration works, isolation leaks (🟡 partial)
+**What worked (big):** the manager spawned the orchestrator via PTY; the orchestrator booted, set
+status, **`cotal_spawn`ed research + backend + tui-designer (all joined)**, and DM'd each a detailed
+task. research read INPUT.md, verified the `@cotal/core` API against the code, and wrote a real
+194-line SPEC; tui-designer's status went to "settling useMesh() shape with backend." So the core
+mechanic — headless multi-agent spawn + dispatch + lateral intent — is proven.
+
+**The blocker:** **worktree isolation does not hold.** research wrote the SPEC to the MAIN repo
+(`/Users/user/Projects/cotal/implementations/cli/src/console/SPEC.md`, 194 lines) instead of its
+worktree copy (still the 7-line placeholder) — agents resolve repo paths to the canonical project
+location they know, not their `git worktree` cwd. Consequence: backend/tui-designer (cwd = worktree)
+read the worktree's PLACEHOLDER SPEC, so the research→workers handoff is silently split. It also
+pollutes the main tree uncontrollably — strictly worse than a controlled reset.
+
+**Decision / fix for iter 3:** drop worktrees. Run the swarm on the **main demo branch**; reset the
+console files with `git checkout` (+ scoped `git clean`) before each run and snapshot green output to
+`reference/`. Unique space per run still isolates the mesh. Also fixed the **peer-to-peer metric**:
+DM `to` is an instance id, so observer now logs `fromId` and evaluate resolves id→name (HUB =
+orchestrator/manager/cli) so a worker's `done:`→orchestrator no longer counts as peer-to-peer.
+
+**Caveat:** run-2's own verdict (worktree typecheck of placeholders) is not meaningful; iter 3 on
+main is the first run that can fairly score build + peer-to-peer.

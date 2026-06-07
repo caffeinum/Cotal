@@ -57,8 +57,9 @@ ep.tap((subject, msg) => {
       mode: deliveryOf(subject), // "chat" | "unicast" | "anycast" | null
       subject,
       from: msg.from?.name,
+      fromId: msg.from?.id,
       fromRole: msg.from?.role,
-      to: msg.to,
+      to: msg.to, // NOTE: recipient INSTANCE ID for unicast, not a name — resolve via fromId map
       channel: msg.channel,
       toService: msg.toService,
       text: text(msg),
