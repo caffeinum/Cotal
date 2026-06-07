@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import {
+  normalizeMentions,
   SwarlEndpoint,
   type ControlReply,
   type Delivery,
@@ -21,6 +22,10 @@ export interface InboxItem {
   channel?: string;
   /** Set when kind === "anycast" (the role addressed). */
   service?: string;
+  /** Lowercased names called out on a channel message (priority hint). */
+  mentions?: string[];
+  /** True iff this message mentions us by name — computed once, here. Drives high-priority wake. */
+  mentionsMe: boolean;
   text: string;
   replyTo?: string;
   contextId?: string;
@@ -48,7 +53,9 @@ function sleep(ms: number): Promise<void> {
  * MCP server is responsive immediately even if the mesh isn't up yet.
  *
  * Emits `"incoming"` (InboxItem) after each message is buffered, so a push layer
- * (the channel) can deliver it immediately; `"error"` (Error) for endpoint faults.
+ * (the channel) can deliver it immediately; `"wake"` (no payload) to ask that layer to
+ * wake the session now (the Stop→idle flush of held messages); `"error"` (Error) for
+ * endpoint faults.
  */
 export class MeshAgent extends EventEmitter {
   readonly ep: SwarlEndpoint;
@@ -139,6 +146,8 @@ export class MeshAgent extends EventEmitter {
       kind,
       channel: m.channel,
       service: m.toService,
+      mentions: m.mentions,
+      mentionsMe: m.mentions?.includes(this.config.name.toLowerCase()) ?? false,
       text,
       replyTo: m.replyTo,
       contextId: m.contextId,
@@ -168,11 +177,35 @@ export class MeshAgent extends EventEmitter {
     return this.inbox.length;
   }
 
+  /** Ask any push layer (the channel) to wake the session now — used by the Stop→idle flush
+   *  to deliver a batch of held ambient messages. Emits `"wake"`; a no-op if nothing listens.
+   *  Never acks or drains: {@link drainInbox} stays the sole ack site. */
+  requestWake(): void {
+    this.emit("wake");
+  }
+
   // ---- sending -------------------------------------------------------------
 
-  async send(text: string, channel?: string): Promise<SwarlMessage> {
+  async send(text: string, channel?: string, mentions?: string[]): Promise<SwarlMessage> {
     this.assertConnected();
-    return this.ep.multicast(text, channel ? { channel } : undefined);
+    const clean = normalizeMentions(mentions);
+    if (clean) this.assertKnownMentions(clean);
+    return this.ep.multicast(text, { channel, mentions: clean });
+  }
+
+  /** Throw if any name isn't a peer we've observed. Validates against the FULL roster
+   *  (incl. self — your own name is a valid participant; resolvePeer's self-filter would
+   *  wrongly reject it), case-insensitively. Send is all-or-nothing: one unknown @name aborts
+   *  the whole broadcast (fail-loud on typos). Caveat: only catches peers THIS client has seen
+   *  — an offline peer lingers in the roster, but one never observed (or not yet filled in
+   *  after connect) throws. See docs/architecture.md. */
+  private assertKnownMentions(mentions: string[]): void {
+    const names = new Set(this.ep.getRoster().map((p) => p.card.name.toLowerCase()));
+    const unknown = mentions.filter((m) => !names.has(m));
+    if (unknown.length)
+      throw new Error(
+        `unknown mention${unknown.length > 1 ? "s" : ""}: ${unknown.map((u) => `@${u}`).join(", ")} — no such peer observed in space "${this.config.space}"`,
+      );
   }
 
   async anycast(role: string, text: string): Promise<SwarlMessage> {

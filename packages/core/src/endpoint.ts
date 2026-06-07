@@ -44,6 +44,7 @@ import {
   dmStream,
   dmDurable,
   isConcreteChannel,
+  normalizeMentions,
   parseSubject,
   presenceBucket,
   spacePrefix,
@@ -242,7 +243,7 @@ export class SwarlEndpoint extends EventEmitter {
   /** Multicast: broadcast to everyone on a channel. */
   async multicast(
     text: string,
-    opts?: { channel?: string; parts?: Part[]; replyTo?: string; contextId?: string },
+    opts?: { channel?: string; parts?: Part[]; replyTo?: string; contextId?: string; mentions?: string[] },
   ): Promise<SwarlMessage> {
     // Publish must target a concrete sub-channel — you can't broadcast to a
     // wildcard. Default to the first concrete channel we're on (channels[0] may
@@ -256,6 +257,9 @@ export class SwarlEndpoint extends EventEmitter {
       space: this.space,
       from: this.ref(),
       channel,
+      // Priority/wake hint, not routing — validation (against the roster) is the connector's
+      // job; core just canonicalizes and omits the field when empty.
+      mentions: normalizeMentions(opts?.mentions),
       parts: opts?.parts ?? [{ kind: "text", text }],
       replyTo: opts?.replyTo,
       contextId: opts?.contextId,

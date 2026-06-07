@@ -43,6 +43,11 @@ const claudeHandle: HookHandle = async (agent, ev) => {
       case "Stop":
       case "StopFailure": // turn died on an API error — Stop won't fire, so reset here too
         await agent.setStatus("idle");
+        // Now idle: if ambient channel chatter was held while we were busy, ask the channel to
+        // wake one turn so its UserPromptSubmit drains+acks the batch (the sole ack site). Stop
+        // can't inject context itself, so we must NOT drain here — that would ack with no vehicle
+        // to the model and silently lose the messages.
+        if (agent.inboxCount() > 0) agent.requestWake();
         return {};
       case "SessionEnd":
         await agent.setStatus("offline");
@@ -91,6 +96,37 @@ async function main(): Promise<void> {
 
   registerSwarlTools(server, agent, config);
 
+  // One wake-nudge path, shared by incoming messages and the Stop→idle flush. It stays a stable
+  // function gated on a *mutable* `channelActive` flag (flipped true only after the MCP
+  // handshake confirms the client speaks claude/channel — see below). If it fires before then it
+  // simply no-ops; the message waits unacked in the inbox and is drained at the next
+  // UserPromptSubmit, so nothing is lost. This only ever *wakes* a turn — drainInbox stays the
+  // sole ack site.
+  let channelActive = false;
+  const nudge = (item?: InboxItem): void => {
+    if (!channelActive) return;
+    const n = agent.inboxCount();
+    const content = item
+      ? `📨 New ${item.kind}${item.mentionsMe ? " — you were mentioned" : ""} from ${fmtFrom(item)} — delivering your Swarl inbox now.`
+      : `📨 ${n} Swarl message${n === 1 ? "" : "s"} waiting — delivering your inbox now.`;
+    void server.server
+      .notification({
+        method: "notifications/claude/channel",
+        params: { content, meta: item ? channelMeta(item) : { kind: "batch" } },
+      })
+      .catch((e) => process.stderr.write(`[swarl-connector] channel nudge failed: ${(e as Error).message}\n`));
+  };
+
+  // Two priority tiers. A *directed* message (DM, anycast, or an @mention of us) always nudges,
+  // so the addressee sees it promptly — woken now if idle, at the next turn boundary if busy.
+  // *Ambient* channel chatter (not addressed to us) is suppressed while we're mid-turn ("working")
+  // and instead accumulates in the inbox; the Stop→idle flush then fires one batch nudge.
+  agent.on("incoming", (item: InboxItem) => {
+    const ambient = item.kind === "channel" && !item.mentionsMe && agent.status === "working";
+    if (!ambient) nudge(item);
+  });
+  agent.on("wake", () => nudge());
+
   const shutdown = async () => {
     try {
       controlServer.close();
@@ -109,34 +145,17 @@ async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  // Is this session consuming us as a channel? If so, a peer message fires a *wake nudge*
-  // so an idle session takes a turn now — its UserPromptSubmit hook then drains + acks the
-  // inbox (the single authoritative delivery path). The nudge itself never acks/removes, so
-  // nothing is lost if the channel is inactive; the message waits in the stream for the next turn.
+  // Is this session consuming us as a channel? Only now (post-handshake) can we read the
+  // client's capabilities, so we flip the mutable flag the nudge path is gated on. The handlers
+  // were registered above and simply no-op'd until this point.
   const clientCaps = server.server.getClientCapabilities();
   const envFlag = process.env.SWARL_CHANNEL;
-  const channelActive = envFlag
+  channelActive = envFlag
     ? /^(1|true|yes|on)$/i.test(envFlag)
     : Boolean((clientCaps?.experimental as Record<string, unknown> | undefined)?.["claude/channel"]);
   process.stderr.write(
     `[swarl-connector] client capabilities: ${JSON.stringify(clientCaps ?? {})} → channel ${channelActive ? "ACTIVE" : "off"}\n`,
   );
-
-  if (channelActive) {
-    agent.on("incoming", (item: InboxItem) => {
-      void server.server
-        .notification({
-          method: "notifications/claude/channel",
-          params: {
-            content: `📨 New ${item.kind} from ${fmtFrom(item)} — delivering your Swarl inbox now.`,
-            meta: channelMeta(item),
-          },
-        })
-        .catch((e) =>
-          process.stderr.write(`[swarl-connector] channel nudge failed: ${(e as Error).message}\n`),
-        );
-    });
-  }
 
   process.stderr.write(
     `[swarl-connector] MCP ready (stdio) — space="${config.space}" name="${config.name}"${config.role ? ` role="${config.role}"` : ""}\n`,

@@ -76,6 +76,10 @@ export interface SwarlMessage {
   to?: string;
   /** Service / role — anycast (any one instance of the service receives it). */
   toService?: string;
+  /** Lowercased peer names called out within a `channel` message — a priority/wake hint,
+   *  not a routing target: the message still multicasts to the whole channel. Omitted when
+   *  empty. */
+  mentions?: string[];
   parts: Part[];
   /** Id of the message being replied to. */
   replyTo?: string;

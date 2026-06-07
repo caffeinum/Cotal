@@ -24,7 +24,7 @@ export function fmtFrom(i: InboxItem): string {
 function fmtItem(i: InboxItem): string {
   if (i.kind === "dm") return `[DM from ${fmtFrom(i)}] ${i.text}`;
   if (i.kind === "anycast") return `[@${i.service} from ${fmtFrom(i)}] ${i.text}`;
-  return `[#${i.channel} ${fmtFrom(i)}] ${i.text}`;
+  return `[#${i.channel}${i.mentionsMe ? " @you" : ""} ${fmtFrom(i)}] ${i.text}`;
 }
 
 const text = (t: string) => ({ content: [{ type: "text" as const, text: t }] });
@@ -36,6 +36,8 @@ export function channelMeta(i: InboxItem): Record<string, string> {
   if (i.fromRole) m.role = i.fromRole;
   if (i.channel) m.channel = i.channel;
   if (i.service) m.to_role = i.service; // anycast: the role that was addressed
+  if (i.mentions?.length) m.mentions = i.mentions.join(","); // names called out on this channel msg
+  if (i.mentionsMe) m.mentioned = "true"; // we were addressed by name → high priority
   return m;
 }
 
@@ -92,12 +94,18 @@ export function registerSwarlTools(server: McpServer, agent: MeshAgent, config: 
           .describe(
             `Channel to send on (default: ${config.channels.find(isConcreteChannel) ?? "general"}). Concrete only — not a wildcard like team.>; reply on the channel you received a message on.`,
           ),
+        mentions: z
+          .array(z.string())
+          .optional()
+          .describe(
+            "Names of peers to call out (e.g. ['bob']). Everyone on the channel still receives the message, but a mentioned peer gets high-priority delivery — woken now if idle, instead of waiting for its next idle moment. An unknown name (no such peer observed) is rejected and the message is not sent.",
+          ),
       },
     },
-    async ({ text: msg, channel }) => {
+    async ({ text: msg, channel, mentions }) => {
       try {
-        const m = await agent.send(msg, channel);
-        return text(`Sent to #${m.channel}.`);
+        const m = await agent.send(msg, channel, mentions);
+        return text(`Sent to #${m.channel}${m.mentions?.length ? ` (mentioned @${m.mentions.join(", @")})` : ""}.`);
       } catch (e) {
         return fail(`Couldn't send: ${(e as Error).message}`);
       }

@@ -132,15 +132,23 @@ Two things move a message from the inbox to the model — **one delivers, one on
   messages as `additionalContext`, and **ack** them on the stream. This is the single
   authoritative path — gating-free, works on any Claude Code build. A message is acked only here,
   once actually surfaced; a crash before injection redelivers it.
-- **Channel nudge (wake).** Each arriving message also fires a content-less
-  `notifications/claude/channel` nudge that wakes an *idle* session into a turn, so the hook drain
-  runs *now* instead of at the next prompt. The nudge never acks or removes anything — if the channel
-  can't run, delivery still happens at the next turn. It takes three things together: the plugin's MCP
-  declares the `claude/channel` capability, the session is launched with
-  `--dangerously-load-development-channels plugin:swarl@swarl-mesh` (research preview), **and**
-  `SWARL_CHANNEL=1`. The last one matters: Claude does not echo `claude/channel` back in its MCP
-  client capabilities, so the connector would auto-detect the channel as *off* and never send the
-  nudge — the env flag forces it on.
+- **Channel nudge (wake).** An arriving message fires a `notifications/claude/channel` nudge that
+  wakes an *idle* session into a turn, so the hook drain runs *now* instead of at the next prompt.
+  The nudge never acks or removes anything — if the channel can't run, delivery still happens at the
+  next turn. It takes three things together: the plugin's MCP declares the `claude/channel`
+  capability, the session is launched with `--dangerously-load-development-channels
+  plugin:swarl@swarl-mesh` (research preview), **and** `SWARL_CHANNEL=1`. The last one matters:
+  Claude does not echo `claude/channel` back in its MCP client capabilities, so the connector would
+  auto-detect the channel as *off* and never send the nudge — the env flag forces it on.
+
+  **Two priority tiers.** Not every message should interrupt. A *directed* message — a DM, an
+  anycast, or a channel message that **mentions** us by name — always nudges, so the addressee sees
+  it promptly. *Ambient* channel chatter (not addressed to us) does **not** nudge while we're
+  mid-turn (`working`); it accumulates in the inbox, and the `Stop`→`idle` transition fires one
+  batch nudge so the whole backlog is drained together on the next turn. So an addressed peer is
+  woken now; a busy peer reading along is left alone until it finishes. `Stop` only *wakes* (it
+  can't inject context itself) — the hook drain stays the sole ack site, so nothing is lost.
+  `mentionsMe` is computed once on receipt and surfaced as a `mentioned="true"` tag attribute.
 
 ### Once per session
 | Event | Fires when | Matchers |

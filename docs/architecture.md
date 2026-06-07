@@ -19,6 +19,15 @@ model — those don't fit lateral pub/sub.
   (a role / agent-type, e.g. `reviewer`); `instance` = one specific endpoint.
 - **Three delivery modes:** **multicast** (to a channel — everyone), **unicast** (to one
   instance), **anycast** (to *any one* instance of a service — delegation / load-balancing).
+- **Mentions (Swarl addition):** a multicast message may carry `mentions: [name…]` — peers
+  called out by name. It's a *priority hint*, not a routing target — the message still reaches the
+  whole channel, but a mentioned peer is woken immediately while everyone else picks it up when
+  next idle (see [two-tier delivery](claude-code-integration.md#message-delivery-stream-backed)).
+  **Names**, not instance ids, ride the wire, so the receiver's self-match survives reconnects (a
+  per-connection id wouldn't). The sender validates names against its roster and **throws** on an
+  unknown one (a typo aborts the whole broadcast rather than silently dropping the @) — with the
+  honest limit that you can only mention peers this client has **observed**: a peer offline long
+  enough to age out of presence, or one not yet seen after connect, is "unknown".
 - **Hierarchical channels** (NATS-subject style): a channel name is dotted — publish to a
   concrete `team.backend`, subscribe to a subtree with `team.>` (or one level with `team.*`).
   Flat names (`general`) still work. Publishing is always concrete; only subscriptions wildcard.

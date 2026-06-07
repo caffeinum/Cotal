@@ -25,6 +25,15 @@ export function spacePrefix(space: string): string {
   return `${ROOT}.${token(space)}`;
 }
 
+/** Canonicalize a `mentions` list for the wire: trim, lowercase, drop empties, dedupe.
+ *  Returns `undefined` for an empty result so the field is omitted rather than sent as `[]`.
+ *  Presence-agnostic (no roster lookup) — validation lives in the connector. */
+export function normalizeMentions(mentions?: string[]): string[] | undefined {
+  if (!mentions?.length) return undefined;
+  const out = [...new Set(mentions.map((m) => m.trim().toLowerCase()).filter((m) => m.length > 0))];
+  return out.length ? out : undefined;
+}
+
 /**
  * Build the channel portion of a chat subject, preserving NATS hierarchy: split on
  * `.`, sanitize each segment to a safe token, but keep whole-segment wildcards
