@@ -47,8 +47,15 @@ function channelPath(channel: string): string {
     .join(".");
 }
 
-export function chatSubject(space: string, channel: string): string {
-  return `${spacePrefix(space)}.chat.${channelPath(channel)}`;
+/** A sender/route token, preserving the `*` wildcard used on the subscribe side but
+ *  sanitizing everything else. Real ids are nkey public keys (base32 [A-Z0-9]) so
+ *  `token()` is a no-op on them — only `*` needs the bypass. */
+function senderToken(s: string): string {
+  return s === "*" ? "*" : token(s);
+}
+
+export function chatSubject(space: string, sender: string, channel: string): string {
+  return `${spacePrefix(space)}.chat.${senderToken(sender)}.${channelPath(channel)}`;
 }
 
 /** True if a channel names a concrete sub-channel (no `*`/`>`) — i.e. it can be
@@ -78,19 +85,19 @@ export function collapseFilterSubjects(subjects: string[]): string[] {
   return uniq.filter((x) => !uniq.some((y) => y !== x && subjectMatches(y, x)));
 }
 
-/** Unicast: a specific instance's inbox. */
-export function unicastSubject(space: string, instance: string): string {
-  return `${spacePrefix(space)}.inst.${token(instance)}`;
+/** Unicast: a specific instance's inbox, tagged with the sender. */
+export function unicastSubject(space: string, target: string, sender: string): string {
+  return `${spacePrefix(space)}.inst.${token(target)}.${senderToken(sender)}`;
 }
 
-/** Anycast: a service (role). Subscribers join a queue group so one instance receives. */
-export function anycastSubject(space: string, service: string): string {
-  return `${spacePrefix(space)}.svc.${token(service)}`;
+/** Anycast: a service (role), tagged with the sender. Subscribers join a queue group so one instance receives. */
+export function anycastSubject(space: string, service: string, sender: string): string {
+  return `${spacePrefix(space)}.svc.${token(service)}.${senderToken(sender)}`;
 }
 
-/** Control request/reply to a service (e.g. the manager); anycast via queue group. */
-export function controlServiceSubject(space: string, service: string): string {
-  return `${spacePrefix(space)}.ctl.${token(service)}`;
+/** Control request/reply to a service (e.g. the manager), tagged with the sender; anycast via queue group. */
+export function controlServiceSubject(space: string, service: string, sender: string): string {
+  return `${spacePrefix(space)}.ctl.${token(service)}.${senderToken(sender)}`;
 }
 
 export function traceSubject(space: string, agentId: string): string {
@@ -109,13 +116,48 @@ export function spaceWildcard(space: string): string {
 /** The three peer-message delivery modes (control/trace/presence are not deliveries). */
 export type DeliveryMode = "chat" | "anycast" | "unicast";
 
+/** A subject parsed into its routing parts. `sender` is the publishing agent's id;
+ *  `rest` is the channel (chat) or the routed target/role/service (inst/svc/ctl). */
+export interface ParsedSubject {
+  kind: "chat" | "inst" | "svc" | "ctl";
+  sender: string;
+  /** chat → channel (possibly hierarchical); inst → target; svc → role; ctl → service. */
+  rest: string;
+}
+
 /**
- * Inverse of the subject builders: classify a subject's delivery mode, or `null` for
- * control/trace/etc. Observers (e.g. a feed) use this instead of re-parsing the layout.
+ * The single authority on the subject layout — every reader of a wire subject goes
+ * through this, so the sender-position asymmetry lives in exactly one place:
+ *   chat.<sender>.<channel…>   sender at [3], channel is everything after
+ *   inst.<target>.<sender>     sender at [4]
+ *   svc.<role>.<sender>        sender at [4]
+ *   ctl.<service>.<sender>     sender at [4]
+ * Validates the prefix and per-kind shape first and returns `null` on anything else,
+ * so a malformed subject can never be read as if it carried a sender.
+ */
+export function parseSubject(subject: string): ParsedSubject | null {
+  const parts = subject.split(".");
+  if (parts[0] !== ROOT) return null; // swarl.<space>.<kind>.…
+  const kind = parts[2];
+  if (kind === "chat") {
+    if (parts.length < 5) return null; // swarl.<space>.chat.<sender>.<channel…>
+    return { kind, sender: parts[3], rest: parts.slice(4).join(".") };
+  }
+  if (kind === "inst" || kind === "svc" || kind === "ctl") {
+    if (parts.length !== 5) return null; // swarl.<space>.<kind>.<route>.<sender>
+    return { kind, sender: parts[4], rest: parts[3] };
+  }
+  return null;
+}
+
+/**
+ * Classify a subject's delivery mode, or `null` for control/trace/etc. A thin map over
+ * {@link parseSubject}. Observers (e.g. a feed) use this instead of re-parsing the layout.
  */
 export function deliveryOf(subject: string): DeliveryMode | null {
-  const kind = subject.split(".")[2]; // swarl.<space>.<kind>.<token>
-  return kind === "chat" ? "chat" : kind === "svc" ? "anycast" : kind === "inst" ? "unicast" : null;
+  const p = parseSubject(subject);
+  if (!p) return null;
+  return p.kind === "chat" ? "chat" : p.kind === "svc" ? "anycast" : p.kind === "inst" ? "unicast" : null;
 }
 
 /** Name of the KV bucket holding presence for a space. */

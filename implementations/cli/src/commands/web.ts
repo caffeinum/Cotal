@@ -9,6 +9,7 @@ import {
   isReachable,
   DEFAULT_SERVER,
   deliveryOf,
+  parseSubject,
   type SwarlMessage,
 } from "@swarl/core";
 import { c } from "../ui.js";
@@ -69,7 +70,10 @@ export async function web(argv: string[]): Promise<void> {
   ep.tap((subject, msg) => {
     const mode = deliveryOf(subject);
     if (!mode || !msg) return;
-    broadcast("message", { mode, msg });
+    // senderId is the subject's sender token — the *verified* publisher (the server
+    // policed who could publish it), vs the advisory `from` in the payload.
+    const senderId = parseSubject(subject)?.sender;
+    broadcast("message", { mode, senderId, msg });
   });
 
   const httpServer = createServer(async (req, res) => {

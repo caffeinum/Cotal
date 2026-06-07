@@ -44,6 +44,7 @@ import {
   dmStream,
   dmDurable,
   isConcreteChannel,
+  parseSubject,
   presenceBucket,
   spacePrefix,
   spaceWildcard,
@@ -246,7 +247,7 @@ export class SwarlEndpoint extends EventEmitter {
       replyTo: opts?.replyTo,
       contextId: opts?.contextId,
     };
-    await this.publishMsg(chatSubject(this.space, channel), msg);
+    await this.publishMsg(chatSubject(this.space, this.card.id, channel), msg);
     return msg;
   }
 
@@ -266,7 +267,7 @@ export class SwarlEndpoint extends EventEmitter {
       replyTo: opts?.replyTo,
       contextId: opts?.contextId,
     };
-    await this.publishMsg(unicastSubject(this.space, instanceId), msg);
+    await this.publishMsg(unicastSubject(this.space, instanceId, this.card.id), msg);
     return msg;
   }
 
@@ -286,7 +287,7 @@ export class SwarlEndpoint extends EventEmitter {
       replyTo: opts?.replyTo,
       contextId: opts?.contextId,
     };
-    await this.publishMsg(anycastSubject(this.space, service), msg);
+    await this.publishMsg(anycastSubject(this.space, service, this.card.id), msg);
     return msg;
   }
 
@@ -316,7 +317,7 @@ export class SwarlEndpoint extends EventEmitter {
     handler: (req: ControlRequest) => Promise<ControlReply> | ControlReply,
   ): void {
     if (!this.nc) throw new Error("endpoint not started");
-    const sub = this.nc.subscribe(controlServiceSubject(this.space, service), {
+    const sub = this.nc.subscribe(controlServiceSubject(this.space, service, "*"), {
       queue: service,
     });
     this.subs.push(sub);
@@ -345,7 +346,7 @@ export class SwarlEndpoint extends EventEmitter {
   ): Promise<ControlReply> {
     if (!this.nc) throw new Error("endpoint not started");
     const m = await this.nc.request(
-      controlServiceSubject(this.space, service),
+      controlServiceSubject(this.space, service, this.card.id),
       JSON.stringify({ ...req, from: req.from ?? this.ref() }),
       { timeout: timeoutMs },
     );
@@ -383,16 +384,18 @@ export class SwarlEndpoint extends EventEmitter {
     } catch {
       return [];
     }
-    const prefix = `${spacePrefix(this.space)}.chat.`;
-    const channels: { channel: string; messages: number }[] = [];
+    // Subjects now carry the sender (chat.<sender>.<channel>), so collapse across senders:
+    // sum each channel's counts regardless of who published.
+    const counts = new Map<string, number>();
     if (info.state.subjects) {
       for (const [subject, count] of Object.entries(info.state.subjects)) {
-        if (subject.startsWith(prefix)) {
-          channels.push({ channel: subject.slice(prefix.length), messages: count });
-        }
+        const p = parseSubject(subject);
+        if (p?.kind === "chat") counts.set(p.rest, (counts.get(p.rest) ?? 0) + count);
       }
     }
-    return channels.sort((a, b) => a.channel.localeCompare(b.channel));
+    return [...counts]
+      .map(([channel, messages]) => ({ channel, messages }))
+      .sort((a, b) => a.channel.localeCompare(b.channel));
   }
 
   /** Fetch recent messages from a channel's JetStream backlog. */
@@ -402,7 +405,7 @@ export class SwarlEndpoint extends EventEmitter {
   ): Promise<SwarlMessage[]> {
     if (!this.nc) throw new Error("endpoint not started");
     const js = jetstream(this.nc);
-    const subject = chatSubject(this.space, channel);
+    const subject = chatSubject(this.space, "*", channel); // history from any sender
     const limit = opts?.limit ?? 100;
     const msgs: SwarlMessage[] = [];
     try {
@@ -485,7 +488,7 @@ export class SwarlEndpoint extends EventEmitter {
     // Unicast: this instance's private DM inbox.
     await this.jsm.consumers.add(dmStream(this.space), {
       durable_name: dmDurable(id),
-      filter_subject: unicastSubject(this.space, id),
+      filter_subject: unicastSubject(this.space, id, "*"), // DMs to me, from any sender
       ack_policy: AckPolicy.Explicit,
       ack_wait,
       deliver_policy: DeliverPolicy.All,
@@ -499,7 +502,7 @@ export class SwarlEndpoint extends EventEmitter {
         durable_name: chatDurable(id),
         // Wildcard channels (team.>) may subsume concrete ones (team.backend);
         // JetStream rejects overlapping filter_subjects, so collapse first.
-        filter_subjects: collapseFilterSubjects(this.channels.map((ch) => chatSubject(this.space, ch))),
+        filter_subjects: collapseFilterSubjects(this.channels.map((ch) => chatSubject(this.space, "*", ch))),
         ack_policy: AckPolicy.Explicit,
         ack_wait,
         deliver_policy: DeliverPolicy.All,
@@ -512,7 +515,7 @@ export class SwarlEndpoint extends EventEmitter {
     if (this.card.role) {
       await this.jsm.consumers.add(taskStream(this.space), {
         durable_name: taskDurable(this.card.role),
-        filter_subject: anycastSubject(this.space, this.card.role),
+        filter_subject: anycastSubject(this.space, this.card.role, "*"), // tasks for my role, any sender
         ack_policy: AckPolicy.Explicit,
         ack_wait,
       });
@@ -536,7 +539,23 @@ export class SwarlEndpoint extends EventEmitter {
           this.emit("error", e as Error);
           continue;
         }
-        if (msg.from?.id === this.card.id) {
+        // Authenticity guard (fail closed): the sender is encoded in the subject, which the
+        // server policed who could publish. The payload `from` is advisory — it must match,
+        // and a missing `from` or an unparseable subject on a delivery is itself an anomaly.
+        // Reject (term — a spoof is permanently invalid, never redeliver) BEFORE any handler.
+        const parsed = parseSubject(m.subject);
+        if (!parsed || !msg.from || msg.from.id !== parsed.sender) {
+          m.term();
+          this.emit(
+            "error",
+            new Error(
+              `dropped message on ${m.subject}: payload from ${msg.from?.id ?? "(none)"} ` +
+                `does not match subject sender ${parsed?.sender ?? "(unparseable)"}`,
+            ),
+          );
+          continue;
+        }
+        if (msg.from.id === this.card.id) {
           m.ack(); // our own echo — advance past it
           continue;
         }
