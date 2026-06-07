@@ -20,6 +20,7 @@ let unread = new Map(); // name -> messages seen since last viewed
 let dms = []; // raw DM messages (god-view), grouped client-side
 let selected = "*"; // "*" = all activity, else a channel name (null when a DM is open)
 let dmSel = null; // { peer, with } when a Direct-messages thread is open
+let agentSel = null; // peer id when an Agent Detail drill-down is open (else selected/dmSel drive the view)
 let activity = []; // {mode, msg} ring buffer for the all-activity view
 let channelMsgs = []; // messages for the selected channel
 let modes = new Set(MODES); // delivery modes currently shown
@@ -384,17 +385,15 @@ function renderDMThread() {
 
 // ── NEEDS YOU rail (always on the right) ──────────────────────────────────────
 function cardHTML(c) {
-  return `<div class="card tone-${c.tone}">
+  const nav = c.id ? ` nav${c.id === agentSel ? " sel" : ""}` : "";
+  return `<div class="card tone-${c.tone}${nav}"${c.id ? ` data-agent="${esc(c.id)}"` : ""}>
     <div class="top">
       <div class="cat-l"><span class="cdot"></span><span class="cat">${esc(c.cat)}</span></div>
       <span class="age">${esc(c.age)}</span>
     </div>
-    <div class="title">${esc(c.title)}</div>
+    <div class="title">${esc(c.title)}${c.role ? `<span class="crole">${esc(c.role)}</span>` : ""}</div>
     <div class="desc">${esc(c.desc)}</div>
-    <div class="btns">
-      <span class="btn primary">${esc(c.primary)}</span>
-      <span class="btn secondary">${esc(c.secondary)}</span>
-    </div>
+    ${c.primary ? `<div class="btns"><span class="btn primary">${esc(c.primary)}</span>${c.secondary ? `<span class="btn secondary">${esc(c.secondary)}</span>` : ""}</div>` : ""}
   </div>`;
 }
 function waitingCards() {
@@ -405,10 +404,11 @@ function waitingCards() {
       tone: "amber",
       cat: "WAITING",
       age: ago(p.ts),
-      title: `${p.card.name} is blocked`,
+      title: `${p.card.name} is waiting`,
+      role: p.card.role,
+      // p.activity is the Claude Code Notification text (the actual blocking prompt/permission).
       desc: p.activity || "waiting for input",
-      primary: "Provide key",
-      secondary: "Open thread",
+      id: p.card.id, // makes the card a clickable drill-down into the Agent Detail view
     }));
 }
 function renderRail() {
@@ -420,10 +420,47 @@ function renderRail() {
       ? cards.map(cardHTML).join("") +
         `<div class="rail-foot">Everything else stays quiet in the feed.</div>`
       : `<div class="empty">nothing waiting — all clear ✓</div>`);
+  for (const el of $("rail").querySelectorAll(".card[data-agent]"))
+    el.onclick = () => selectAgent(el.dataset.agent);
+}
+
+// ── Agent Detail drill-down (centre) — the forward-looking per-agent frame (docs/web.md) ──
+function selectAgent(id) {
+  agentSel = id;
+  dmSel = null;
+  selected = null;
+  renderSidebarNav();
+  renderCenter();
+  renderRail();
+}
+function renderAgentDetail() {
+  const p = roster.find((x) => x.card.id === agentSel);
+  if (!p) {
+    $("center").innerHTML = `<div class="detail"><div class="empty">agent no longer present — pick another from NEEDS YOU.</div></div>`;
+    return;
+  }
+  const waiting = p.status === "waiting";
+  const who = p.card.role ? `${esc(p.card.name)}<span class="crole">${esc(p.card.role)}</span>` : esc(p.card.name);
+  const since = waiting ? `waiting ${esc(ago(p.ts))}` : `${esc(p.status)} · ${esc(ago(p.ts))}`;
+  const blocked = waiting
+    ? `<div class="d-label">Blocked on</div><div class="d-block">${esc(p.activity || "waiting for input")}</div>`
+    : `<div class="d-block muted">${esc(p.activity || "no current activity")}</div>`;
+  $("center").innerHTML = `
+    <div class="detail${waiting ? " amber" : ""}">
+      <div class="d-head">
+        <span class="dot ${p.status}">${GLYPH[p.status] ?? "●"}</span>
+        <span class="d-status">${esc(waiting ? "WAITING" : p.status)}</span>
+        <span class="d-age">${since}</span>
+      </div>
+      <div class="d-who">${who}</div>
+      <div class="d-id">${esc(p.card.id.slice(0, 8))}…</div>
+      ${blocked}
+    </div>`;
 }
 
 // ── View dispatch ─────────────────────────────────────────────────────────────
 function renderCenter() {
+  if (agentSel) return renderAgentDetail();
   if (dmSel) return renderDMThread();
   if (selected === "*") return renderAllActivity();
   return renderChannel();
@@ -453,10 +490,12 @@ function refreshDerived() {
   );
   renderDMs(); // peer statuses may have changed
   renderRail();
+  if (agentSel) renderCenter(); // keep an open Agent Detail live as the peer's status/activity changes
 }
 
 let loadSeq = 0;
 async function select(key) {
+  agentSel = null;
   dmSel = null;
   selected = key;
   if (key !== "*") unread.set(key, 0);
@@ -474,6 +513,7 @@ async function select(key) {
   renderRail();
 }
 function selectDM(peer, w) {
+  agentSel = null;
   const pe = dmPeers().find((p) => p.name === peer);
   dmSel = { peer, with: w || (pe && pe.conversations[0] ? pe.conversations[0].with : null) };
   selected = null;
@@ -489,7 +529,9 @@ async function refresh() {
   channels = new Map(list.map((c) => [c.channel, c.messages]));
   dms = await (await fetch("/api/dms?limit=500")).json();
   renderSidebarNav();
-  if (dmSel) {
+  if (agentSel) {
+    renderCenter();
+  } else if (dmSel) {
     renderCenter();
   } else if (selected !== "*") {
     select(selected);
