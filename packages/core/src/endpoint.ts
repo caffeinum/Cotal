@@ -4,7 +4,9 @@ import {
   connect,
   credsAuthenticator,
   nanos,
+  AuthorizationError,
   PermissionViolationError,
+  UserAuthenticationExpiredError,
   type NatsConnection,
   type Subscription,
 } from "@nats-io/transport-node";
@@ -746,7 +748,11 @@ function describeStatusError(err: Error): Error {
   return err;
 }
 
-/** Quick check whether a NATS server is accepting (authenticated) connections. */
+/** Whether a NATS server is *running* at `servers`. True on a successful connect AND on an
+ *  auth rejection — an auth error means a server is there, just refusing these creds (so the
+ *  caller should surface the real auth failure, not a misleading "server down", and `up`
+ *  must not try to start a duplicate on the bound port). Only a genuine connection failure
+ *  (refused / timeout / no server) returns false. */
 export async function isReachable(
   servers: string = DEFAULT_SERVER,
   opts: AuthOpts & { timeoutMs?: number } = {},
@@ -761,7 +767,7 @@ export async function isReachable(
     });
     await nc.close();
     return true;
-  } catch {
-    return false;
+  } catch (e) {
+    return e instanceof AuthorizationError || e instanceof UserAuthenticationExpiredError;
   }
 }
