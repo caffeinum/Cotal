@@ -146,9 +146,13 @@ function permissionsFor(
     // Infrastructure, broad for now — step 7 scopes $JS.API + the DM-durable surface.
     "$JS.>", // JetStream API + ACKs (consumer create/bind/fetch/ack)
     "$KV.>", // presence KV puts
-    "_INBOX.>", // request/reply + JetStream publish-ack inboxes
   ];
-  return { pub: { allow: pubAllow } };
+  // sub.allow is scoped to this agent's OWN inbox namespace only (matches the endpoint's
+  // inboxPrefix). All delivery — chat/dm/task pull, kv.watch, request replies — rides the
+  // inbox, so this is sufficient AND it denies subscribing a peer's inbox to sniff their
+  // DM deliveries (the wildcard-_INBOX hole). The two MUST stay in lockstep with the
+  // endpoint inboxPrefix; both derive from the same id, so they can't drift.
+  return { pub: { allow: pubAllow }, sub: { allow: [`_INBOX_${id}.>`] } };
 }
 
 /** Render the `nats-server` config that trusts this space's operator and serves its

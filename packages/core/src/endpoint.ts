@@ -166,6 +166,12 @@ export class SwarlEndpoint extends EventEmitter {
     this.nc = await connect({
       servers: this.servers,
       name: `swarl:${this.card.name}`,
+      // Per-identity inbox namespace (the "Private Inbox" pattern). nats.js routes ALL
+      // generated inboxes — request replies, JetStream pull delivery, kv.watch ordered-
+      // consumer delivery — through this prefix. Paired with sub.allow=[_INBOX_<id>.>]
+      // (auth mode) it stops a peer from subscribing the wildcard inbox to sniff others'
+      // DM deliveries. Set unconditionally so the prefix can never drift from the ACL.
+      inboxPrefix: `_INBOX_${this.card.id}`,
       ...authOpts({ token: this.token, user: this.user, pass: this.pass, creds: this.creds, tls: this.tls }),
     });
     this.watchStatus();
