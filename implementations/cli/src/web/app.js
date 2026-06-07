@@ -53,16 +53,20 @@ function renderRoster() {
       ? `<div class="empty">no peers</div>`
       : sorted
           .map(
-            (p) => `<div class="row" title="${esc(p.card.id)}">
+            (p) => `<div class="row peer" title="${esc(p.card.id)}">
               <span class="dot ${p.status}">${GLYPH[p.status]}</span>
-              <span class="name">${esc(p.card.name)}</span>
-              ${p.card.role ? `<span class="role">${esc(p.card.role)}</span>` : ""}
-              ${p.activity ? `<span class="activity">${esc(p.activity)}</span>` : ""}
+              <div class="meta">
+                <div class="l1">
+                  <span class="name">${esc(p.card.name)}</span>
+                  ${p.card.role ? `<span class="role">${esc(p.card.role)}</span>` : ""}
+                </div>
+                ${p.activity ? `<div class="act" title="${esc(p.activity)}">${esc(p.activity)}</div>` : ""}
+              </div>
             </div>`,
           )
           .join("");
   const online = roster.filter((p) => p.status !== "offline").length;
-  $("space").textContent = `· ${online} online`;
+  $("online").textContent = `${online} online`;
 }
 
 // Channels are hierarchical (dotted) — indent by depth, label is the last segment,
@@ -150,14 +154,18 @@ function renderFeed() {
   if (atBottom && !paused) feed.scrollTop = feed.scrollHeight;
 }
 
+let loadSeq = 0;
 async function select(key) {
   selected = key;
   unread.set(key, 0);
   renderChannels();
   if (key !== "*") {
+    const seq = ++loadSeq;
     channelMsgs = [];
     renderFeed();
-    channelMsgs = await (await fetch(`/api/channels/${encodeURIComponent(key)}/history?limit=200`)).json();
+    const msgs = await (await fetch(`/api/channels/${encodeURIComponent(key)}/history?limit=200`)).json();
+    if (seq !== loadSeq) return; // a newer selection superseded this load
+    channelMsgs = msgs;
   }
   renderFeed();
 }
@@ -171,11 +179,20 @@ async function refresh() {
   channels = new Map(list.map((c) => [c.channel, c.messages]));
   renderChannels();
   renderSignals();
-  if (selected !== "*") select(selected);
+  if (selected !== "*") {
+    select(selected);
+  } else {
+    // Seed the all-activity feed with recent channel history, then live tails it.
+    const recent = await (await fetch("/api/activity?limit=200")).json();
+    activity = recent.map((msg) => ({ mode: "chat", msg }));
+    renderFeed();
+  }
 }
 
 function onMessage(entry) {
   const { msg } = entry;
+  // A backfilled message can also arrive live around connect time — dedupe by id.
+  if (activity.some((e) => e.msg.id === msg.id)) return;
   activity.push(entry);
   if (activity.length > 500) activity.shift();
   if (msg.channel) {
@@ -218,6 +235,13 @@ $("pause").addEventListener("click", () => {
   $("pause").textContent = paused ? "paused" : "pause";
   if (!paused) renderFeed();
 });
+
+fetch("/api/meta")
+  .then((r) => r.json())
+  .then((m) => {
+    $("space").textContent = m.space;
+    document.title = `Swarl · ${m.space}`;
+  });
 
 refresh();
 connect();

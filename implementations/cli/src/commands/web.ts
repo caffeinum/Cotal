@@ -91,8 +91,21 @@ export async function web(argv: string[]): Promise<void> {
       req.on("close", () => clients.delete(res));
       return;
     }
+    if (path === "/api/meta") return json(res, { space });
     if (path === "/api/roster") return json(res, ep.getRoster());
     if (path === "/api/channels") return json(res, await ep.listChannels());
+    if (path === "/api/activity") {
+      // Backfill the all-activity feed: merge recent channel history (the live SSE
+      // tap only carries messages from after a client connects). Channel chat only —
+      // unicast/anycast are per-recipient and have no shared queryable history.
+      const limit = query.get("limit") ? Number(query.get("limit")) : 200;
+      const chans = await ep.listChannels();
+      const all = (
+        await Promise.all(chans.map((ch) => ep.channelHistory(ch.channel, { limit })))
+      ).flat();
+      all.sort((a, b) => a.ts - b.ts);
+      return json(res, all.slice(-limit));
+    }
     if (path.startsWith("/api/channels/") && path.endsWith("/history")) {
       const name = decodeURIComponent(path.slice("/api/channels/".length, -"/history".length));
       const limit = query.get("limit") ? Number(query.get("limit")) : 200;
