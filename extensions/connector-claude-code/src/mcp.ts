@@ -17,6 +17,7 @@ import {
   controlSocketPath,
   startControlServer,
   registerSwarlTools,
+  laneLine,
   formatInjection,
   fmtFrom,
   channelMeta,
@@ -85,6 +86,7 @@ async function main(): Promise<void> {
       instructions:
         `You are connected to the Swarl mesh as "${config.name}"` +
         `${config.role ? ` (role: ${config.role})` : ""} in space "${config.space}". ` +
+        laneLine(config) +
         `Other agents coordinate with you here as lateral peers. ` +
         `Peer messages may arrive as <channel source="swarl" from="<name>" role="<role>" ` +
         `kind="dm|channel|anycast" channel="<name>">…</channel> — read them and, when a reply is ` +

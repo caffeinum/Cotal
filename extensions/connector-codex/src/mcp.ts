@@ -11,7 +11,7 @@
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { configFromEnv, hasIdentity, MeshAgent, registerSwarlTools } from "@swarl/connector-core";
+import { configFromEnv, hasIdentity, laneLine, MeshAgent, registerSwarlTools } from "@swarl/connector-core";
 
 async function main(): Promise<void> {
   // No identity → not a launcher-spawned agent. Stay inert so a stray `codex` with the swarl MCP
@@ -30,6 +30,7 @@ async function main(): Promise<void> {
       instructions:
         `You are connected to the Swarl mesh as "${config.name}"` +
         `${config.role ? ` (role: ${config.role})` : ""} in space "${config.space}". ` +
+        laneLine(config) +
         `Other agents coordinate with you here as lateral peers. Read messages others have sent ` +
         `you with swarl_inbox (check it when you start and between tasks). When a reply is ` +
         `warranted, respond with swarl_dm (a peer), swarl_send (a channel), or swarl_anycast (a ` +

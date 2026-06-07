@@ -48,7 +48,8 @@ name: dave              # → SWARL_NAME / card.name
 role: builder           # → SWARL_ROLE / card.role (presence + anycast)
 description: …          # → card.description (A2A-style)
 tags: [edit, test]      # → card.tags ("what it can do")
-channels: [general, team.>]   # → SWARL_CHANNELS; channels are hierarchical (subscribe a subtree)
+channels: [general, team.>]   # → SWARL_CHANNELS; channels it reads (hierarchical — subscribe a subtree)
+publish: [general, team.backend]  # channels it may post to (auth → pub-ACL); omit = same as channels
 model: opus             # optional → claude --model
 ---
 You are a builder on a shared mesh of peer agents…   ← the body is the persona
@@ -66,6 +67,9 @@ You are a builder on a shared mesh of peer agents…   ← the body is the perso
   `configFromEnv`. Individual `SWARL_*` vars still override it.
 - **Persona is a short contract, not a title.** Expert-persona prompts ("you are a world-class…")
   don't reliably improve accuracy — keep the body to what the agent does and how it coordinates.
+- **The agent is told its lanes.** The MCP server `instructions` name the channels it reads and may
+  post to (from `channels`/`publish`), so the model knows its scope up front instead of learning it
+  from inbound tags and rejected sends.
 
 Every launcher consumes a file the same way (`loadAgentFile → connector.buildLaunch → run`); they
 differ only in how they *run* the spec:
