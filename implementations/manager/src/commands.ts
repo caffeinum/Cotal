@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util";
+import { readFileSync } from "node:fs";
 import {
   SwarlEndpoint,
   isReachable,
@@ -23,6 +24,7 @@ function parse(argv: string[]): Values {
       role: { type: "string" },
       agent: { type: "string" },
       config: { type: "string" },
+      creds: { type: "string" },
     },
   });
   return values as Values;
@@ -34,15 +36,19 @@ async function ask(
   server: string,
   op: string,
   args?: Record<string, unknown>,
+  credsPath?: string,
 ): Promise<ControlReply> {
-  if (!(await isReachable(server))) {
+  const creds = credsPath ? readFileSync(credsPath, "utf8") : undefined;
+  if (!(await isReachable(server, { creds }))) {
     console.error(c.red(`Can't reach NATS at ${server}. Run: swarl up`));
     process.exit(1);
   }
   const ep = new SwarlEndpoint({
     space,
     servers: server,
+    creds,
     channels: [],
+    consume: false, // request/reply only — binds no consumers (and under auth has no pre-created DM durable)
     registerPresence: false,
     watchPresence: false,
     card: { name: "cli", kind: "endpoint" },
@@ -76,7 +82,7 @@ async function start(argv: string[]): Promise<void> {
     role: v.role,
     agent: v.agent,
     config: v.config,
-  });
+  }, v.creds);
   failIfNotOk(reply);
   const d = reply.data as { name: string; role?: string; agent: string; mode: string };
   console.log(
@@ -93,14 +99,14 @@ async function stop(argv: string[]): Promise<void> {
   }
   const reply = await ask(v.space ?? "demo", v.server ?? DEFAULT_SERVER, "stop", {
     name: v.name,
-  });
+  }, v.creds);
   failIfNotOk(reply);
   console.log(c.dim(`✓ stopped ${v.name}`));
 }
 
 async function ps(argv: string[]): Promise<void> {
   const v = parse(argv);
-  const reply = await ask(v.space ?? "demo", v.server ?? DEFAULT_SERVER, "ps");
+  const reply = await ask(v.space ?? "demo", v.server ?? DEFAULT_SERVER, "ps", undefined, v.creds);
   failIfNotOk(reply);
   const rows =
     (reply.data as Array<{
@@ -141,7 +147,7 @@ async function attach(argv: string[]): Promise<void> {
   }
   const reply = await ask(v.space ?? "demo", v.server ?? DEFAULT_SERVER, "attach", {
     name: v.name,
-  });
+  }, v.creds);
   failIfNotOk(reply);
   const { ws } = reply.data as { ws: string };
   console.error(c.dim(`attached to ${v.name} — Ctrl-] to detach`));
