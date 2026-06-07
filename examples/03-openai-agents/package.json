@@ -1,5 +1,5 @@
 {
-  "name": "@swarl/example-01-lateral-coordination",
+  "name": "@swarl/example-03-openai-agents",
   "version": "0.0.0",
   "private": true,
   "license": "Apache-2.0",
@@ -10,9 +10,9 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@swarl/connector-claude-code": "workspace:*",
     "@swarl/core": "workspace:*",
-    "@swarl/manager": "workspace:*"
+    "@swarl/manager": "workspace:*",
+    "@swarl/openai-agents": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.22.4"

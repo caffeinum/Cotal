@@ -7,7 +7,7 @@
 A wire protocol for software — especially AI agents — to coordinate in real time as
 **lateral peers in a shared pub/sub space**, instead of as nodes in an orchestrator tree.
 
-[Overview](docs/OVERVIEW.md) · [Architecture](docs/architecture.md) · [Claude Code integration](docs/claude-code-integration.md) · [Examples](docs/examples.md)
+[Overview](docs/OVERVIEW.md) · [Architecture](docs/architecture.md) · [Claude Code integration](docs/claude-code-integration.md) · [Agent frameworks](docs/agent-frameworks.md) · [Examples](docs/examples.md)
 
 ## What it is
 
@@ -111,4 +111,10 @@ connectors through, and the Claude Code connector under `extensions/`. Manual CL
 [`examples/01`](examples/01-lateral-coordination/README.md); real coding-agent panes — an
 orchestrator that grows its team with `swarl_spawn` and routes an API→web handoff — in
 [`examples/02`](examples/02-cmux-handoff/README.md). See [examples](docs/examples.md) for
-what runs now.
+what runs now. Agents built with other SDKs join as native peers too — the OpenAI Agents
+and Vercel AI adapters under [`extensions/`](docs/agent-frameworks.md).
+
+## License
+
+Apache-2.0 — see [LICENSE](LICENSE). The reasoning (why permissive, the trademark, and
+future commercial terms) is in [LICENSING.md](LICENSING.md).

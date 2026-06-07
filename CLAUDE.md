@@ -24,6 +24,7 @@ pnpm + TypeScript ESM monorepo — four dependency tiers, one-way deps, Node ≥
   - **@swarl/connector-core** — shared MCP-bridge runtime (mesh agent, `swarl_*` tools incl. `swarl_spawn`, hook relay); the two adapters are thin clients over it.
   - **@swarl/connector-claude-code** — Claude Code adapter (installed plugin + `claude/channel` push).
   - **@swarl/connector-codex** — Codex adapter (pull-only MCP server injected via `codex -c`; no plugin, no hooks).
+  - **@swarl/openai-agents**, **@swarl/vercel-ai** — agent-framework adapters: a native peer that embeds a Swarl endpoint (reusing connector-core's `MeshAgent`) and answers mesh traffic via the SDK's own loop. See [docs/agent-frameworks.md](docs/agent-frameworks.md).
   - **@swarl/cmux** — thin driver over the [cmux](https://github.com/) CLI (open a workspace/tab, send keys); used by the manager's `cmux` runtime and example launch scripts.
 - **`implementations/*` — opinionated surfaces** over core (self-contained; never import each other).
   - **@swarl/cli** — mesh CLI: `up`, `join`, `watch`, `console` (thin NATS clients) plus `spawn` — a foreground agent launch reusing the connector's launch recipe.
