@@ -7,3 +7,4 @@ remotion/out/
 # local dev config (machine-specific paths); the plugin's is extensions/connector-claude-code/.mcp.json
 /.mcp.json
 .runs/
+examples/04-self-improving-console/harness/.*

@@ -9,8 +9,9 @@
 import { readFileSync, existsSync } from "node:fs";
 import { execSync } from "node:child_process";
 
-const rundir = process.argv[2] || process.cwd();
-const transcriptPath = `${rundir}/transcript.jsonl`;
+// evaluate.ts <repoDir> [transcriptPath]
+const repoDir = process.argv[2] || process.cwd();
+const transcriptPath = process.argv[3] || `${repoDir}/transcript.jsonl`;
 
 type Rec = {
   type: string;
@@ -46,7 +47,7 @@ let buildOk = false;
 let buildErr = "";
 try {
   execSync("./node_modules/.bin/tsc -p implementations/cli/tsconfig.json --noEmit", {
-    cwd: rundir,
+    cwd: repoDir,
     stdio: "pipe",
   });
   buildOk = true;
