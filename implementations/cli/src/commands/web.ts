@@ -11,6 +11,7 @@ import {
   deliveryOf,
   parseSubject,
   chatWildcard,
+  spaceWildcard,
   type SwarlMessage,
 } from "@swarl/core";
 import { c } from "../ui.js";
@@ -34,6 +35,7 @@ export async function web(argv: string[]): Promise<void> {
       port: { type: "string" },
       "no-open": { type: "boolean" },
       creds: { type: "string" },
+      admin: { type: "boolean" },
     },
   });
   const space = values.space ?? "demo";
@@ -69,6 +71,14 @@ export async function web(argv: string[]): Promise<void> {
   // Presence changes → push the whole roster; the client just re-renders it.
   ep.on("presence", () => broadcast("roster", ep.getRoster()));
   // Every comm on the mesh (chat / unicast / anycast) → push to the live feed.
+  // observer creds only allow sub chat.>, so it taps chat; an admin cred (--admin) allows
+  // the whole space, so it taps everything (DMs + anycast too). Open mode taps the space by
+  // default. A bare `--admin` without an admin cred just gets its wide sub denied.
+  const tapSubject = values.admin
+    ? spaceWildcard(space)
+    : creds
+      ? chatWildcard(space)
+      : undefined;
   ep.tap((subject, msg) => {
     const mode = deliveryOf(subject);
     if (!mode || !msg) return;
@@ -76,7 +86,7 @@ export async function web(argv: string[]): Promise<void> {
     // policed who could publish it), vs the advisory `from` in the payload.
     const senderId = parseSubject(subject)?.sender;
     broadcast("message", { mode, senderId, msg });
-  }, creds ? { subject: chatWildcard(space) } : undefined);
+  }, tapSubject ? { subject: tapSubject } : undefined);
 
   const httpServer = createServer(async (req, res) => {
     const path = (req.url ?? "/").split("?")[0];
@@ -97,15 +107,21 @@ export async function web(argv: string[]): Promise<void> {
     if (path === "/api/roster") return json(res, ep.getRoster());
     if (path === "/api/channels") return json(res, await ep.listChannels());
     if (path === "/api/activity") {
-      // Backfill the all-activity feed: merge recent channel history (the live SSE
-      // tap only carries messages from after a client connects). Channel chat only —
-      // unicast/anycast are per-recipient and have no shared queryable history.
+      // Backfill the all-activity feed: merge recent channel history (the live SSE tap only
+      // carries messages from after a client connects). Admin (--admin) also backfills DM
+      // history — an ordinary observer's ACL can't read DM_<space>, so this stays chat-only.
+      // Entries are mode-tagged ({mode, msg}) to match the live feed so DMs render as DMs.
       const limit = query.get("limit") ? Number(query.get("limit")) : 200;
       const chans = await ep.listChannels();
-      const all = (
+      const chat = (
         await Promise.all(chans.map((ch) => ep.channelHistory(ch.channel, { limit })))
-      ).flat();
-      all.sort((a, b) => a.ts - b.ts);
+      )
+        .flat()
+        .map((msg) => ({ mode: "chat" as const, msg }));
+      const dms = values.admin
+        ? (await ep.dmHistory({ limit })).map((msg) => ({ mode: "unicast" as const, msg }))
+        : [];
+      const all = [...chat, ...dms].sort((a, b) => a.msg.ts - b.msg.ts);
       return json(res, all.slice(-limit));
     }
     if (path.startsWith("/api/channels/") && path.endsWith("/history")) {
@@ -137,6 +153,7 @@ export async function web(argv: string[]): Promise<void> {
   await new Promise<void>((resolve) => httpServer.listen(port, "127.0.0.1", resolve));
   const url = `http://127.0.0.1:${port}/`;
   console.log(`${c.bold("Swarl web")} — observing space ${c.bold(space)}`);
+  if (values.admin) console.log(c.dim("  admin god-view — DMs + anycast visible"));
   console.log(`  ${c.cyan(url)}  ${c.dim("(Ctrl-C to stop)")}`);
   if (!values["no-open"]) openBrowser(url);
 

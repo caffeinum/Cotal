@@ -185,9 +185,9 @@ async function refresh() {
   if (selected !== "*") {
     select(selected);
   } else {
-    // Seed the all-activity feed with recent channel history, then live tails it.
-    const recent = await (await fetch("/api/activity?limit=200")).json();
-    activity = recent.map((msg) => ({ mode: "chat", msg }));
+    // Seed the all-activity feed with recent history (mode-tagged {mode, msg} entries —
+    // chat always, plus DMs under an admin god-view), then live tails it.
+    activity = await (await fetch("/api/activity?limit=200")).json();
     renderFeed();
   }
 }

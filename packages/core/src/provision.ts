@@ -44,7 +44,7 @@ import type { Identity } from "./identity.js";
  *  scope each one — at which point the manager MUST already hold its own privileged
  *  profile (broad: pre-create others' DM durables, serve ctl), not "agent", or it
  *  silently loses those powers the moment "agent" is tightened. */
-export type Profile = "agent" | "observer" | "manager";
+export type Profile = "agent" | "observer" | "admin" | "manager";
 
 /** A space's persisted trust material. The `signingSeed` is the sensitive provisioner
  *  secret; everything else is public (JWTs) or recoverable. */
@@ -170,30 +170,48 @@ function permissionsFor(
   const KV = `KV_${presenceBucket(space)}`;
   const inbox = `_INBOX_${id}.>`;
 
-  if (profile === "observer") {
-    // Read-only: live chat via tap (sub chat.>), history + presence via ephemeral/ordered
-    // consumers it creates on CHAT + the presence KV. No chat/inst/svc/ctl publish → can't
-    // post. DM_<space> never named anywhere → DMs structurally invisible (and step-6 inbox
-    // scoping means it can't sniff deliveries either).
-    return {
-      sub: { allow: [`${spacePrefix(space)}.chat.>`, inbox] },
-      pub: {
-        allow: [
-          "$JS.API.INFO",
-          `$JS.API.STREAM.INFO.${CHAT}`,
-          `$JS.API.STREAM.INFO.${KV}`,
-          `$JS.API.CONSUMER.CREATE.${CHAT}`, // ephemeral backlog consumer (channelHistory): a
-          `$JS.API.CONSUMER.CREATE.${CHAT}.>`, // multi-filter create can't encode its filter in
-          `$JS.API.CONSUMER.INFO.${CHAT}.>`, //   the subject → bare form; named form for safety
-
-          `$JS.API.CONSUMER.MSG.NEXT.${CHAT}.>`,
-          `$JS.ACK.${CHAT}.>`,
-          `$JS.API.CONSUMER.CREATE.${KV}.>`, // kv.watch ordered consumer (roster is public)
-          `$JS.API.CONSUMER.INFO.${KV}.>`,
-          "$JS.FC.>", // ordered-consumer flow control
-        ],
-      },
-    };
+  if (profile === "observer" || profile === "admin") {
+    // Read-only: live feed via tap, history + presence via ephemeral/ordered consumers it
+    // creates on CHAT + the presence KV. No chat/inst/svc/ctl publish → can't post.
+    //   observer — sub chat.> only; DM_<space>/svc never named → DMs + anycast structurally
+    //     invisible (step-6 inbox scoping means it can't sniff deliveries either).
+    //   admin — sub widened to the whole space so the dashboard's tap also sees DMs (inst.>)
+    //     and anycast (svc.>) live, PLUS DM-stream read verbs so it can backfill DM history.
+    //     A deliberate god-view: DMs are plaintext + ACL-gated, so mint this only for a trusted
+    //     audit dashboard. CONSUMER.CREATE on DM_<space> is the DM-confidentiality surface —
+    //     granted here ONLY for this elevated read-only profile, never to agents.
+    const sub =
+      profile === "admin"
+        ? [`${spacePrefix(space)}.>`, inbox]
+        : [`${spacePrefix(space)}.chat.>`, inbox];
+    const allow = [
+      "$JS.API.INFO",
+      `$JS.API.STREAM.INFO.${CHAT}`,
+      `$JS.API.STREAM.INFO.${KV}`,
+      // ephemeral backlog consumer (channelHistory): a multi-filter create can't encode its
+      // filter in the subject → bare form; the .> form covers named consumers.
+      `$JS.API.CONSUMER.CREATE.${CHAT}`,
+      `$JS.API.CONSUMER.CREATE.${CHAT}.>`,
+      `$JS.API.CONSUMER.INFO.${CHAT}.>`,
+      `$JS.API.CONSUMER.MSG.NEXT.${CHAT}.>`,
+      `$JS.ACK.${CHAT}.>`,
+      `$JS.API.CONSUMER.CREATE.${KV}.>`, // kv.watch ordered consumer (roster is public)
+      `$JS.API.CONSUMER.INFO.${KV}.>`,
+      "$JS.FC.>", // ordered-consumer flow control
+    ];
+    if (profile === "admin") {
+      // DM history backfill (dmHistory): same bare-form gotcha as CHAT — filter_subjects is
+      // plural so the create lands on the bare subject; the .> form covers named consumers.
+      allow.push(
+        `$JS.API.STREAM.INFO.${DM}`,
+        `$JS.API.CONSUMER.CREATE.${DM}`,
+        `$JS.API.CONSUMER.CREATE.${DM}.>`,
+        `$JS.API.CONSUMER.INFO.${DM}.>`,
+        `$JS.API.CONSUMER.MSG.NEXT.${DM}.>`,
+        `$JS.ACK.${DM}.>`,
+      );
+    }
+    return { sub: { allow: sub }, pub: { allow } };
   }
 
   // ---- agent ----

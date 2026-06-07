@@ -22,12 +22,12 @@ export async function mint(argv: string[]): Promise<void> {
   });
   const name = positionals[0];
   if (!name) {
-    console.error(c.red("usage: swarl mint <name> --profile <agent|observer> [--out <path>]"));
+    console.error(c.red("usage: swarl mint <name> --profile <agent|observer|admin> [--out <path>]"));
     process.exit(1);
   }
   const profile = (values.profile ?? "agent") as Profile;
-  if (profile !== "agent" && profile !== "observer") {
-    console.error(c.red(`unknown profile "${profile}" — expected agent or observer`));
+  if (profile !== "agent" && profile !== "observer" && profile !== "admin") {
+    console.error(c.red(`unknown profile "${profile}" — expected agent, observer, or admin`));
     process.exit(1);
   }
   const dir = authDir(process.cwd());

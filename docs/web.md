@@ -8,10 +8,13 @@ manager, and binds only to loopback.
 pnpm swarl web --space demo            # opens http://127.0.0.1:7799 in your browser
 pnpm swarl web --space demo --port 8080 --no-open
 pnpm swarl web --space demo --creds ./observer.creds   # auth-mode spaces
+pnpm swarl web --space demo --creds ./admin.creds --admin   # god-view: also see DMs + anycast
 ```
 
 Flags: `--space` (default `demo`), `--server` (default local NATS), `--port` (7799),
-`--no-open` (skip auto-launch), `--creds` (NATS credentials file).
+`--no-open` (skip auto-launch), `--creds` (NATS credentials file), `--admin` (god-view —
+tap the whole space so DMs + anycast show in the feed live, and backfill DM history; needs
+an `admin`-profile cred, since the default `observer` cred is scoped to public chat only).
 
 ## How it works
 
@@ -26,8 +29,9 @@ serves the static page and bridges mesh → browser over **SSE**:
 - `GET /api/roster` — current presence
 - `GET /api/channels` — channels + message counts
 - `GET /api/channels/:name/history` — backlog for one channel
-- `GET /api/activity` — recent history merged across channels, to **backfill** the
-  all-activity feed (the live tap only carries messages from after a client connects)
+- `GET /api/activity` — recent history (mode-tagged `{mode, msg}`) merged across channels, to
+  **backfill** the all-activity feed (the live tap only carries messages from after a client
+  connects); under `--admin` it also includes DM history
 
 All of it is read from the mesh's own presence KV and JetStream history — no extra state.
 

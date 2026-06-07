@@ -442,7 +442,7 @@ server, not by agent goodwill. It is containment + authenticity for a single tru
 - **The provisioner** ([`provision.ts`](../packages/core/src/provision.ts)) is the *signer
   capability*: it holds the account signing key and mints profile-scoped creds. The manager
   hosts it in Demo 1, but it's not manager-special — privilege attaches to the signer, and a
-  space can run with no manager. `swarl mint <name> --profile <agent|observer>` is the
+  space can run with no manager. `swarl mint <name> --profile <agent|observer|admin>` is the
   out-of-band path; the manager calls the same lib at spawn.
 - **Identity = the agent's nkey public key**, used identically everywhere: `card.id`, the
   subject sender token, the JWT subject, the DM/inbox durable names. Generated locally
@@ -459,6 +459,12 @@ server, not by agent goodwill. It is containment + authenticity for a single tru
   - **observer** — read-only: `sub.allow = [chat.>, _INBOX_<ownId>.>]`, pub = CHAT + presence
     read verbs only. No chat/inst/svc publish (can't post); DM streams never named (DMs
     invisible). `swarl watch/console/web` run `consume:false` and narrow their tap to `chat.>`.
+  - **admin** — elevated read-only ("god-view" auditor): observer's pub allow + DM-stream read
+    verbs (still **write-nothing** — it can't post), and `sub.allow` widened to the whole space
+    (`swarl.<space>.>`), so its tap sees DMs (`inst.>`) and anycast (`svc.>`) *live* and it can
+    backfill DM history (ephemeral consumer on `DM_<space>`). DMs are plaintext + ACL-gated, so
+    this is a deliberate opt-in — `swarl web --admin` with an admin cred. `CONSUMER.CREATE` on
+    `DM_<space>` is the DM-confidentiality surface, granted here only for this profile.
   - **manager** — privileged (broad), the provisioner host; pre-creates others' DM/TASK
     durables. (Eventually should be scoped too — see limitations.)
 - **DM & TASK confidentiality close two leak paths.** *Delivery path:* all NATS delivery rides

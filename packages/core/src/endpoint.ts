@@ -461,6 +461,33 @@ export class SwarlEndpoint extends EventEmitter {
     return msgs;
   }
 
+  /** Fetch recent DMs (any sender→any recipient) from the space's DM backlog. God-view only:
+   *  a normal agent/observer's ACL denies CONSUMER.CREATE on DM_<space>, so this throws-and-
+   *  skips for them — only an `admin`-profile cred can read it. */
+  async dmHistory(opts?: { limit?: number }): Promise<SwarlMessage[]> {
+    if (!this.nc) throw new Error("endpoint not started");
+    const js = jetstream(this.nc);
+    const subject = unicastSubject(this.space, "*", "*"); // every inst.<target>.<sender> DM
+    const limit = opts?.limit ?? 100;
+    const msgs: SwarlMessage[] = [];
+    try {
+      const consumer = await js.consumers.get(dmStream(this.space), {
+        filter_subjects: [subject],
+      });
+      const iter = await consumer.fetch({ max_messages: limit });
+      for await (const m of iter) {
+        try {
+          msgs.push(m.json<SwarlMessage>());
+        } catch {
+          /* skip undecodable */
+        }
+      }
+    } catch {
+      /* stream missing or consumer create denied (non-admin) */
+    }
+    return msgs;
+  }
+
   // ---- internals -----------------------------------------------------------
 
   /**
