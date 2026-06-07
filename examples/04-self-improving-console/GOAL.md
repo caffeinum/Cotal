@@ -7,6 +7,6 @@ Run the team in parallel:
 
 backend and tui-designer must settle the exact useMesh() interface DIRECTLY with each other over the mesh (cotal_dm) — don't route the contract through me.
 
-Cross-vendor: also bring in an OpenAI Codex reviewer as a second pair of eyes — cotal_spawn(name="codex-reviewer", role="codex-reviewer") after the SPEC is broadcast (reviews the plan), and cotal_spawn(name="codex-reviewer-code", role="codex-reviewer") after the workers finish (reviews the code). It's non-blocking — don't wait on it to finish.
+Review (non-blocking): bring in a critical reviewer as a second pair of eyes — cotal_spawn(name="reviewer", role="reviewer") after the SPEC is broadcast (reviews the plan), and cotal_spawn(name="reviewer-code", role="reviewer") after the workers finish (reviews the code). It posts findings to the team channel; don't wait on it to finish.
 
 Spawn the team, dispatch, and when research/backend/tui-designer report done and `pnpm --filter @cotal/cli typecheck` is green, cotal_send "DEMO COMPLETE" to the team channel and tell me.

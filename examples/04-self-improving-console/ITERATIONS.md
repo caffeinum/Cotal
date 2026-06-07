@@ -116,3 +116,29 @@ was too weak.
   parallel Apache-2.0 license edits to package.json/tsconfig.
 
 Under the stricter metric, iter 3 is NOT green (ui-not-wired). The 2-in-a-row streak starts fresh.
+
+## Iteration 4 — first GREEN under the strict (wired) metric (🟢) + cross-vendor learning
+**Verdict:** `{green:true, buildOk:true, peerToPeer:true, wired:true, crossVendor:false,
+complete:false, peerDms:11, pairs:[backend↔tui-designer, research↔backend]}`. Snapshot in
+`reference/run-4-green/`.
+
+**What worked.** The full pipeline landed: research wrote+broadcast the SPEC; backend shipped a typed
+`useMesh()` in `mesh.ts`; **tui-designer wired `console-ink` → a real 5KB `<App/>`** importing 7 UI
+panels (Roster, Channels, Feed, StatusBar, Help, theme, types) — so `wired` passed for the first time.
+**11 peer DMs**, including a *new* axis (`research↔backend`) on top of the usual `backend↔tui-designer`
+contract negotiation. Zero contract-routing through the orchestrator.
+
+**Cross-vendor (codex) is scuffed.** `codex-reviewer` joined the roster (MCP connected → presence) but
+stayed `idle`, never invoked a single `cotal_*` tool, and went offline after ~80s — **no review posted**.
+Under headless `codex exec` the model connects the MCP server but doesn't post on the mesh. Per operator
+call (time pressure): **dropped codex from the loop.**
+
+**Fixes applied (for iter 5+):**
+- **Replaced codex with a Claude `reviewer`** (operator's idea): a critical/adversarial second pair of
+  eyes via the *proven* Claude path (`run-agent.sh reviewer`, read-only, repo-root cwd). It reliably
+  posts to `#team` + DMs authors. New `agents/reviewer.md`; orchestrator spawns `reviewer` (plan) +
+  `reviewer-code` (code), non-blocking. Codex files stay in repo for a possible stage fix.
+- **Bumped `RUN_TIMEOUT` 900→1200s** — iter 4 needed the full 900s to reach `wired` and never emitted
+  `DEMO COMPLETE`; more headroom lets the orchestrator close the loop.
+
+Green streak: **1 / 2.** Need iter 5 green to stop.

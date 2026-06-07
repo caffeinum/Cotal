@@ -15,9 +15,9 @@ set -euo pipefail
 
 role="${1:-}"
 case "$role" in
-  orchestrator | research | backend | tui-designer) ;;
+  orchestrator | research | backend | tui-designer | reviewer) ;;
   *)
-    echo "usage: run-agent.sh <orchestrator|research|backend|tui-designer>" >&2
+    echo "usage: run-agent.sh <orchestrator|research|backend|tui-designer|reviewer>" >&2
     exit 1
     ;;
 esac
@@ -59,6 +59,7 @@ case "$role" in
   research)     cd "$HERE/research" ;;
   backend)      cd "$REPO/implementations/cli" ;;
   tui-designer) cd "$REPO/implementations/cli" ;;
+  reviewer)     cd "$REPO" ;;
 esac
 
 contract="$HERE/agents/$role.md"
