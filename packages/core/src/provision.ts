@@ -182,8 +182,10 @@ function permissionsFor(
           "$JS.API.INFO",
           `$JS.API.STREAM.INFO.${CHAT}`,
           `$JS.API.STREAM.INFO.${KV}`,
-          `$JS.API.CONSUMER.CREATE.${CHAT}.>`, // ephemeral backlog consumer (channelHistory)
-          `$JS.API.CONSUMER.INFO.${CHAT}.>`,
+          `$JS.API.CONSUMER.CREATE.${CHAT}`, // ephemeral backlog consumer (channelHistory): a
+          `$JS.API.CONSUMER.CREATE.${CHAT}.>`, // multi-filter create can't encode its filter in
+          `$JS.API.CONSUMER.INFO.${CHAT}.>`, //   the subject → bare form; named form for safety
+
           `$JS.API.CONSUMER.MSG.NEXT.${CHAT}.>`,
           `$JS.ACK.${CHAT}.>`,
           `$JS.API.CONSUMER.CREATE.${KV}.>`, // kv.watch ordered consumer (roster is public)
