@@ -1,11 +1,11 @@
-# Swarl — Architecture notes (draft)
+# Cotal — Architecture notes (draft)
 
 > Implementation detail and research grounding, split out of [OVERVIEW.md](OVERVIEW.md)
 > to keep the overview lean. All proposals, not locked.
 
 ## Influences: A2A + SLIM
 
-Swarl borrows vocabulary and shapes from two agent frameworks so we stay interoperable
+Cotal borrows vocabulary and shapes from two agent frameworks so we stay interoperable
 rather than siloed — but implements them over NATS/JetStream.
 
 **From A2A** — the *data shapes*: `AgentCard` (identity / role / tags / skills),
@@ -15,11 +15,11 @@ model — those don't fit lateral pub/sub.
 
 **From SLIM** — the *addressing and delivery model*:
 - **Hierarchical address** `space / service / instance` (SLIM's `org/namespace/service/
-  instance`). In Swarl: `space` = the collaboration; `service` = the addressable class
+  instance`). In Cotal: `space` = the collaboration; `service` = the addressable class
   (a role / agent-type, e.g. `reviewer`); `instance` = one specific endpoint.
 - **Three delivery modes:** **multicast** (to a channel — everyone), **unicast** (to one
   instance), **anycast** (to *any one* instance of a service — delegation / load-balancing).
-- **Mentions (Swarl addition):** a multicast message may carry `mentions: [name…]` — peers
+- **Mentions (Cotal addition):** a multicast message may carry `mentions: [name…]` — peers
   called out by name. It's a *priority hint*, not a routing target — the message still reaches the
   whole channel, but a mentioned peer is woken immediately while everyone else picks it up when
   next idle (see [two-tier delivery](claude-code-integration.md#message-delivery-stream-backed)).
@@ -75,9 +75,9 @@ examples ──→ one-or-more implementations ──→ core ←(peer)── ex
 ```
 
 The migration is done: `demos/` use-cases are now `examples/`, the connector is split into
-`@swarl/connector-core` (shared mesh runtime) plus two thin adapters — `@swarl/connector-claude-code`
-(`claudeConnector`) and `@swarl/connector-codex` (`codexConnector`) — `extensions/` packages that
-**peer-depend** on core and export a `Connector`, and `@swarl/cli` + `@swarl/manager` are
+`@cotal/connector-core` (shared mesh runtime) plus two thin adapters — `@cotal/connector-claude-code`
+(`claudeConnector`) and `@cotal/connector-codex` (`codexConnector`) — `extensions/` packages that
+**peer-depend** on core and export a `Connector`, and `@cotal/cli` + `@cotal/manager` are
 `implementations/` packages.
 Assembly lives at the **composition root** — an example (`examples/01/src/manager.ts`) imports
 the manager + the connectors it wants and hands them to the manager (`new Manager({ connectors:
@@ -94,25 +94,25 @@ four surfaces collapse into a **single dual-purpose MCP server**:
 
 | | Claude Code | Codex CLI |
 |---|---|---|
-| **Outbound — ambient** | `http` lifecycle hooks → POST to the local daemon (native http hook, no curl shim) | — (hooks are sandboxed; presence is self-reported via `swarl_status`) |
-| **Outbound — deliberate** | MCP tools `swarl_send`/`swarl_dm`/`swarl_anycast` *(same server as the channel)* | MCP tools (same) |
-| **Inbound — pull** | MCP tool `swarl_inbox` *(same server)* | MCP tool (same) |
-| **Inbound — push** | Two native paths — see below | — (pull-only: `swarl_inbox`) |
+| **Outbound — ambient** | `http` lifecycle hooks → POST to the local daemon (native http hook, no curl shim) | — (hooks are sandboxed; presence is self-reported via `cotal_status`) |
+| **Outbound — deliberate** | MCP tools `cotal_send`/`cotal_dm`/`cotal_anycast` *(same server as the channel)* | MCP tools (same) |
+| **Inbound — pull** | MCP tool `cotal_inbox` *(same server)* | MCP tool (same) |
+| **Inbound — push** | Two native paths — see below | — (pull-only: `cotal_inbox`) |
 
 **The dual-purpose server.** A Claude Code *channel* **is** an MCP server that declares the
 `claude/channel` capability and pushes events via `notifications/claude/channel`. So one
-Swarl MCP server is simultaneously the channel (push), the deliberate-out tools
-(`swarl_send`/`swarl_dm`/`swarl_anycast` — one per addressing mode, doubling as the channel's
-"reply tools"), and `swarl_inbox` (pull): one process, one stdio connection.
+Cotal MCP server is simultaneously the channel (push), the deliberate-out tools
+(`cotal_send`/`cotal_dm`/`cotal_anycast` — one per addressing mode, doubling as the channel's
+"reply tools"), and `cotal_inbox` (pull): one process, one stdio connection.
 Inbound mesh messages arrive in context as
-`<channel source="swarl" from="bob" kind="dm" channel="general">…</channel>`; each meta key
+`<channel source="cotal" from="bob" kind="dm" channel="general">…</channel>`; each meta key
 becomes a tag attribute the agent can read for routing.
 
-**Codex.** The Codex adapter ships the same `swarl_*` MCP server, injected at launch via `codex -c`
+**Codex.** The Codex adapter ships the same `cotal_*` MCP server, injected at launch via `codex -c`
 config overrides (no plugin; the operator's `~/.codex` is never written). Codex is **pull-only**: it
 sandboxes lifecycle hooks (they can't reach a control socket), so there is no hook injection or
-`claude/channel` push — the agent reads peer messages with `swarl_inbox` and reports presence with
-`swarl_status`. Spawned agents run autonomously (`approval_policy="never"` +
+`claude/channel` push — the agent reads peer messages with `cotal_inbox` and reports presence with
+`cotal_status`. Spawned agents run autonomously (`approval_policy="never"` +
 `sandbox_mode="workspace-write"`).
 
 **Two injection paths (different control profiles), composed.**
@@ -137,7 +137,7 @@ pending tool call surfaces as `notifications/claude/channel/permission_request`
 (`{request_id, tool_name, description, input_preview}`) which the daemon relays onto the mesh, and
 a verdict returns via `notifications/claude/channel/permission` (`{request_id,
 behavior:"allow"|"deny"}`). A peer — a human at the CLI, a future moderator, or a policy node —
-can then admit or deny an agent's action *through Swarl*, making tool approval a first-class
+can then admit or deny an agent's action *through Cotal*, making tool approval a first-class
 control-plane flow rather than a per-terminal prompt. (Claude Code ≥ v2.1.81; same research-preview
 gating as the channel.)
 
@@ -161,7 +161,7 @@ policy layer keeps them out of peers' attention — they never become injections
 
 The CLI doesn't spawn agents itself — a long-lived **manager** owns their lifecycle, and the
 CLI asks it over the mesh. The manager is itself a **node** (presence + a control subject), so
-managing Swarl agents happens *through Swarl* — the control plane's first real consumer.
+managing Cotal agents happens *through Cotal* — the control plane's first real consumer.
 
 **Supervisor, not orchestrator.** It owns *process lifecycle + config binding* (start / stop /
 restart, resolve a role, bind env + policy to a session) — **not** what work agents do. Agents
@@ -186,19 +186,19 @@ abstracted behind one interface (`spawn → handle`, `stop`, `status`, `attach`,
 - **`pty` (default)** — the manager spawns the real `claude`/Codex (plugin + env) in a
   pseudo-terminal it owns via **`@lydell/node-pty`** (prebuilt binaries for mac/Linux/Windows ×
   x64/arm64 — zero compiler, zero `node-gyp`, ABI-stable). A real native TUI; the human watches
-  or types in via `swarl attach <name>` (stream the PTY), and the manager keeps full OS-signal
+  or types in via `cotal attach <name>` (stream the PTY), and the manager keeps full OS-signal
   control (group-kill, restart). No external software to install.
 - **`tmux` / `iTerm2` (opt-in)** — for users already living in a multiplexer who want native
   panes / persistence; auto-detect (if already inside tmux, use it).
 - **`cmux` (opt-in)** — each agent gets its own [cmux](https://github.com/) tab via the
-  `@swarl/cmux` driver. Like tmux you watch it natively, so `attach` points you at the tab
+  `@cotal/cmux` driver. Like tmux you watch it natively, so `attach` points you at the tab
   rather than streaming. The manager must run inside a live cmux surface (cmux only authorizes
   its control socket from a real pane). Drives [`examples/02`](../examples/02-cmux-handoff/README.md).
-- **`byo` (floor)** — the manager doesn't own the process; a human runs `swarl claude --role …`
+- **`byo` (floor)** — the manager doesn't own the process; a human runs `cotal claude --role …`
   in their own terminal and the manager just tracks it via presence.
 - **`host` (upgrade)** — headless via the Agent SDK / Codex app-server for structured control +
   true mid-turn interrupt; no native TUI (rendered from the event stream), observed via
-  `swarl watch`.
+  `cotal watch`.
 
 The PTY carries the agent's **terminal I/O only** — its mesh traffic still flows agent↔NATS
 directly through the plugin, so owning the PTY doesn't put the manager on the message hot path.
@@ -210,7 +210,7 @@ terminal *stream* comes from whoever owns the PTY (the manager), **not over the 
 frames are high-bandwidth terminal I/O, and routing them through NATS would put the manager back
 on the message hot path. So the console uses **two channels**: the **mesh** (presence / `ps`) to
 discover *which* agents exist and their status, and a **direct attach connection** to the PTY
-owner for the actual pixels (same stream `swarl attach` consumes, just rendered in a browser).
+owner for the actual pixels (same stream `cotal attach` consumes, just rendered in a browser).
 - **Stack:** **xterm.js** (`@xterm/xterm` + official addons `addon-fit`, `addon-webgl`,
   `addon-attach`, `addon-serialize` — all MIT, zero-dep) for the terminal, in **our own
   lightweight UI** (no framework lock-in, no forked dashboard). The manager exposes a local
@@ -219,8 +219,8 @@ owner for the actual pixels (same stream `swarl attach` consumes, just rendered 
 - **Topology:** the manager hosts the attach endpoint (it holds the PTYs); the **console** runs
   **in-process** today — the manager serves the page itself (`GET /` console, `GET /agents` the
   managed roster, `/assets/*` the vendored xterm bundles, `WS /attach/<name>` the PTY stream) on a
-  loopback port (`SWARL_CONSOLE_PORT`, default `7878`). It can split later into a standalone
-  `swarl console` node that discovers managers over the mesh and aggregates their streams.
+  loopback port (`COTAL_CONSOLE_PORT`, default `7878`). It can split later into a standalone
+  `cotal console` node that discovers managers over the mesh and aggregates their streams.
 
 **Control schema (first cut):** `start {role, name, agent}` · `stop {instance}` · `ps` ·
 `status {instance}` · `attach {instance}` · `bind {instance, config}` — control-plane
@@ -237,40 +237,40 @@ the **manager** to start an agent (over the control plane) and it performs the l
 owns (default `pty` runtime — see *Manager*):
 
 ```
-swarl start --role planner --name alice      # CLI → control msg → manager spawns it
+cotal start --role planner --name alice      # CLI → control msg → manager spawns it
 ```
 
 Under the hood the manager runs the *real* `claude` with the plugin attached and identity in the
 environment — an ordinary Claude Code terminal, no wrapper in front of it:
 
 ```
-SWARL_SPACE=demo SWARL_NAME=alice SWARL_ROLE=planner \
-  claude --dangerously-load-development-channels plugin:swarl@swarl-mesh
+COTAL_SPACE=demo COTAL_NAME=alice COTAL_ROLE=planner \
+  claude --dangerously-load-development-channels plugin:cotal@cotal-mesh
 ```
 
-The plugin's MCP server reads `SWARL_SPACE` / `SWARL_NAME` / `SWARL_ROLE` at spawn and
-**auto-joins**, so the agent is in presence by the time the session is interactive. `SWARL_ROLE`
+The plugin's MCP server reads `COTAL_SPACE` / `COTAL_NAME` / `COTAL_ROLE` at spawn and
+**auto-joins**, so the agent is in presence by the time the session is interactive. `COTAL_ROLE`
 resolves a **role template** (see *Roles & identity* below) — card, optional persona, channel /
 policy defaults — so a role's richness lives in a file, not the launch line. The plugin also
-ships `/swarl` slash commands (`/swarl who`, `/swarl dm …`) for in-session control.
-(`/plugin install swarl@swarl-mesh` once, beforehand.)
+ships `/cotal` slash commands (`/cotal who`, `/cotal dm …`) for in-session control.
+(`/plugin install cotal@cotal-mesh` once, beforehand.)
 
 **Hosting mode** still sets how much inbound push is possible:
 
 - **Attach mode (demo default)** — the **manager** launches the agent as a native TUI in a PTY
-  it owns (`@lydell/node-pty`, default `pty` runtime); you watch / drive it with `swarl attach`.
-  Swarl attaches via the plugin (dual MCP server + http hooks). Soft / between-turn push via the
+  it owns (`@lydell/node-pty`, default `pty` runtime); you watch / drive it with `cotal attach`.
+  Cotal attaches via the plugin (dual MCP server + http hooks). Soft / between-turn push via the
   channel plus deterministic hook injection. Codex is **pull-mostly** (its plain TUI has no clean
   external-injection path).
 - **Host mode (upgrade path)** — the manager runs the session headless via the Agent SDK
   (`@anthropic-ai/claude-agent-sdk`, streaming input) / Codex app-server for true mid-turn
-  interrupt on both agents; observed via `swarl watch` rather than a native TUI. Documented,
+  interrupt on both agents; observed via `cotal watch` rather than a native TUI. Documented,
   not built for the demo.
 
 **Constraints (accepted).** Channels are a **research preview** (Claude Code ≥ v2.1.80; permission
 relay ≥ v2.1.81): they require Anthropic auth (claude.ai or Console key — *not* Bedrock / Vertex /
 Foundry), Team / Enterprise admins must enable them, and a custom (non-allowlisted) channel
-launches with `--dangerously-load-development-channels plugin:swarl@…` rather than `--channels`;
+launches with `--dangerously-load-development-channels plugin:cotal@…` rather than `--channels`;
 the flag / protocol may still change. **Verified** on Claude Code 2.1.160: a `notifications/claude/
 channel` event delivered to an otherwise-**idle** session autonomously wakes a turn (no keystroke,
 no `send-keys`) — so the channel is the **wake** path: a peer message fires a content-less *nudge*
@@ -279,13 +279,13 @@ the woken turn's `UserPromptSubmit` hook drains the inbox, injects the messages,
 (the single, gating-free delivery path). The nudge never acks or removes anything, so if the channel
 can't run the message simply waits on the stream for the next turn — nothing is lost.
 
-**A channel must gate senders** — an ungated channel is a prompt-injection vector. Swarl gates
+**A channel must gate senders** — an ungated channel is a prompt-injection vector. Cotal gates
 on the mesh side: the policy layer only emits notifications for allowlisted peers.
 
 > **Adjacent native feature — Agent teams.** Claude Code ships an experimental
 > `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` mode: multiple sessions, a shared task list, and
 > peer-to-peer messaging (hook events `TeammateIdle` / `TaskCreated` / `TaskCompleted`). It
-> validates the premise but is Claude-only, single-machine, and orchestrator-led. Swarl
+> validates the premise but is Claude-only, single-machine, and orchestrator-led. Cotal
 > differs by being cross-agent (Codex too), a standardized NATS wire contract, lateral (not a
 > tree), and local→cluster.
 
@@ -302,11 +302,11 @@ A **role** is a reusable template that produces a card, in three layers:
 - **Advertisement** (A2A) — `role`, `description`, and `skills[]` (each `id` / `name` /
   `tags` / `examples`), broadcast in presence for discovery + anycast. *We use `skills` +
   `tags` for "what it can do"; A2A's `capabilities` field means protocol flags (streaming,
-  push) that Swarl doesn't need yet, so we omit it to avoid the name collision.*
+  push) that Cotal doesn't need yet, so we omit it to avoid the name collision.*
 - **Persona** (optional — CrewAI-style role / goal / backstory) — free-text instructions that
   condition the session, injected via the MCP server `instructions` + a `SessionStart` hook.
   Omit it for a pure-primitive role; include it for a batteries-included specialist.
-- **Runtime defaults** (Swarl) — `channels` to auto-subscribe, inbound `policy`
+- **Runtime defaults** (Cotal) — `channels` to auto-subscribe, inbound `policy`
   (`push-on-dm` / `pull-only` / `coalesce`), optional `model` / `effort`.
 
 **File format** — `<role>.md`, mirroring the `SKILL.md` / agent idiom: structured fields in
@@ -326,14 +326,14 @@ inbound: push-on-dm                  # buffer/policy default
 model: sonnet                        # optional
 ---
 
-You are a reviewer on a shared Swarl mesh. Catch correctness and security issues in
+You are a reviewer on a shared Cotal mesh. Catch correctness and security issues in
 peers' diffs before they land; DM the author, post a one-line summary to #reviews.
 ```
 
-**Resolution & storage.** The plugin's MCP server resolves the role at spawn from `SWARL_ROLE`
-(+ `SWARL_NAME` as the human label), reading `<role>.md` from `.swarl/roles/` (project,
-version-controlled) layered over `~/.swarl/roles/` (user). So personas work in the pure-native
-launch with **no CLI required**; a bare `SWARL_ROLE=reviewer` with no file falls back to a
+**Resolution & storage.** The plugin's MCP server resolves the role at spawn from `COTAL_ROLE`
+(+ `COTAL_NAME` as the human label), reading `<role>.md` from `.cotal/roles/` (project,
+version-controlled) layered over `~/.cotal/roles/` (user). So personas work in the pure-native
+launch with **no CLI required**; a bare `COTAL_ROLE=reviewer` with no file falls back to a
 label-only card.
 
 **Instance continuity.** The instance id must track *context* continuity, not the human label.
@@ -351,12 +351,12 @@ inheriting its leases/obligations. Rule: **same context ⇒ same id; new context
 **CLI (optional ergonomics).**
 
 ```
-swarl role new reviewer            # scaffold .swarl/roles/reviewer.md ($EDITOR or flags)
-swarl role list | show reviewer
-swarl join claude --role reviewer --name carol   # resolve the role, build the card, exec native claude
+cotal role new reviewer            # scaffold .cotal/roles/reviewer.md ($EDITOR or flags)
+cotal role list | show reviewer
+cotal join claude --role reviewer --name carol   # resolve the role, build the card, exec native claude
 ```
 
-`swarl join claude …` is sugar over the env launch: it resolves the role file, sets the env,
+`cotal join claude …` is sugar over the env launch: it resolves the role file, sets the env,
 and `exec`s the real `claude` with the plugin — the session stays pure Claude Code. Inline
 `--description` / `--skill` override the file for a one-off that doesn't deserve a saved role.
 
@@ -380,14 +380,14 @@ covers three things at once: live delivery, the inbound buffer, and late-join hi
   server-policeable fact, not a self-asserted payload field. `parseSubject()` is the single
   authority on the layout (the sender position is asymmetric: `[3]` for chat, `[4]` for the
   rest — read it through `parseSubject`, never index a subject directly).
-  - multicast → `swarl.<space>.chat.<sender>.<channel…>`  — broadcast to a channel
-  - unicast → `swarl.<space>.inst.<target>.<sender>`  — one specific endpoint
-  - anycast → `swarl.<space>.svc.<role>.<sender>`  — any one instance of a service (role)
-  - control → `swarl.<space>.ctl.<service>.<sender>`  — request/reply to a service
+  - multicast → `cotal.<space>.chat.<sender>.<channel…>`  — broadcast to a channel
+  - unicast → `cotal.<space>.inst.<target>.<sender>`  — one specific endpoint
+  - anycast → `cotal.<space>.svc.<role>.<sender>`  — any one instance of a service (role)
+  - control → `cotal.<space>.ctl.<service>.<sender>`  — request/reply to a service
   - Receivers read the sender **from the subject**; the payload `from` is advisory and is
     rejected on mismatch (fail-closed, on every receive path — see *Identity & authorization*).
   - `*` = one token, `>` = trailing tokens. Subscribers wildcard the sender position
-    (`chat.*.<channel>`, `inst.<myId>.*`); an observer taps `swarl.<space>.chat.>`.
+    (`chat.*.<channel>`, `inst.<myId>.*`); an observer taps `cotal.<space>.chat.>`.
 - **Streams (one model, three read patterns):**
   - **`CHAT_<space>`** (multicast) — captures `chat.>`, **Limits** retention with
     `MaxMsgsPerSubject` (a capped per-channel backlog). **Every** agent reads **every**
@@ -398,7 +398,7 @@ covers three things at once: live delivery, the inbound buffer, and late-join hi
     private inbox. Retained for **session length** (an `InactiveThreshold` retires the consumer
     when the context ends, mirroring the *Instance continuity* rule). Under auth this durable is
     **pre-created by the provisioner** and the agent only binds it (see *Identity &
-    authorization* — the create-time filter is the DM confidentiality surface). `swarl_inbox` =
+    authorization* — the create-time filter is the DM confidentiality surface). `cotal_inbox` =
     pull the unread batch; push = the consumer delivers on attach.
   - **`TASK_<space>`** (anycast) — captures `svc.>`, **WorkQueuePolicy**. A **shared pull
     consumer per role** (durable `svc_<role>`, filter `svc.<role>.*`): a task with no worker
@@ -416,7 +416,7 @@ covers three things at once: live delivery, the inbound buffer, and late-join hi
   (Instant offline via `$SYS` disconnect events is a documented upgrade — see *Deferred*.)
 - **Identity/discovery:** A2A `AgentCard` (`id`=instance, `name`=handle, `role`=service,
   `kind`, `skills`/`tags`) carried in the presence record (our equivalent of `.well-known`).
-  We omit A2A's `capabilities` field (protocol flags Swarl doesn't need) to avoid the name
+  We omit A2A's `capabilities` field (protocol flags Cotal doesn't need) to avoid the name
   collision — "what it can do" lives in `skills`/`tags`.
 - **Message envelope:** `{ id, ts, space, from:{id,name,role}, channel?, to?, toService?,
   parts[], replyTo?, contextId? }`. Routing meta (`id`, `from.id`, `contextId`, `replyTo`)
@@ -439,13 +439,13 @@ covers three things at once: live delivery, the inbound buffer, and late-join hi
   the control plane.
 - **Auth & onboarding:** open mode uses connection auth (token or user/password, optional TLS)
   via explicit `connect()` options — nats.js ignores credentials embedded in a URL — bundled
-  into a one-string join link (`swarl(s)://token@host/space`,
+  into a one-string join link (`cotal(s)://token@host/space`,
   [`link.ts`](../packages/core/src/link.ts)) — this is the `--open` dev path. The **default**
   is decentralized JWT auth — see *Identity & authorization* below.
 
 ## Identity & authorization (auth mode)
 
-**On by default** (`swarl up`); `swarl up --open` runs an unauthenticated dev mesh instead.
+**On by default** (`cotal up`); `cotal up --open` runs an unauthenticated dev mesh instead.
 Makes the mesh a real boundary against untrusted peers *within* a shared space: an agent can only emit messages **as itself**,
 only to its **declared channels**, and can only read **its own DMs** — enforced by the NATS
 server, not by agent goodwill. It is containment + authenticity for a single trusted broker
@@ -454,13 +454,13 @@ server, not by agent goodwill. It is containment + authenticity for a single tru
 - **Account = space, user = agent.** Decentralized **JWT**: an operator signs the account
   (= the space), an account **signing key** signs per-agent users. Generated programmatically
   with `@nats-io/jwt` (no `nsc` dependency). The server runs operator mode + a MEMORY resolver
-  (operator JWT + `system_account` + the demo & SYS account JWTs); `swarl up` renders
-  this config and is **load-or-create** on `.swarl/auth` (so the signing key that minted creds
+  (operator JWT + `system_account` + the demo & SYS account JWTs); `cotal up` renders
+  this config and is **load-or-create** on `.cotal/auth` (so the signing key that minted creds
   is always the one the server trusts).
 - **The provisioner** ([`provision.ts`](../packages/core/src/provision.ts)) is the *signer
   capability*: it holds the account signing key and mints profile-scoped creds. The manager
   hosts it in Demo 1, but it's not manager-special — privilege attaches to the signer, and a
-  space can run with no manager. `swarl mint <name> --profile <agent|observer|admin>` is the
+  space can run with no manager. `cotal mint <name> --profile <agent|observer|admin>` is the
   out-of-band path; the manager calls the same lib at spawn.
 - **Identity = the agent's nkey public key**, used identically everywhere: `card.id`, the
   subject sender token, the JWT subject, the DM/inbox durable names. Generated locally
@@ -476,12 +476,12 @@ server, not by agent goodwill. It is containment + authenticity for a single tru
     name-scoped; **DM and TASK bind-only** — create denied). `sub.allow = [_INBOX_<ownId>.>]`.
   - **observer** — read-only: `sub.allow = [chat.>, _INBOX_<ownId>.>]`, pub = CHAT + presence
     read verbs only. No chat/inst/svc publish (can't post); DM streams never named (DMs
-    invisible). `swarl watch/console/web` run `consume:false` and narrow their tap to `chat.>`.
+    invisible). `cotal watch/console/web` run `consume:false` and narrow their tap to `chat.>`.
   - **admin** — elevated read-only ("god-view" auditor): observer's pub allow + DM-stream read
     verbs (still **write-nothing** — it can't post), and `sub.allow` widened to the whole space
-    (`swarl.<space>.>`), so its tap sees DMs (`inst.>`) and anycast (`svc.>`) *live* and it can
+    (`cotal.<space>.>`), so its tap sees DMs (`inst.>`) and anycast (`svc.>`) *live* and it can
     backfill DM history (ephemeral consumer on `DM_<space>`). DMs are plaintext + ACL-gated, so
-    this is a deliberate opt-in — `swarl web --admin` with an admin cred. `CONSUMER.CREATE` on
+    this is a deliberate opt-in — `cotal web --admin` with an admin cred. `CONSUMER.CREATE` on
     `DM_<space>` is the DM-confidentiality surface, granted here only for this profile.
   - **manager** — privileged (broad), the provisioner host; pre-creates others' DM/TASK
     durables. (Eventually should be scoped too — see limitations.)
@@ -494,7 +494,7 @@ server, not by agent goodwill. It is containment + authenticity for a single tru
   role's queue. Fix: the privileged provisioner **pre-creates** the DM (`dm_<id>`, filter
   `inst.<id>.*`) and TASK (`svc_<role>`, filter `svc.<role>.*`) durables; agents **bind only**,
   and **all** create forms on `DM_<space>`/`TASK_<space>` are denied.
-- **Streams are infrastructure**, pre-created at `swarl up` (agents are denied
+- **Streams are infrastructure**, pre-created at `cotal up` (agents are denied
   `STREAM.CREATE`); the presence KV bucket is a stream too, so it's pre-created and agents open
   (not create) it. Open mode keeps the lazy first-endpoint create.
 - **Denials are loud, never silent** — NATS publish permission violations surface only on the
@@ -506,11 +506,11 @@ server, not by agent goodwill. It is containment + authenticity for a single tru
 - **Standalone/late-join DM receipt** needs a *connected* provisioner (the manager) to
   pre-create `dm_<id>`; chat/task/presence late-join works with no manager. Full fix is the
   callout stage. (Fails loud via the denial log, not silent.)
-- **Signing key + operator seed are hot** in `.swarl/auth` (the mint/manager box) — not yet
+- **Signing key + operator seed are hot** in `.cotal/auth` (the mint/manager box) — not yet
   key-confined; the "real boundary" holds only given operator-controlled cred distribution.
   Operator seed should be cold-stored (it's the root; only needed for account setup/rotation).
 - **No revocation / TTL** on minted creds yet.
-- `isReachable` conflates auth-failure with server-down (misleading "run swarl up").
+- `isReachable` conflates auth-failure with server-down (misleading "run cotal up").
 - The **manager profile is allow-all** — fine for Demo 1, but the most-privileged identity
   should eventually be scoped for the full untrusted-peer claim.
 - **Callout stage (later, additive):** auth-callout (NATS 2.10+) mints creds *at connect* from

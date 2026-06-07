@@ -1,12 +1,12 @@
 /**
  * Subject naming — the routing half of the wire contract (v0).
  *
- *   swarl.<space>.chat.<channel>      multicast to a channel (dotted + hierarchical: team.backend, subscribe team.>)
- *   swarl.<space>.svc.<service>       anycast to any one instance of a service (queue group)
- *   swarl.<space>.inst.<instance>     unicast to one specific instance
- *   swarl.<space>.ctl.<service>       control request/reply to a service (e.g. manager)
- *   swarl.<space>.trace.<instance>    ambient lifecycle trace (later)
- *   swarl.<space>.control.<instance>  control-plane commands (later)
+ *   cotal.<space>.chat.<channel>      multicast to a channel (dotted + hierarchical: team.backend, subscribe team.>)
+ *   cotal.<space>.svc.<service>       anycast to any one instance of a service (queue group)
+ *   cotal.<space>.inst.<instance>     unicast to one specific instance
+ *   cotal.<space>.ctl.<service>       control request/reply to a service (e.g. manager)
+ *   cotal.<space>.trace.<instance>    ambient lifecycle trace (later)
+ *   cotal.<space>.control.<instance>  control-plane commands (later)
  *
  * Presence lives in a JetStream KV bucket, not a subject (see presenceBucket()).
  */
@@ -19,7 +19,7 @@ export function token(s: string): string {
   return t.length > 0 ? t : "_";
 }
 
-export const ROOT = "swarl";
+export const ROOT = "cotal";
 
 export function spacePrefix(space: string): string {
   return `${ROOT}.${token(space)}`;
@@ -154,14 +154,14 @@ export interface ParsedSubject {
  */
 export function parseSubject(subject: string): ParsedSubject | null {
   const parts = subject.split(".");
-  if (parts[0] !== ROOT) return null; // swarl.<space>.<kind>.…
+  if (parts[0] !== ROOT) return null; // cotal.<space>.<kind>.…
   const kind = parts[2];
   if (kind === "chat") {
-    if (parts.length < 5) return null; // swarl.<space>.chat.<sender>.<channel…>
+    if (parts.length < 5) return null; // cotal.<space>.chat.<sender>.<channel…>
     return { kind, sender: parts[3], rest: parts.slice(4).join(".") };
   }
   if (kind === "inst" || kind === "svc" || kind === "ctl") {
-    if (parts.length !== 5) return null; // swarl.<space>.<kind>.<route>.<sender>
+    if (parts.length !== 5) return null; // cotal.<space>.<kind>.<route>.<sender>
     return { kind, sender: parts[4], rest: parts[3] };
   }
   return null;
@@ -179,7 +179,7 @@ export function deliveryOf(subject: string): DeliveryMode | null {
 
 /** Name of the KV bucket holding presence for a space. */
 export function presenceBucket(space: string): string {
-  return `swarl_presence_${token(space)}`;
+  return `cotal_presence_${token(space)}`;
 }
 
 // ---- JetStream streams (the durable backing for the three delivery modes) ----

@@ -1,5 +1,5 @@
 {
-  "name": "@swarl/vercel-ai",
+  "name": "@cotal/vercel-ai",
   "version": "0.0.0",
   "license": "Apache-2.0",
   "type": "module",
@@ -14,15 +14,15 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.68",
-    "@swarl/connector-core": "workspace:*",
+    "@cotal/connector-core": "workspace:*",
     "ai": "^6.0.197",
     "tsx": "^4.22.4",
     "zod": "^4.4.3"
   },
   "peerDependencies": {
-    "@swarl/core": "workspace:*"
+    "@cotal/core": "workspace:*"
   },
   "devDependencies": {
-    "@swarl/core": "workspace:*"
+    "@cotal/core": "workspace:*"
   }
 }

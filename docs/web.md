@@ -1,17 +1,17 @@
-# `swarl web` — observability dashboard
+# `cotal web` — observability dashboard
 
 A read-only browser **god-view** of one space: who's online, what they're doing, the
 channels, the direct messages, and the live feed. It sees everything (chat, DMs, anycast)
 but never publishes, needs no manager, and binds only to loopback.
 
 ```bash
-pnpm swarl web --space demo            # opens http://127.0.0.1:7799 in your browser
-pnpm swarl web --space demo --port 8080 --no-open
-pnpm swarl web --space demo --creds ./admin.creds   # use a cred you minted yourself
+pnpm cotal web --space demo            # opens http://127.0.0.1:7799 in your browser
+pnpm cotal web --space demo --port 8080 --no-open
+pnpm cotal web --space demo --creds ./admin.creds   # use a cred you minted yourself
 ```
 
-In **auth mode** (`.swarl/auth` present) `web` self-mints its own read-only **admin** cred —
-like `swarl spawn`, it holds the space signing key, so no manual `--creds` is needed; the
+In **auth mode** (`.cotal/auth` present) `web` self-mints its own read-only **admin** cred —
+like `cotal spawn`, it holds the space signing key, so no manual `--creds` is needed; the
 admin scope is what lets it tap DMs + anycast. Pass `--creds` to override with a cred you
 minted yourself. In **open mode** it connects bare. There is **no read-only viewer mode** —
 the dashboard is always the full god-view.
@@ -21,7 +21,7 @@ Flags: `--space` (default `demo`), `--server` (default local NATS), `--port` (77
 
 ## How it works
 
-One `SwarlEndpoint` started as a pure observer — `registerPresence:false` so it's
+One `CotalEndpoint` started as a pure observer — `registerPresence:false` so it's
 invisible to peers, `watchPresence:true` so it sees the roster, and an **admin** cred so it
 can tap the whole space. A `node:http` server serves the static page and bridges mesh →
 browser over **SSE**:
@@ -62,7 +62,7 @@ The skeleton is the same on every view: **left** = navigation (roster, channels,
 
 ## Design
 
-The visuals come from a Penpot file — page **“Swarl — Monitor”**. The dashboard implements
+The visuals come from a Penpot file — page **“Cotal — Monitor”**. The dashboard implements
 the *Monitor* and *Channel View* frames faithfully (Work Sans, the exact palette, spacing,
 and components) plus a *DM View* frame for the Direct-messages lens. The *Agent Detail*
 frame (per-agent drill-down) is still forward-looking. Every view keeps NEEDS YOU on the

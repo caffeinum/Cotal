@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Launch ONE demo agent as a Claude Code session wired into the Swarl mesh.
+# Launch ONE demo agent as a Claude Code session wired into the Cotal mesh.
 #
 #   run-agent.sh <orchestrator|todo-api|todo-web|todo-docs>
 #
-# Loads the connector as a bare MCP server (swarl tools) + lifecycle hooks
+# Loads the connector as a bare MCP server (cotal tools) + lifecycle hooks
 # (presence + inbox drain), and turns on channel push so an idle pane wakes
 # when a peer messages it. No plugin install / marketplace needed.
 set -euo pipefail
@@ -19,9 +19,9 @@ esac
 
 REPO="$(git rev-parse --show-toplevel)"
 HERE="$REPO/examples/02-cmux-handoff"
-CONN="$REPO/extensions/connector"
+CONN="$REPO/extensions/connector-claude-code"
 TSX="$REPO/node_modules/.bin/tsx"
-CFG="$HERE/.swarl" # git-ignored (.swarl/)
+CFG="$HERE/.cotal" # git-ignored (.cotal/)
 
 # --- generate the MCP + hooks config (idempotent; absolute repo paths) ------
 mkdir -p "$CFG"
@@ -29,7 +29,7 @@ mkdir -p "$CFG"
 cat >"$CFG/mcp.json" <<JSON
 {
   "mcpServers": {
-    "swarl": { "command": "$TSX", "args": ["$CONN/src/mcp.ts"] }
+    "cotal": { "command": "$TSX", "args": ["$CONN/src/mcp.ts"] }
   }
 }
 JSON
@@ -69,9 +69,9 @@ if [[ "$role" != orchestrator && -n "${CMUX_SURFACE_ID:-}" && -n "${CMUX_BUNDLED
 fi
 
 exec env \
-  SWARL_SPACE=todo SWARL_NAME="$role" SWARL_ROLE="$role" SWARL_CHANNEL=1 \
+  COTAL_SPACE=todo COTAL_NAME="$role" COTAL_ROLE="$role" COTAL_CHANNEL=1 \
   claude \
-    --dangerously-load-development-channels server:swarl \
+    --dangerously-load-development-channels server:cotal \
     --mcp-config "$CFG/mcp.json" \
     --settings "$CFG/settings.json" \
     --strict-mcp-config \

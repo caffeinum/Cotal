@@ -1,4 +1,4 @@
-// Shared helpers + constants for the Swarl header variants.
+// Shared helpers + constants for the Cotal header variants.
 // One baseline (palette, wordmark, grid/animation helpers, subjects); each
 // variant under variants/ overrides only its own layout + motion.
 
@@ -53,7 +53,7 @@ export function gridLine(...segs: Seg[]): string {
   return arr.join("");
 }
 
-// --- ANSI Shadow "swarl" wordmark (6 rows × 42 cols) ------------------------
+// --- ANSI Shadow "cotal" wordmark (6 rows × 42 cols) ------------------------
 
 export const WORDMARK: string[] = [
   "███████╗██╗    ██╗ █████╗ ██████╗ ██╗     ",
@@ -86,10 +86,10 @@ export function spliceWordmark(
 
 export const SPACE = "demo";
 export const SUBJECT = {
-  multicast: `swarl.${SPACE}.chat.general`,
-  unicast: `swarl.${SPACE}.inst.bob`,
-  anycast: `swarl.${SPACE}.svc.reviewer`,
-  control: `swarl.${SPACE}.ctl.manager`,
+  multicast: `cotal.${SPACE}.chat.general`,
+  unicast: `cotal.${SPACE}.inst.bob`,
+  anycast: `cotal.${SPACE}.svc.reviewer`,
+  control: `cotal.${SPACE}.ctl.manager`,
 };
 
 // The three delivery modes drive the animation phases (30 frames each + a
@@ -120,7 +120,7 @@ export function pick<T>(path: T[], t: number): T {
 }
 
 // --- scrolling event ticker -------------------------------------------------
-// Mirrors a real `swarl watch` log line: time · verb · peer → target: text.
+// Mirrors a real `cotal watch` log line: time · verb · peer → target: text.
 
 type TSeg = { text: string; color: string };
 const EVENTS: TSeg[][] = [

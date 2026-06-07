@@ -3,15 +3,15 @@ import { userInfo } from "node:os";
 import { readFileSync } from "node:fs";
 import * as readline from "node:readline";
 import {
-  SwarlEndpoint,
+  CotalEndpoint,
   isReachable,
   parseJoinLink,
   DEFAULT_SERVER,
   type Delivery,
   type EndpointKind,
   type PresenceStatus,
-  type SwarlMessage,
-} from "@swarl/core";
+  type CotalMessage,
+} from "@cotal/core";
 import { c, statusBadge } from "../ui.js";
 
 export async function join(argv: string[]): Promise<void> {
@@ -49,12 +49,12 @@ export async function join(argv: string[]): Promise<void> {
   if (!(await isReachable(server, auth))) {
     console.error(c.red(`Can't reach NATS at ${server}.`));
     console.error(
-      c.dim(link ? "Check the join link and that the host is up." : "Start it in another terminal:  pnpm swarl up"),
+      c.dim(link ? "Check the join link and that the host is up." : "Start it in another terminal:  pnpm cotal up"),
     );
     process.exit(1);
   }
 
-  const ep = new SwarlEndpoint({
+  const ep = new CotalEndpoint({
     space,
     servers: server,
     ...auth,
@@ -96,7 +96,7 @@ export async function join(argv: string[]): Promise<void> {
   const who = (card: { name: string; role?: string }) =>
     `${c.bold(card.name)}${card.role ? c.dim("/" + card.role) : ""}`;
 
-  ep.on("message", (m: SwarlMessage, d: Delivery) => {
+  ep.on("message", (m: CotalMessage, d: Delivery) => {
     const text = m.parts
       .map((p) => (p.kind === "text" ? p.text : JSON.stringify(p.data)))
       .join(" ");

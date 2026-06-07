@@ -1,14 +1,14 @@
-# Multi-Agent UX — Research & Design Principles for Swarl
+# Multi-Agent UX — Research & Design Principles for Cotal
 
 > How a single human stays aware of, and in control of, many autonomous agents
 > coordinating in real time — without being overwhelmed. A synthesis of human-AI
-> interaction research and current (2024–2026) agent tooling, mapped onto Swarl's
+> interaction research and current (2024–2026) agent tooling, mapped onto Cotal's
 > primitives and implementation. Companion to [OVERVIEW](../OVERVIEW.md) and
 > [architecture](../architecture.md). Sources are listed at the end.
 
 ## Why this exists
 
-Swarl is a **lateral peer mesh**: agents join a shared space and coordinate as peers,
+Cotal is a **lateral peer mesh**: agents join a shared space and coordinate as peers,
 not as nodes under an orchestrator. That makes the *human's* role unusual — not a
 controller at the top of a tree, but an **observer and occasional steerer** standing
 beside a swarm that mostly runs itself. The central UX problem follows directly:
@@ -29,14 +29,14 @@ research and used as the organizing spine of this doc:
 2. **What changed?**
 3. **What needs me?**
 
-A good Swarl surface answers all three at a glance, and lets the human drill from any of
+A good Cotal surface answers all three at a glance, and lets the human drill from any of
 them into detail without losing context.
 
 ---
 
 ## Part 1 — Principles from the research
 
-Each principle states the finding, its strongest sources, and the **→ Swarl** implication.
+Each principle states the finding, its strongest sources, and the **→ Cotal** implication.
 
 ### A. Make every agent and action legible
 
@@ -53,7 +53,7 @@ Each principle states the finding, its strongest sources, and the **→ Swarl** 
 - **Explanations succinct and in-flow; depth on demand.** PAIR and Apple both push the
   *why* inline and short, with progressive disclosure for the full rationale.
 
-→ **Swarl.** Every peer already carries an A2A-style **AgentCard** (name, role, `tags`,
+→ **Cotal.** Every peer already carries an A2A-style **AgentCard** (name, role, `tags`,
 description). Treat that card as the legibility contract: the dashboard should show *who*
 acted, *in what role*, and — the gap today — *why* and *on whose behalf*. Per-message
 attribution (`from`, role) exists; per-action **intent/rationale** does not yet.
@@ -79,8 +79,8 @@ attribution (`from`, role) exists; per-action **intent/rationale** does not yet.
   *mentions + DMs*, decouples *what* to notify from *how*, and makes it all per-channel
   tunable. Control is what lets one human scale across many sources.
 
-→ **Swarl.** A raw `tap` of the whole mesh (what `watch` and the web feed do today) is
-the *firehose*, useful but not the default lens. Swarl needs severity tiers, a quiet-by-
+→ **Cotal.** A raw `tap` of the whole mesh (what `watch` and the web feed do today) is
+the *firehose*, useful but not the default lens. Cotal needs severity tiers, a quiet-by-
 default posture, per-agent/per-channel mute & filter, and digesting — see R6–R8.
 
 ### C. Give a clear overview at all times (situational awareness)
@@ -101,7 +101,7 @@ default posture, per-agent/per-channel mute & filter, and digesting — see R6�
   agents: active / blocked / errored / oldest-unattended) and give "items requiring the
   human" their own high-priority real estate, with strict alarm discipline.
 
-→ **Swarl.** The new `swarl web` dashboard is the natural home for this. Today it shows
+→ **Cotal.** The new `cotal web` dashboard is the natural home for this. Today it shows
 presence + channels + a live feed (perception). It lacks the *comprehension* band
 (system-wide golden-signal tiles), a *projection* layer (aging timers), and a dedicated
 **"needs you"** lane — see R1–R4.
@@ -128,14 +128,14 @@ presence + channels + a live feed (perception). It lacks the *comprehension* ban
   + a humble "ask, don't guess" escalation path make delegated autonomy safe — and are
   now a regulatory expectation (EU AI Act Art. 14, enforceable Aug 2026).
 
-→ **Swarl.** Swarl is observe-only today (no control plane for *agent behavior* beyond
+→ **Cotal.** Cotal is observe-only today (no control plane for *agent behavior* beyond
 the manager's process control: start/stop/attach). Control surfaces — intent broadcast,
 approval gates, pause/steer, a "needs-input" state — are the biggest forward-looking
 opportunity, and they belong in **core** as message kinds (see Part 2 / R5).
 
 ### E. The space behaves like a team chat — lean into it
 
-Swarl's primitives (channels, DMs, presence, broadcast) *are* a team-chat model, so the
+Cotal's primitives (channels, DMs, presence, broadcast) *are* a team-chat model, so the
 mature UX of Slack/Discord/Figma and CSCW "workspace awareness" research transfer almost
 directly.
 
@@ -154,7 +154,7 @@ directly.
     don't double-handle or drop the task.
 - **Tame channel sprawl with naming + metadata + archiving, not by limiting count.**
   "No such thing as too many channels" *if* prefixes and purposes are disciplined.
-  Swarl's **dotted hierarchical channels + wildcard subtree subscription** already *are*
+  Cotal's **dotted hierarchical channels + wildcard subtree subscription** already *are*
   the prefix-namespace + "follow this subtree" affordance — lean into it; give each
   channel an explicit purpose.
 - **Agents-in-chat rules.** Unmistakable non-human identity; an agent inherits the
@@ -162,31 +162,31 @@ directly.
   block / one-line "what I'm doing", not a raw token firehose); confirmation gates for
   write/irreversible actions; clean up ephemeral interaction noise.
 
-→ **Swarl.** The `working` presence state should carry a short live activity string (it
+→ **Cotal.** The `working` presence state should carry a short live activity string (it
 already supports `activity` — use it as the "what I'm doing" line). `waiting` should be
 attention-generating. Anycast needs claim/ack. The renamed `tags` field doubles as the
 "what this agent does" discovery signal.
 
-### F. Carry UX in the wire contract (the Swarl-native principle)
+### F. Carry UX in the wire contract (the Cotal-native principle)
 
 The strongest cross-cutting pattern in current agent tooling is a **typed event/state
 stream that the UI is a thin renderer over** — AG-UI (lifecycle / text / tool-call /
 **state snapshot+delta** / **interrupt** events) and A2A (seven task states including
-**`input-required`**, streamed over SSE). This is *exactly* Swarl's founding principle:
+**`input-required`**, streamed over SSE). This is *exactly* Cotal's founding principle:
 **"the wire contract is the standard; libraries are thin clients."**
 
-→ **Swarl.** UX affordances should not be client-side hacks bolted onto each surface.
-Define them once as **message kinds / conventions in `@swarl/core`** — intent, progress,
+→ **Cotal.** UX affordances should not be client-side hacks bolted onto each surface.
+Define them once as **message kinds / conventions in `@cotal/core`** — intent, progress,
 needs-input, claim/ack, snapshot+delta presence — so the CLI `watch`, the TUI `console`,
 the `web` dashboard, and any future GUI all render the same semantics consistently. This
-is both the cleanest engineering and the most faithful to Swarl's thesis.
+is both the cleanest engineering and the most faithful to Cotal's thesis.
 
 ---
 
-## Part 2 — Applying it to Swarl (recommendations)
+## Part 2 — Applying it to Cotal (recommendations)
 
 Grounded in what exists today: CLI (`up`, `join`, `watch`, `console`, `web`, `spawn`),
-the `swarl web` browser dashboard (presence sidebar, channel list + history, live SSE
+the `cotal web` browser dashboard (presence sidebar, channel list + history, live SSE
 feed), presence states `idle`/`waiting`/`working`/`offline` with an `activity` line,
 delivery modes multicast/unicast/anycast, hierarchical channels, and the `history`
 primitive. Recommendations are tagged **[now]** (small, fits current surfaces),
@@ -221,20 +221,20 @@ primitive. Recommendations are tagged **[now]** (small, fits current surfaces),
   needs-you), never the multicast firehose (Teams badge model).
 - **R7 — Filter / mute / focus. [next]** Per-agent, per-channel, per-tier filters and
   mute (mute without losing from the log); a focus mode that shows only a chosen subset +
-  critical bypass. Swarl's wildcard channel subscriptions already give the subscription
+  critical bypass. Cotal's wildcard channel subscriptions already give the subscription
   primitive to build on.
 - **R8 — Progressive disclosure + pausable feed. [now]** Default to a chunked, collapsed
   feed (roll up repeated status flips: "14 status updates"); expand a row for the raw
   events. Let the user **pause** the stream to read without content jumping, with a
   "N new — resume" affordance. Reserve motion/sound for the "needs you" tier only.
-- **R9 — Catch-up / "what did I miss". [next]** Swarl already has `history` + late-join
+- **R9 — Catch-up / "what did I miss". [next]** Cotal already has `history` + late-join
   replay; pair it with a per-observer read marker and (later) an AI summary of a channel
   or a time window, so a returning human triages instead of re-reading.
 
 ### Transparency & control (mostly protocol work)
 
 - **R5 — UX as core message kinds. [later, foundational]** Per Principle F, add to
-  `@swarl/core` a small typed vocabulary the whole ecosystem renders:
+  `@cotal/core` a small typed vocabulary the whole ecosystem renders:
   - **intent / plan** — "I'm about to do X" broadcast before consequential action.
   - **progress / activity delta** — streamed step/status updates (snapshot + delta, the
     AG-UI pattern, to stay cheap on the hot path).
@@ -251,7 +251,7 @@ primitive. Recommendations are tagged **[now]** (small, fits current surfaces),
 
 ---
 
-## Part 3 — Swarl UX tenets
+## Part 3 — Cotal UX tenets
 
 A short, memorable set distilled from the above — the test any new surface should pass:
 

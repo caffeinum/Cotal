@@ -31,7 +31,7 @@ const PRESENCE_TTL_MS = 6_000;
  *
  * This is **privileged**: under auth mode `STREAM.CREATE` is denied to regular agents
  * (streams are space infrastructure, not per-agent), so it runs once at setup
- * (`swarl up`) or from a permissive endpoint. The single source of the stream
+ * (`cotal up`) or from a permissive endpoint. The single source of the stream
  * definitions, shared by the endpoint and the setup path so they can't diverge.
  */
 export async function createSpaceStreams(
@@ -112,7 +112,7 @@ export function taskDurableConfig(
 }
 
 /** Connect with the given (privileged) creds, create the space's streams, and disconnect.
- *  Used by `swarl up` to pre-create streams once at setup. */
+ *  Used by `cotal up` to pre-create streams once at setup. */
 export async function setupSpaceStreams(opts: {
   servers: string;
   space: string;

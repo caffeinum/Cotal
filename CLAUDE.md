@@ -1,7 +1,7 @@
 Keep your answers short and to the point.
 
-# Swarl
-> Write the name as **Swarl**, not "SWARL" (the directory is all-caps, the name isn't).
+# Cotal
+> Write the name as **Cotal**, not "COTAL" (the directory is all-caps, the name isn't).
 
 A standard wire interface for software — especially AI agents — to coordinate in real
 time as **lateral peers in a shared pub/sub space**, not as nodes in an orchestrator
@@ -19,17 +19,17 @@ hook / MCP / channel integration.
 pnpm + TypeScript ESM monorepo — four dependency tiers, one-way deps, Node ≥20:
 
 - **`packages/*` — the protocol** (generic, the standard).
-  - **@swarl/core** — endpoint, subjects, message types; the NATS client layer + extension contracts (`Connector`, `Command`) and the `Registry` they self-register into.
+  - **@cotal/core** — endpoint, subjects, message types; the NATS client layer + extension contracts (`Connector`, `Command`) and the `Registry` they self-register into.
 - **`extensions/*` — pluggable adapters** (peer-depend core; self-register on import).
-  - **@swarl/connector-core** — shared MCP-bridge runtime (mesh agent, `swarl_*` tools incl. `swarl_spawn`, hook relay); the two adapters are thin clients over it.
-  - **@swarl/connector-claude-code** — Claude Code adapter (installed plugin + `claude/channel` push).
-  - **@swarl/connector-codex** — Codex adapter (pull-only MCP server injected via `codex -c`; no plugin, no hooks).
-  - **@swarl/openai-agents**, **@swarl/vercel-ai** — agent-framework adapters: a native peer that embeds a Swarl endpoint (reusing connector-core's `MeshAgent`) and answers mesh traffic via the SDK's own loop. See [docs/agent-frameworks.md](docs/agent-frameworks.md).
-  - **@swarl/cmux** — thin driver over the [cmux](https://github.com/) CLI (open a workspace/tab, send keys); used by the manager's `cmux` runtime and example launch scripts.
+  - **@cotal/connector-core** — shared MCP-bridge runtime (mesh agent, `cotal_*` tools incl. `cotal_spawn`, hook relay); the two adapters are thin clients over it.
+  - **@cotal/connector-claude-code** — Claude Code adapter (installed plugin + `claude/channel` push).
+  - **@cotal/connector-codex** — Codex adapter (pull-only MCP server injected via `codex -c`; no plugin, no hooks).
+  - **@cotal/openai-agents**, **@cotal/vercel-ai** — agent-framework adapters: a native peer that embeds a Cotal endpoint (reusing connector-core's `MeshAgent`) and answers mesh traffic via the SDK's own loop. See [docs/agent-frameworks.md](docs/agent-frameworks.md).
+  - **@cotal/cmux** — thin driver over the [cmux](https://github.com/) CLI (open a workspace/tab, send keys); used by the manager's `cmux` runtime and example launch scripts.
 - **`implementations/*` — opinionated surfaces** over core (self-contained; never import each other).
-  - **@swarl/cli** — mesh CLI: `up`, `join`, `watch`, `console` (thin NATS clients) plus `spawn` — a foreground agent launch reusing the connector's launch recipe.
-  - **@swarl/manager** — agent supervisor: a mesh endpoint that spawns/manages nodes via a pluggable `Runtime` (`pty` default / `tmux` / `cmux`), plus its own control-plane commands (`start`/`stop`/`ps`/`attach`) and a WS attach endpoint.
-- **`bin/swarl.ts` — composition root** for the `swarl` binary: imports the implementations it wants (which self-register their commands) and runs them.
+  - **@cotal/cli** — mesh CLI: `up`, `join`, `watch`, `console` (thin NATS clients) plus `spawn` — a foreground agent launch reusing the connector's launch recipe.
+  - **@cotal/manager** — agent supervisor: a mesh endpoint that spawns/manages nodes via a pluggable `Runtime` (`pty` default / `tmux` / `cmux`), plus its own control-plane commands (`start`/`stop`/`ps`/`attach`) and a WS attach endpoint.
+- **`bin/cotal.ts` — composition root** for the `cotal` binary: imports the implementations it wants (which self-register their commands) and runs them.
 - **`examples/*` — use-cases** (composition roots; private, never published).
 
 Tiers depend one-way: `examples → implementations → packages ← (peer) extensions`. An
@@ -43,7 +43,7 @@ imports the surfaces it wants. See [docs/examples.md](docs/examples.md) for the 
 ## Commands
 
 ```bash
-pnpm swarl <cmd>   # run the CLI (tsx bin/swarl.ts — base + manager commands)
+pnpm cotal <cmd>   # run the CLI (tsx bin/cotal.ts — base + manager commands)
 pnpm smoke         # core smoke test
 pnpm typecheck     # tsc --noEmit across all packages
 pnpm build         # tsc build across all packages
@@ -51,7 +51,7 @@ pnpm build         # tsc build across all packages
 
 ## Current focus: Demo 1
 
-We are building **Demo 1** — a showcase of what Swarl can do: role-specialized endpoints
+We are building **Demo 1** — a showcase of what Cotal can do: role-specialized endpoints
 join one shared space and coordinate laterally (presence, all three addressing modes,
 live state, observability, graceful leave, late join) on a local NATS/JetStream mesh.
 The **walking skeleton** (manual CLI peers) and the **control plane** (manager + `pty`

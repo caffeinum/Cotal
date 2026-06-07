@@ -1,5 +1,5 @@
 {
-  "name": "swarl-monorepo",
+  "name": "cotal-monorepo",
   "version": "0.0.0",
   "private": true,
   "license": "Apache-2.0",
@@ -11,15 +11,15 @@
   "scripts": {
     "typecheck": "pnpm -r typecheck",
     "build": "pnpm -r build",
-    "swarl": "tsx bin/swarl.ts",
+    "cotal": "tsx bin/cotal.ts",
     "smoke": "tsx packages/core/smoke.ts"
   },
   "dependencies": {
-    "@swarl/cli": "workspace:*",
-    "@swarl/connector-claude-code": "workspace:*",
-    "@swarl/connector-codex": "workspace:*",
-    "@swarl/core": "workspace:*",
-    "@swarl/manager": "workspace:*"
+    "@cotal/cli": "workspace:*",
+    "@cotal/connector-claude-code": "workspace:*",
+    "@cotal/connector-codex": "workspace:*",
+    "@cotal/core": "workspace:*",
+    "@cotal/manager": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.19.19",

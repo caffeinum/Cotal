@@ -1,5 +1,5 @@
 {
-  "name": "@swarl/connector-claude-code",
+  "name": "@cotal/connector-claude-code",
   "version": "0.0.0",
   "license": "Apache-2.0",
   "type": "module",
@@ -15,13 +15,13 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@swarl/connector-core": "workspace:*"
+    "@cotal/connector-core": "workspace:*"
   },
   "peerDependencies": {
-    "@swarl/core": "workspace:*"
+    "@cotal/core": "workspace:*"
   },
   "devDependencies": {
-    "@swarl/core": "workspace:*",
+    "@cotal/core": "workspace:*",
     "esbuild": "^0.28.0",
     "tsx": "^4.22.4"
   }

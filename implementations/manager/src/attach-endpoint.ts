@@ -32,7 +32,7 @@ export interface FeedEvent {
 /**
  * The manager's local HTTP + WebSocket face. It hosts the **console** (a
  * lightweight xterm.js page) and bridges each agent's PTY to the browser — and to
- * `swarl attach` — over a direct socket, never the mesh, so owning the terminal
+ * `cotal attach` — over a direct socket, never the mesh, so owning the terminal
  * keeps the manager off the message hot path. Bound to loopback.
  *
  * Routes: `GET /` console page, `GET /agents` the managed roster (JSON),

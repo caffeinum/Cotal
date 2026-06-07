@@ -1,8 +1,8 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { LaunchSpec } from "@swarl/core";
-import { cmux } from "@swarl/cmux";
+import type { LaunchSpec } from "@cotal/core";
+import { cmux } from "@cotal/cmux";
 import type { AgentHandle, Runtime } from "./types.js";
 
 export function cmuxAvailable(): boolean {
@@ -33,12 +33,12 @@ export class CmuxRuntime implements Runtime {
     const envPrefix = Object.entries(spec.env ?? {}).map(([k, v]) => `${k}=${shellQuote(v)}`);
     const cmd = [...envPrefix, spec.command, ...spec.args.map(shellQuote)].join(" ");
     const script = `#!/usr/bin/env bash\ncd ${shellQuote(cwd)}\nexec ${cmd}\n`;
-    const scriptPath = join(tmpdir(), `swarl-spawn-${name}.sh`);
+    const scriptPath = join(tmpdir(), `cotal-spawn-${name}.sh`);
     writeFileSync(scriptPath, script, { mode: 0o755 });
     const layout = JSON.stringify({
       pane: { surfaces: [{ type: "terminal", command: `bash ${scriptPath}` }] },
     });
-    cmux.openWorkspace(`swarl-${name}`, layout, { focus: false });
+    cmux.openWorkspace(`cotal-${name}`, layout, { focus: false });
 
     return {
       name,
@@ -48,10 +48,10 @@ export class CmuxRuntime implements Runtime {
       status: () => "running",
       stop: () => {},
       interrupt: () => {
-        throw new Error(`cmux runtime: switch to the "swarl-${name}" tab to drive it`);
+        throw new Error(`cmux runtime: switch to the "cotal-${name}" tab to drive it`);
       },
       attach: () => {
-        throw new Error(`cmux runtime: switch to the "swarl-${name}" cmux tab to watch it`);
+        throw new Error(`cmux runtime: switch to the "cotal-${name}" cmux tab to watch it`);
       },
     };
   }

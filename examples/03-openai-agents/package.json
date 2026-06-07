@@ -1,5 +1,5 @@
 {
-  "name": "@swarl/example-03-openai-agents",
+  "name": "@cotal/example-03-openai-agents",
   "version": "0.0.0",
   "private": true,
   "license": "Apache-2.0",
@@ -10,9 +10,9 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@swarl/core": "workspace:*",
-    "@swarl/manager": "workspace:*",
-    "@swarl/openai-agents": "workspace:*"
+    "@cotal/core": "workspace:*",
+    "@cotal/manager": "workspace:*",
+    "@cotal/openai-agents": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.22.4"

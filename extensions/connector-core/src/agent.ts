@@ -1,13 +1,13 @@
 import { EventEmitter } from "node:events";
 import {
   normalizeMentions,
-  SwarlEndpoint,
+  CotalEndpoint,
   type ControlReply,
   type Delivery,
   type Presence,
   type PresenceStatus,
-  type SwarlMessage,
-} from "@swarl/core";
+  type CotalMessage,
+} from "@cotal/core";
 import type { AgentConfig } from "./config.js";
 
 /** A message that has arrived for us, normalized for the agent to read. */
@@ -45,7 +45,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * A thin, mesh-native agent: a {@link SwarlEndpoint} plus a buffered inbox and
+ * A thin, mesh-native agent: a {@link CotalEndpoint} plus a buffered inbox and
  * name-based peer resolution. This is the shared core behind the MCP server
  * (and, later, the lifecycle hooks) — it owns the NATS connection and presence.
  *
@@ -58,7 +58,7 @@ function sleep(ms: number): Promise<void> {
  * endpoint faults.
  */
 export class MeshAgent extends EventEmitter {
-  readonly ep: SwarlEndpoint;
+  readonly ep: CotalEndpoint;
   readonly config: AgentConfig;
 
   private inbox: Pending[] = [];
@@ -69,7 +69,7 @@ export class MeshAgent extends EventEmitter {
   constructor(config: AgentConfig) {
     super();
     this.config = config;
-    this.ep = new SwarlEndpoint({
+    this.ep = new CotalEndpoint({
       space: config.space,
       servers: config.servers,
       token: config.token,
@@ -87,7 +87,7 @@ export class MeshAgent extends EventEmitter {
         tags: config.tags,
       },
     });
-    this.ep.on("message", (m: SwarlMessage, d: Delivery) => this.ingest(m, d));
+    this.ep.on("message", (m: CotalMessage, d: Delivery) => this.ingest(m, d));
     this.ep.on("error", (e: Error) => this.log(`endpoint error: ${e.message}`));
   }
 
@@ -126,7 +126,7 @@ export class MeshAgent extends EventEmitter {
 
   // ---- inbox ---------------------------------------------------------------
 
-  private ingest(m: SwarlMessage, delivery: Delivery): void {
+  private ingest(m: CotalMessage, delivery: Delivery): void {
     // Redelivery (we held it unacked past ack_wait): keep one entry, take the freshest ack handle.
     const existing = this.inbox.find((p) => p.item.id === m.id);
     if (existing) {
@@ -186,7 +186,7 @@ export class MeshAgent extends EventEmitter {
 
   // ---- sending -------------------------------------------------------------
 
-  async send(text: string, channel?: string, mentions?: string[]): Promise<SwarlMessage> {
+  async send(text: string, channel?: string, mentions?: string[]): Promise<CotalMessage> {
     this.assertConnected();
     const clean = normalizeMentions(mentions);
     if (clean) this.assertKnownMentions(clean);
@@ -208,7 +208,7 @@ export class MeshAgent extends EventEmitter {
       );
   }
 
-  async anycast(role: string, text: string): Promise<SwarlMessage> {
+  async anycast(role: string, text: string): Promise<CotalMessage> {
     this.assertConnected();
     return this.ep.anycast(role, text);
   }
@@ -226,7 +226,7 @@ export class MeshAgent extends EventEmitter {
     );
   }
 
-  async dm(target: string, text: string): Promise<{ msg: SwarlMessage; peer: Presence }> {
+  async dm(target: string, text: string): Promise<{ msg: CotalMessage; peer: Presence }> {
     this.assertConnected();
     const peer = this.resolvePeer(target);
     if (!peer) throw new Error(`no peer "${target}" in space "${this.config.space}"`);
@@ -272,12 +272,12 @@ export class MeshAgent extends EventEmitter {
   private assertConnected(): void {
     if (!this._connected) {
       throw new Error(
-        `not connected to the mesh at ${this.config.servers} — is it running? (pnpm swarl up)`,
+        `not connected to the mesh at ${this.config.servers} — is it running? (pnpm cotal up)`,
       );
     }
   }
 
   private log(msg: string): void {
-    process.stderr.write(`[swarl-connector] ${msg}\n`);
+    process.stderr.write(`[cotal-connector] ${msg}\n`);
   }
 }

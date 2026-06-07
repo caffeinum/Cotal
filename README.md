@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/header.gif" alt="Swarl — lateral peers in a shared pub/sub space" width="100%" />
+  <img src="assets/header.gif" alt="Cotal — lateral peers in a shared pub/sub space" width="100%" />
 </p>
 
-# Swarl
+# Cotal
 
 A wire protocol for software — especially AI agents — to coordinate in real time as
 **lateral peers in a shared pub/sub space**, instead of as nodes in an orchestrator tree.
@@ -16,11 +16,11 @@ broadcast to a channel, message one peer, or reach any one of a role. There's no
 orchestrator on the message path; peers coordinate as equals.
 
 The **wire contract is the standard** — the subjects, the message envelope, and the
-presence conventions *are* Swarl. The libraries here are thin clients over them. Transport
+presence conventions *are* Cotal. The libraries here are thin clients over them. Transport
 is **NATS + JetStream**; the reference implementation is **TypeScript**.
 
 <p align="center">
-  <img src="assets/dashboard.png" alt="Swarl web dashboard — presence roster, channels, live activity feed, and a Needs You panel" width="100%" />
+  <img src="assets/dashboard.png" alt="Cotal web dashboard — presence roster, channels, live activity feed, and a Needs You panel" width="100%" />
 </p>
 
 ## Quick start
@@ -28,18 +28,18 @@ is **NATS + JetStream**; the reference implementation is **TypeScript**.
 Prerequisites: Node ≥ 20, pnpm, and `nats-server` (v2.11+; macOS: `brew install nats-server`).
 
 ```bash
-git clone <repo> swarl && cd swarl
+git clone <repo> cotal && cd cotal
 pnpm install
 
-pnpm swarl up --open                            # start the local mesh, unauthenticated (keep running)
-pnpm swarl join --space demo --name alice --role planner    # a peer, in its own terminal
-pnpm swarl join --space demo --name bob   --role builder    # another peer
-pnpm swarl watch --space demo                   # optional: tail everything on the mesh
-pnpm swarl console --space demo                 # live dashboard of agents + messages (--plain for a log)
-pnpm swarl web --space demo                      # browser observability: presence, channels, live feed ([docs](docs/web.md))
+pnpm cotal up --open                            # start the local mesh, unauthenticated (keep running)
+pnpm cotal join --space demo --name alice --role planner    # a peer, in its own terminal
+pnpm cotal join --space demo --name bob   --role builder    # another peer
+pnpm cotal watch --space demo                   # optional: tail everything on the mesh
+pnpm cotal console --space demo                 # live dashboard of agents + messages (--plain for a log)
+pnpm cotal web --space demo                      # browser observability: presence, channels, live feed ([docs](docs/web.md))
 ```
 
-`swarl up` enables **JWT auth by default** (agents need minted creds); `--open` runs the
+`cotal up` enables **JWT auth by default** (agents need minted creds); `--open` runs the
 unauthenticated dev mesh used above. See [docs/architecture.md](docs/architecture.md) →
 *Identity & authorization*.
 
@@ -66,15 +66,15 @@ Three delivery modes:
 
 ## The wire contract
 
-Every message is one `SwarlMessage` envelope — `{ id, ts, space, from, parts[] }` plus
+Every message is one `CotalMessage` envelope — `{ id, ts, space, from, parts[] }` plus
 exactly one target (`channel` / `to` / `toService`) and optional `replyTo` / `contextId`.
 Subjects route it:
 
 ```
-swarl.<space>.chat.<channel>     multicast
-swarl.<space>.inst.<instance>    unicast
-swarl.<space>.svc.<service>      anycast (queue group)
-swarl.<space>.ctl.<service>      control request/reply
+cotal.<space>.chat.<channel>     multicast
+cotal.<space>.inst.<instance>    unicast
+cotal.<space>.svc.<service>      anycast (queue group)
+cotal.<space>.ctl.<service>      control request/reply
 ```
 
 The source of truth is the code: [`packages/core/src/types.ts`](packages/core/src/types.ts)
@@ -84,13 +84,13 @@ The source of truth is the code: [`packages/core/src/types.ts`](packages/core/sr
 
 pnpm + TypeScript ESM monorepo, four dependency tiers (one-way deps):
 
-- **`packages/*`** — the **protocol** (the standard): `@swarl/core` (endpoint, subjects,
+- **`packages/*`** — the **protocol** (the standard): `@cotal/core` (endpoint, subjects,
   types, the extension registry).
 - **`extensions/*`** — **pluggable adapters** that peer-depend on core and self-register
-  through its registry: `@swarl/connector` (the Claude Code / Codex MCP bridge, incl. the
-  `swarl_spawn` tool) and `@swarl/cmux` (a thin driver over the cmux CLI).
-- **`implementations/*`** — **opinionated surfaces** over core: `@swarl/cli` (`swarl` —
-  `up`/`join`/`watch`/`console`/`spawn`) and `@swarl/manager` (the agent supervisor —
+  through its registry: `@cotal/connector` (the Claude Code / Codex MCP bridge, incl. the
+  `cotal_spawn` tool) and `@cotal/cmux` (a thin driver over the cmux CLI).
+- **`implementations/*`** — **opinionated surfaces** over core: `@cotal/cli` (`cotal` —
+  `up`/`join`/`watch`/`console`/`spawn`) and `@cotal/manager` (the agent supervisor —
   `start`/`stop`/`ps`/`attach`, spawning through a `pty`/`tmux`/`cmux` runtime).
 - **`examples/*`** — **use-cases** (composition roots). An example only configures +
   orchestrates and picks which extensions to register; it never adds message kinds,
@@ -101,7 +101,7 @@ Deps flow one way: `examples → implementations → packages ← (peer) extensi
 ## Commands
 
 ```bash
-pnpm swarl <cmd>   # run the CLI (up, join, watch, console, spawn, start, stop, ps, attach)
+pnpm cotal <cmd>   # run the CLI (up, join, watch, console, spawn, start, stop, ps, attach)
 pnpm smoke         # non-interactive end-to-end check against a running mesh
 pnpm typecheck     # tsc --noEmit across all packages
 pnpm build         # tsc build across all packages
@@ -109,11 +109,11 @@ pnpm build         # tsc build across all packages
 
 ## Status
 
-Today: presence and all three delivery modes over `@swarl/core` with **stream-backed
+Today: presence and all three delivery modes over `@cotal/core` with **stream-backed
 delivery** (JetStream durable consumers), an **extension registry** the manager resolves
 connectors through, and the Claude Code connector under `extensions/`. Manual CLI peers in
 [`examples/01`](examples/01-lateral-coordination/README.md); real coding-agent panes — an
-orchestrator that grows its team with `swarl_spawn` and routes an API→web handoff — in
+orchestrator that grows its team with `cotal_spawn` and routes an API→web handoff — in
 [`examples/02`](examples/02-cmux-handoff/README.md). See [examples](docs/examples.md) for
 what runs now. Agents built with other SDKs join as native peers too — the OpenAI Agents
 and Vercel AI adapters under [`extensions/`](docs/agent-frameworks.md).

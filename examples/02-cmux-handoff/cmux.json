@@ -1,28 +1,28 @@
 {
   "commands": [
     {
-      "name": "Swarl: start mesh",
-      "keywords": ["swarl", "nats", "mesh", "up"],
-      "command": "bash -lc 'cd $(git rev-parse --show-toplevel) && pnpm swarl up'"
+      "name": "Cotal: start mesh",
+      "keywords": ["cotal", "nats", "mesh", "up"],
+      "command": "bash -lc 'cd $(git rev-parse --show-toplevel) && pnpm cotal up'"
     },
     {
-      "name": "Swarl: launch orchestrator",
-      "keywords": ["swarl", "orchestrator", "claude"],
+      "name": "Cotal: launch orchestrator",
+      "keywords": ["cotal", "orchestrator", "claude"],
       "command": "bash -lc '$(git rev-parse --show-toplevel)/examples/02-cmux-handoff/run-agent.sh orchestrator'"
     },
     {
-      "name": "Swarl: launch todo-api",
-      "keywords": ["swarl", "api", "claude"],
+      "name": "Cotal: launch todo-api",
+      "keywords": ["cotal", "api", "claude"],
       "command": "bash -lc '$(git rev-parse --show-toplevel)/examples/02-cmux-handoff/run-agent.sh todo-api'"
     },
     {
-      "name": "Swarl: launch todo-web",
-      "keywords": ["swarl", "web", "claude"],
+      "name": "Cotal: launch todo-web",
+      "keywords": ["cotal", "web", "claude"],
       "command": "bash -lc '$(git rev-parse --show-toplevel)/examples/02-cmux-handoff/run-agent.sh todo-web'"
     },
     {
-      "name": "Swarl: launch todo-docs",
-      "keywords": ["swarl", "docs", "claude"],
+      "name": "Cotal: launch todo-docs",
+      "keywords": ["cotal", "docs", "claude"],
       "command": "bash -lc '$(git rev-parse --show-toplevel)/examples/02-cmux-handoff/run-agent.sh todo-docs'"
     }
   ]

@@ -1,4 +1,4 @@
-// Swarl observability client: a read-only god-view of one space. Presence + channel
+// Cotal observability client: a read-only god-view of one space. Presence + channel
 // list + DM history come over HTTP; the live stream (roster + every chat/unicast/anycast
 // message) arrives via SSE (/feed). This page never publishes to the mesh.
 //
@@ -640,14 +640,14 @@ function renderDemo() {
 }
 
 if (isDemo) {
-  document.title = "Swarl · demo";
+  document.title = "Cotal · demo";
   renderDemo();
 } else {
   fetch("/api/meta")
     .then((r) => r.json())
     .then((m) => {
       $("space").textContent = `· ${m.space}`;
-      document.title = `Swarl · ${m.space}`;
+      document.title = `Cotal · ${m.space}`;
     });
   refresh();
   connect();

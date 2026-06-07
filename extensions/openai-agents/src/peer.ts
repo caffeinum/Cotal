@@ -1,7 +1,7 @@
 import { Agent, run, tool } from "@openai/agents";
 import { z } from "zod";
-import { MeshAgent, configFromEnv } from "@swarl/connector-core";
-import type { InboxItem } from "@swarl/connector-core";
+import { MeshAgent, configFromEnv } from "@cotal/connector-core";
+import type { InboxItem } from "@cotal/connector-core";
 
 const DEFAULT_MODEL = "gpt-4o-mini";
 
@@ -18,9 +18,9 @@ function mentions(text: string, name: string): boolean {
  * who is present and report its own status.
  */
 function buildTools(mesh: MeshAgent) {
-  const swarl_roster = tool({
-    name: "swarl_roster",
-    description: "List the peers currently present on the Swarl mesh.",
+  const cotal_roster = tool({
+    name: "cotal_roster",
+    description: "List the peers currently present on the Cotal mesh.",
     parameters: z.object({}),
     execute: async () => {
       const peers = mesh.roster();
@@ -31,8 +31,8 @@ function buildTools(mesh: MeshAgent) {
     },
   });
 
-  const swarl_status = tool({
-    name: "swarl_status",
+  const cotal_status = tool({
+    name: "cotal_status",
     description: "Update this peer's presence status on the mesh.",
     parameters: z.object({
       status: z.enum(["idle", "waiting", "working"]).describe("Presence status"),
@@ -44,7 +44,7 @@ function buildTools(mesh: MeshAgent) {
     },
   });
 
-  return [swarl_roster, swarl_status];
+  return [cotal_roster, cotal_status];
 }
 
 export async function runOpenAIAgentPeer(): Promise<void> {
@@ -57,9 +57,9 @@ export async function runOpenAIAgentPeer(): Promise<void> {
     name: mesh.config.name,
     model,
     instructions:
-      "You are a peer on a Swarl mesh — a shared pub/sub space where agents coordinate laterally. " +
+      "You are a peer on a Cotal mesh — a shared pub/sub space where agents coordinate laterally. " +
       "Reply with the answer itself as plain text; it is delivered automatically back to whoever " +
-      "messaged you. Be concise. Call swarl_roster if you need to see who is present.",
+      "messaged you. Be concise. Call cotal_roster if you need to see who is present.",
     tools: buildTools(mesh),
   });
 

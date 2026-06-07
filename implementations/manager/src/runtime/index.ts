@@ -28,7 +28,7 @@ export function createRuntime(mode: RuntimeMode, session: string): Runtime {
   return new PtyRuntime();
 }
 
-/** Walk up from `startDir` to the pnpm workspace root (for spawning `pnpm swarl …`). */
+/** Walk up from `startDir` to the pnpm workspace root (for spawning `pnpm cotal …`). */
 export function findWorkspaceRoot(startDir: string = process.cwd()): string {
   let dir = resolve(startDir);
   for (;;) {

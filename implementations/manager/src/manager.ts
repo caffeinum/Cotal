@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import {
-  SwarlEndpoint,
+  CotalEndpoint,
   agentFilePath,
   authDir,
   loadAgentFile,
@@ -10,8 +10,8 @@ import {
   newIdentity,
   provisionAgent,
   registry,
-} from "@swarl/core";
-import type { Connector, ControlReply, ControlRequest, SpaceAuth } from "@swarl/core";
+} from "@cotal/core";
+import type { Connector, ControlReply, ControlRequest, SpaceAuth } from "@cotal/core";
 import {
   createRuntime,
   findWorkspaceRoot,
@@ -58,8 +58,8 @@ export class Manager {
   private readonly runtime: Runtime;
   private readonly agents = new Map<string, ManagedAgent>();
   private readonly attach: AttachEndpoint;
-  private ep!: SwarlEndpoint;
-  /** Space trust material when the mesh runs in auth mode (`.swarl/auth` present);
+  private ep!: CotalEndpoint;
+  /** Space trust material when the mesh runs in auth mode (`.cotal/auth` present);
    *  the manager mints per-agent creds from it at spawn. Undefined when the mesh is open. */
   private auth?: SpaceAuth;
 
@@ -68,7 +68,7 @@ export class Manager {
     this.servers = opts.servers;
     this.name = opts.name ?? "manager";
     this.workspaceRoot = opts.workspaceRoot ?? findWorkspaceRoot();
-    this.runtime = createRuntime(opts.runtime ?? "auto", `swarl-${this.space}`);
+    this.runtime = createRuntime(opts.runtime ?? "auto", `cotal-${this.space}`);
     this.attach = new AttachEndpoint(
       (name) => this.agents.get(name)?.handle,
       () => this.list(),
@@ -101,7 +101,7 @@ export class Manager {
       // minting it as "agent" would silently strip those once step 5 scopes "agent".
       creds = await mintCreds(this.auth, identity, "manager");
     }
-    this.ep = new SwarlEndpoint({
+    this.ep = new CotalEndpoint({
       space: this.space,
       servers: this.servers,
       channels: [],
@@ -151,10 +151,10 @@ export class Manager {
     const name = String(args.name ?? "").trim();
     if (!name) return { ok: false, error: "name required" };
     if (this.agents.has(name)) return { ok: false, error: `agent "${name}" already running` };
-    const agent = args.agent ? String(args.agent) : "swarl";
+    const agent = args.agent ? String(args.agent) : "cotal";
 
     // Resolve an agent file from the manager's own workspace — an explicit
-    // --config must exist; otherwise discover .swarl/agents/<name>.md if present.
+    // --config must exist; otherwise discover .cotal/agents/<name>.md if present.
     let configPath: string | undefined;
     if (args.config) {
       configPath = agentFilePath(this.workspaceRoot, String(args.config));
@@ -166,7 +166,7 @@ export class Manager {
     // --role overrides the file; the file fills it in for bookkeeping otherwise.
     let role = args.role ? String(args.role) : undefined;
     // A stable nkey identity assigned at spawn: the public key is the agent's card.id
-    // (threaded via SWARL_ID); the seed is retained to mint matching creds later.
+    // (threaded via COTAL_ID); the seed is retained to mint matching creds later.
     const identity = newIdentity();
     let handle: AgentHandle;
     try {
@@ -174,7 +174,7 @@ export class Manager {
       const def = configPath ? loadAgentFile(configPath) : undefined;
       if (!role) role = def?.role;
       // In auth mode, mint the agent's creds from the space signing key and write them
-      // where the spawned session reads them (SWARL_CREDS path). Open mesh → no creds.
+      // where the spawned session reads them (COTAL_CREDS path). Open mesh → no creds.
       // The publish allow-list is the file's `publish:`, falling back to `channels:`.
       let credsPath: string | undefined;
       if (this.auth) {
@@ -230,7 +230,7 @@ export class Manager {
     if (this.runtime.kind !== "pty") {
       return {
         ok: false,
-        error: `attach needs the pty runtime; under tmux run \`tmux attach -t swarl-${this.space}:${name}\``,
+        error: `attach needs the pty runtime; under tmux run \`tmux attach -t cotal-${this.space}:${name}\``,
       };
     }
     return { ok: true, data: { ws: this.attach.url(name) } };

@@ -1,13 +1,13 @@
 /**
  * Composition root for example 02. Runs a manager that spawns teammates into their
- * own cmux tabs (the `cmux` runtime) — but unlike the built-in `swarl` peer (a bare
- * `swarl join` node), each spawn is a *real coder*: this connector launches
+ * own cmux tabs (the `cmux` runtime) — but unlike the built-in `cotal` peer (a bare
+ * `cotal join` node), each spawn is a *real coder*: this connector launches
  * `run-agent.sh <role>`, which cd's into the role's repo and starts claude with its
- * CLAUDE.md + the swarl MCP server/hooks. Registered as "swarl" — the manager's
- * default agent type — so the orchestrator's `swarl_spawn(name, role)` routes here.
+ * CLAUDE.md + the cotal MCP server/hooks. Registered as "cotal" — the manager's
+ * default agent type — so the orchestrator's `cotal_spawn(name, role)` routes here.
  *
  * The manager must run INSIDE a live cmux surface (cmux only authorizes its control
- * socket from a real pane); launch.sh opens it in its own `swarl-manager` tab.
+ * socket from a real pane); launch.sh opens it in its own `cotal-manager` tab.
  */
 import {
   DEFAULT_SERVER,
@@ -16,15 +16,15 @@ import {
   type Connector,
   type LaunchOpts,
   type LaunchSpec,
-} from "@swarl/core";
-import { Manager } from "@swarl/manager";
+} from "@cotal/core";
+import { Manager } from "@cotal/manager";
 import { fileURLToPath } from "node:url";
 
 const RUN_AGENT = fileURLToPath(new URL("../run-agent.sh", import.meta.url));
 
 const roleAgentConnector: Connector = {
   kind: "connector",
-  name: "swarl",
+  name: "cotal",
   buildLaunch: (opts: LaunchOpts): LaunchSpec => ({
     command: RUN_AGENT,
     args: [opts.role ?? opts.name],
@@ -32,11 +32,11 @@ const roleAgentConnector: Connector = {
 };
 registry.register(roleAgentConnector);
 
-const space = process.env.SWARL_SPACE?.trim() || "todo";
-const server = process.env.SWARL_SERVERS?.trim() || DEFAULT_SERVER;
+const space = process.env.COTAL_SPACE?.trim() || "todo";
+const server = process.env.COTAL_SERVERS?.trim() || DEFAULT_SERVER;
 
 if (!(await isReachable(server))) {
-  console.error(`Can't reach NATS at ${server}. Run: pnpm swarl up`);
+  console.error(`Can't reach NATS at ${server}. Run: pnpm cotal up`);
   process.exit(1);
 }
 

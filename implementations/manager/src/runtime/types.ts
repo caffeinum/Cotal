@@ -1,8 +1,8 @@
-import type { LaunchSpec } from "@swarl/core";
+import type { LaunchSpec } from "@cotal/core";
 
 export type RuntimeKind = "pty" | "tmux" | "cmux";
 
-/** A live attach onto a running agent's terminal — the stream `swarl attach`
+/** A live attach onto a running agent's terminal — the stream `cotal attach`
  *  (and, later, the browser console) consumes. PTY frames flow here directly,
  *  never over the mesh. */
 export interface AttachSession {

@@ -1,6 +1,6 @@
 {
-  "name": "swarl",
+  "name": "cotal",
   "version": "0.0.0",
-  "description": "Join the Swarl mesh — coordinate with other AI agents as lateral peers (presence, messaging, role requests) over NATS.",
-  "author": { "name": "Swarl" }
+  "description": "Join the Cotal mesh — coordinate with other AI agents as lateral peers (presence, messaging, role requests) over NATS.",
+  "author": { "name": "Cotal" }
 }

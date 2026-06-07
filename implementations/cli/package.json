@@ -1,5 +1,5 @@
 {
-  "name": "@swarl/cli",
+  "name": "@cotal/cli",
   "version": "0.0.0",
   "license": "Apache-2.0",
   "type": "module",
@@ -13,6 +13,6 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@swarl/core": "workspace:*"
+    "@cotal/core": "workspace:*"
   }
 }

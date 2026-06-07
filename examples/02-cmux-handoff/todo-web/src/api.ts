@@ -27,15 +27,17 @@ export async function createTask(input: {
   const res = await fetch("/tasks", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    // priority/description omitted when undefined — the server applies its own
+    // default (priority "medium").
     body: JSON.stringify({
       title: input.title,
       description: input.description,
-      priority: input.priority ?? "medium",
+      priority: input.priority,
     }),
   });
   if (res.status === 400) {
-    const detail = (await res.text()).trim();
-    throw new Error(`createTask: invalid priority${detail ? ` — ${detail}` : ""}`);
+    const { error } = await res.json();
+    throw new Error(`createTask: ${error}`);
   }
   if (!res.ok) throw new Error(`createTask failed: ${res.status}`);
   return res.json();

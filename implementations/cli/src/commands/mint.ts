@@ -9,7 +9,7 @@ import {
   mintCreds,
   newIdentity,
   type Profile,
-} from "@swarl/core";
+} from "@cotal/core";
 import { c } from "../ui.js";
 
 /** Out-of-band cred minting: generate an identity, sign a profile-scoped user JWT with the
@@ -22,7 +22,7 @@ export async function mint(argv: string[]): Promise<void> {
   });
   const name = positionals[0];
   if (!name) {
-    console.error(c.red("usage: swarl mint <name> --profile <agent|observer|admin> [--out <path>]"));
+    console.error(c.red("usage: cotal mint <name> --profile <agent|observer|admin> [--out <path>]"));
     process.exit(1);
   }
   const profile = (values.profile ?? "agent") as Profile;
@@ -33,7 +33,7 @@ export async function mint(argv: string[]): Promise<void> {
   const dir = authDir(process.cwd());
   const auth = loadSpaceAuth(dir);
   if (!auth) {
-    console.error(c.red("no space auth found here — run `swarl up` first"));
+    console.error(c.red("no space auth found here — run `cotal up` first"));
     process.exit(1);
   }
   // For agents, derive the publish allow-list AND role from the agent file if one exists

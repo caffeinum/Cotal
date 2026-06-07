@@ -1,5 +1,5 @@
 {
-  "name": "@swarl/connector-codex",
+  "name": "@cotal/connector-codex",
   "version": "0.0.0",
   "license": "Apache-2.0",
   "type": "module",
@@ -14,13 +14,13 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@swarl/connector-core": "workspace:*",
+    "@cotal/connector-core": "workspace:*",
     "tsx": "^4.22.4"
   },
   "peerDependencies": {
-    "@swarl/core": "workspace:*"
+    "@cotal/core": "workspace:*"
   },
   "devDependencies": {
-    "@swarl/core": "workspace:*"
+    "@cotal/core": "workspace:*"
   }
 }

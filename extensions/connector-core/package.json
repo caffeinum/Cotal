@@ -1,5 +1,5 @@
 {
-  "name": "@swarl/connector-core",
+  "name": "@cotal/connector-core",
   "version": "0.0.0",
   "license": "Apache-2.0",
   "type": "module",
@@ -17,9 +17,9 @@
     "zod": "^4.4.3"
   },
   "peerDependencies": {
-    "@swarl/core": "workspace:*"
+    "@cotal/core": "workspace:*"
   },
   "devDependencies": {
-    "@swarl/core": "workspace:*"
+    "@cotal/core": "workspace:*"
   }
 }

@@ -1,4 +1,4 @@
-// Swarl console client: one xterm pane per managed agent, each wired straight to
+// Cotal console client: one xterm pane per managed agent, each wired straight to
 // the manager's attach WebSocket (addon-attach). We discover agents over HTTP
 // (the manager's /agents list, which it cross-references with mesh presence) and
 // stream the actual terminal bytes over the direct socket — never the mesh.

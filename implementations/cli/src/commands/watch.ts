@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util";
 import { readFileSync } from "node:fs";
-import { SwarlEndpoint, isReachable, DEFAULT_SERVER, chatWildcard } from "@swarl/core";
+import { CotalEndpoint, isReachable, DEFAULT_SERVER, chatWildcard } from "@cotal/core";
 import { c, statusBadge } from "../ui.js";
 
 export async function watch(argv: string[]): Promise<void> {
@@ -13,11 +13,11 @@ export async function watch(argv: string[]): Promise<void> {
   const server = values.server ?? DEFAULT_SERVER;
   const creds = values.creds ? readFileSync(values.creds, "utf8") : undefined;
   if (!(await isReachable(server, { creds }))) {
-    console.error(c.red(`Can't reach NATS at ${server}. Run: pnpm swarl up`));
+    console.error(c.red(`Can't reach NATS at ${server}. Run: pnpm cotal up`));
     process.exit(1);
   }
 
-  const ep = new SwarlEndpoint({
+  const ep = new CotalEndpoint({
     space,
     servers: server,
     creds,

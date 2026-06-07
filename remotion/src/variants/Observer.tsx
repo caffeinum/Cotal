@@ -3,7 +3,7 @@ import { AbsoluteFill, useCurrentFrame } from "remotion";
 import { AGENT, C, fontFamily, GRID_STYLE, spliceWordmark, STATUS } from "../_shared";
 import { Grid, Ticker, Tagline } from "../components";
 
-// Reproduces the real `swarl console` dashboard (render.ts): roster with live
+// Reproduces the real `cotal console` dashboard (render.ts): roster with live
 // presence badges + a scrolling subject log. The "Explain" pillar, literally.
 
 type Seg = { text: string; color: string; bold?: boolean };
@@ -57,7 +57,7 @@ export const Observer: React.FC = () => {
   const frame = useCurrentFrame();
   const list = roster(frame);
   const count = `${list.length} agents`;
-  const headLeft = "SWARL · demo";
+  const headLeft = "COTAL · demo";
   const rule = "─".repeat(PW);
   return (
     <AbsoluteFill style={{ backgroundColor: C.bg, fontFamily, color: C.white }}>
@@ -65,7 +65,7 @@ export const Observer: React.FC = () => {
       <div style={{ position: "absolute", left: "50%", top: 130, transform: "translateX(-50%)" }}>
         <Line
           segs={[
-            { text: "SWARL", color: C.white, bold: true },
+            { text: "COTAL", color: C.white, bold: true },
             { text: " · demo", color: C.dim },
             { text: " ".repeat(Math.max(1, PW - headLeft.length - count.length)), color: C.dim },
             { text: count, color: C.dim },

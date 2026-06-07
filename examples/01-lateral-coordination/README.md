@@ -4,12 +4,12 @@ Role-specialized endpoints join **one shared space** and coordinate **laterally*
 presence, addressing, and messaging — on a local NATS/JetStream mesh, each participant
 in its own terminal.
 
-It's **configurable, not hardwired**: Swarl provides the primitives (addressability,
+It's **configurable, not hardwired**: Cotal provides the primitives (addressability,
 presence, a control plane, data sharing); the *topology* — who's "planner" vs "reviewer",
 who delegates to whom — is just how you set it up.
 
 > **Status:** the **walking skeleton** (manual CLI peers), the **control plane** (manager +
-> `pty` runtime + web console), and the **Claude Code adapter** run today — `swarl start --agent
+> `pty` runtime + web console), and the **Claude Code adapter** run today — `cotal start --agent
 > claude` spawns a real Claude session that joins the mesh, flips presence from its lifecycle
 > hooks, and wakes on incoming peer messages. The Codex adapter lands next.
 
@@ -35,23 +35,23 @@ who delegates to whom — is just how you set it up.
 **1. Start the mesh** (one terminal — stays running):
 
 ```
-pnpm swarl up --open
+pnpm cotal up --open
 ```
 
-If a nats-server is already listening on `:4222`, Swarl detects it and reuses it.
+If a nats-server is already listening on `:4222`, Cotal detects it and reuses it.
 
 **2. Join as a few peers** (one terminal each):
 
 ```
-pnpm swarl join --space demo --name alice --role planner
-pnpm swarl join --space demo --name bob   --role builder
-pnpm swarl join --space demo --name carol --role reviewer
+pnpm cotal join --space demo --name alice --role planner
+pnpm cotal join --space demo --name bob   --role builder
+pnpm cotal join --space demo --name carol --role reviewer
 ```
 
 **3. Watch everything** (optional — one terminal):
 
 ```
-pnpm swarl watch --space demo
+pnpm cotal watch --space demo
 ```
 
 ## Or: let the manager spawn peers
@@ -60,47 +60,47 @@ Instead of opening a terminal per peer, run the **manager** and drive it over th
 plane. The manager owns each peer's process in a pseudo-terminal (`pty` runtime).
 
 ```
-# one terminal — the supervisor (composition root: picks the swarl + claude connectors)
+# one terminal — the supervisor (composition root: picks the cotal + claude connectors)
 (cd examples/01-lateral-coordination && pnpm manager)
 
 # then, from anywhere
-swarl start --space demo --name alice --role planner   # manager spawns alice in a PTY
-swarl ps    --space demo                                # list managed peers + mesh status
-swarl attach --space demo --name alice                  # stream + drive her terminal (Ctrl-] detaches)
-swarl stop  --space demo --name alice                   # kill the process
+cotal start --space demo --name alice --role planner   # manager spawns alice in a PTY
+cotal ps    --space demo                                # list managed peers + mesh status
+cotal attach --space demo --name alice                  # stream + drive her terminal (Ctrl-] detaches)
+cotal stop  --space demo --name alice                   # kill the process
 ```
 
-`swarl start --agent claude` spawns a real Claude Code session the same way (see below).
+`cotal start --agent claude` spawns a real Claude Code session the same way (see below).
 
 ## Watch them in the browser — CLI + manager + web console
 
 The manager hosts a **console** (in-process, loopback) — a lightweight xterm.js page that
 shows one live terminal per managed agent. PTY bytes stream over a direct WebSocket (the same
-stream `swarl attach` consumes), never the mesh. One example, all three surfaces together:
+stream `cotal attach` consumes), never the mesh. One example, all three surfaces together:
 
 ```
-pnpm swarl up --open                                       # 1. mesh, unauthenticated (terminal stays running)
+pnpm cotal up --open                                       # 1. mesh, unauthenticated (terminal stays running)
 (cd examples/01-lateral-coordination && pnpm manager)      # 2. manager + console → prints http://127.0.0.1:7878/
 
 # 3. drive it from the CLI — the console updates live
-pnpm swarl start --space demo --agent claude --name ada   --role planner
-pnpm swarl start --space demo --agent claude --name linus --role reviewer
+pnpm cotal start --space demo --agent claude --name ada   --role planner
+pnpm cotal start --space demo --agent claude --name linus --role reviewer
 ```
 
 Open **http://127.0.0.1:7878/** — two panes appear, each a real Claude Code TUI you can type
-into. `swarl ps` / `stop` / `start` from any terminal and the grid reconciles (panes added,
-removed, status dot flips green→red on exit). Port: `SWARL_CONSOLE_PORT` (default `7878`).
+into. `cotal ps` / `stop` / `start` from any terminal and the grid reconciles (panes added,
+removed, status dot flips green→red on exit). Port: `COTAL_CONSOLE_PORT` (default `7878`).
 
 ## A Claude Code agent joins as a peer
 
-A real coding agent joins through the **manager** — `swarl start --agent claude` does the native
+A real coding agent joins through the **manager** — `cotal start --agent claude` does the native
 launch in a PTY pane (no wrapper in front, an ordinary Claude session):
 
 ```
 # one-time, per machine: install the bundled plugin for this repo only
-claude plugin install swarl@swarl-mesh --scope local
+claude plugin install cotal@cotal-mesh --scope local
 
-swarl start --space demo --agent claude --name dave --role builder   # manager spawns a real claude
+cotal start --space demo --agent claude --name dave --role builder   # manager spawns a real claude
 ```
 
 ### Personas from a file
@@ -109,15 +109,15 @@ Role + identity + a persona can come from an [agent file](./agents/) instead of 
 frontmatter is the identity, the Markdown body is the system prompt:
 
 ```
-swarl start --agent claude --name dave --config examples/01-lateral-coordination/agents/dave.md  # manager, detached PTY
-swarl spawn --agent claude --name dave --config examples/01-lateral-coordination/agents/dave.md  # foreground, in this terminal
-swarl spawn dave                                                                                 # …or the shorthand (./.swarl/agents/dave.md)
+cotal start --agent claude --name dave --config examples/01-lateral-coordination/agents/dave.md  # manager, detached PTY
+cotal spawn --agent claude --name dave --config examples/01-lateral-coordination/agents/dave.md  # foreground, in this terminal
+cotal spawn dave                                                                                 # …or the shorthand (./.cotal/agents/dave.md)
 ```
 
-A bare `swarl start --name dave` also auto-discovers `.swarl/agents/dave.md` in the manager's
+A bare `cotal start --name dave` also auto-discovers `.cotal/agents/dave.md` in the manager's
 workspace (gitignored, user-local). See [agent files](../../docs/claude-code-integration.md#agent-files-persona--identity).
 
-The bundled plugin reads `SWARL_*` from the env at spawn and auto-joins the mesh; the manager
+The bundled plugin reads `COTAL_*` from the env at spawn and auto-joins the mesh; the manager
 auto-clears the one-time dev-channel prompt, so the launch is hands-free. From there the agent is
 a peer like any other: its presence flips `working` / `idle` from lifecycle hooks, and mesh
 messages reach it two ways — **hook injection** at turn boundaries (the spine) and a **channel

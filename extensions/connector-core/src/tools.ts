@@ -1,14 +1,14 @@
 /**
- * The Swarl MCP tool surface — platform-agnostic.
+ * The Cotal MCP tool surface — platform-agnostic.
  *
  * Lets a session read its inbox, broadcast, DM a peer, address a role, and report
  * status on the mesh. Both the Claude Code and Codex connectors build their own
- * McpServer (with platform-specific capabilities) and call {@link registerSwarlTools}
+ * McpServer (with platform-specific capabilities) and call {@link registerCotalTools}
  * to add this shared surface.
  */
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { isConcreteChannel, type PresenceStatus } from "@swarl/core";
+import { isConcreteChannel, type PresenceStatus } from "@cotal/core";
 import type { MeshAgent, InboxItem } from "./agent.js";
 import type { AgentConfig } from "./config.js";
 
@@ -41,14 +41,14 @@ export function channelMeta(i: InboxItem): Record<string, string> {
   return m;
 }
 
-/** Register the six Swarl tools (roster, inbox, send, dm, anycast, status) on a server. */
-export function registerSwarlTools(server: McpServer, agent: MeshAgent, config: AgentConfig): void {
+/** Register the six Cotal tools (roster, inbox, send, dm, anycast, status) on a server. */
+export function registerCotalTools(server: McpServer, agent: MeshAgent, config: AgentConfig): void {
   server.registerTool(
-    "swarl_roster",
+    "cotal_roster",
     {
-      title: "Swarl: who's present",
+      title: "Cotal: who's present",
       description:
-        "List the agents currently present in your Swarl space, with their role, status, and current activity.",
+        "List the agents currently present in your Cotal space, with their role, status, and current activity.",
     },
     async () => {
       if (!agent.connected) return text(`Not connected to the mesh yet (${config.servers}).`);
@@ -64,9 +64,9 @@ export function registerSwarlTools(server: McpServer, agent: MeshAgent, config: 
   );
 
   server.registerTool(
-    "swarl_inbox",
+    "cotal_inbox",
     {
-      title: "Swarl: read incoming messages",
+      title: "Cotal: read incoming messages",
       description:
         "Read messages other agents have sent you since you last checked — channel broadcasts, direct messages, and role requests. Clears them unless peek is true.",
       inputSchema: {
@@ -82,9 +82,9 @@ export function registerSwarlTools(server: McpServer, agent: MeshAgent, config: 
   );
 
   server.registerTool(
-    "swarl_send",
+    "cotal_send",
     {
-      title: "Swarl: broadcast to a channel",
+      title: "Cotal: broadcast to a channel",
       description: "Broadcast a message to everyone on a channel in your space.",
       inputSchema: {
         text: z.string().describe("The message to broadcast."),
@@ -113,9 +113,9 @@ export function registerSwarlTools(server: McpServer, agent: MeshAgent, config: 
   );
 
   server.registerTool(
-    "swarl_dm",
+    "cotal_dm",
     {
-      title: "Swarl: direct-message a peer",
+      title: "Cotal: direct-message a peer",
       description: "Send a private message to one specific peer, by name (or instance id).",
       inputSchema: {
         to: z.string().describe("The peer's name (or instance id)."),
@@ -133,9 +133,9 @@ export function registerSwarlTools(server: McpServer, agent: MeshAgent, config: 
   );
 
   server.registerTool(
-    "swarl_anycast",
+    "cotal_anycast",
     {
-      title: "Swarl: ask any agent of a role",
+      title: "Cotal: ask any agent of a role",
       description:
         "Send a request to ANY one available agent of a given role (load-balanced). Use when you need 'a reviewer' rather than a specific person.",
       inputSchema: {
@@ -154,9 +154,9 @@ export function registerSwarlTools(server: McpServer, agent: MeshAgent, config: 
   );
 
   server.registerTool(
-    "swarl_status",
+    "cotal_status",
     {
-      title: "Swarl: set your status",
+      title: "Cotal: set your status",
       description: "Set your presence status and activity so peers can see what you are doing.",
       inputSchema: {
         status: z
@@ -178,9 +178,9 @@ export function registerSwarlTools(server: McpServer, agent: MeshAgent, config: 
   );
 
   server.registerTool(
-    "swarl_spawn",
+    "cotal_spawn",
     {
-      title: "Swarl: spawn a new teammate",
+      title: "Cotal: spawn a new teammate",
       description:
         "Ask the manager to start a new peer endpoint in your space. It joins the mesh as a lateral peer (and, when the manager runs the cmux runtime, appears in its own tab). Use when the team needs another agent.",
       inputSchema: {

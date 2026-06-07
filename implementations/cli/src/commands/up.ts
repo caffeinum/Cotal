@@ -14,7 +14,7 @@ import {
   newIdentity,
   setupSpaceStreams,
   type SpaceAuth,
-} from "@swarl/core";
+} from "@cotal/core";
 import { c } from "../ui.js";
 
 export async function up(argv: string[]): Promise<void> {
@@ -33,7 +33,7 @@ export async function up(argv: string[]): Promise<void> {
     console.log(c.green(`✓ NATS already running at ${server}`));
     return;
   }
-  const storeDir = resolve(values["store-dir"] ?? ".swarl/nats");
+  const storeDir = resolve(values["store-dir"] ?? ".cotal/nats");
   mkdirSync(storeDir, { recursive: true });
 
   // Secure by default: start the server in decentralized-JWT mode so agents must present
@@ -77,7 +77,7 @@ export async function up(argv: string[]): Promise<void> {
 
 /** Ensure the space's trust material exists, render a server config, and mint a privileged
  *  setup creds (used to pre-create streams once the server is up). The account signing key
- *  in `.swarl/auth` is what `swarl mint` and the manager later use to issue per-agent creds. */
+ *  in `.cotal/auth` is what `cotal mint` and the manager later use to issue per-agent creds. */
 async function authSetup(
   storeDir: string,
   server: string,

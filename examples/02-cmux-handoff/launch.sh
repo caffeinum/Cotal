@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bring up the Swarl mesh and lay out the demo in cmux.
+# Bring up the Cotal mesh and lay out the demo in cmux.
 #
 #   ./launch.sh           verify the mesh, print the cmux launch sequence
 #   ./launch.sh --drive   open the console + orchestrator; the orchestrator grows the team
@@ -10,13 +10,13 @@
 # nothing is pre-opened.
 #
 #   ┌───────────────┐
-#   │ swarl console │   live agent panel + message log
+#   │ cotal console │   live agent panel + message log
 #   ├───────────────┤
 #   │ orchestrator  │   claude — give it the one prompt; it spawns the workers
 #   │   (claude)    │
 #   └───────────────┘
 #
-# Each agent's identity is set purely by the SWARL_* env on its launch line.
+# Each agent's identity is set purely by the COTAL_* env on its launch line.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,7 +24,7 @@ REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 SPACE="todo"
 
 TSX="$REPO_ROOT/node_modules/.bin/tsx"
-# cmux is driven through the @swarl/cmux integration's CLI — no raw `cmux` here.
+# cmux is driven through the @cotal/cmux integration's CLI — no raw `cmux` here.
 CMUX="$TSX $REPO_ROOT/extensions/cmux/src/cli.ts"
 cmux_check() {
   $CMUX check || { echo "✗ can't reach cmux — run this from inside a cmux terminal." >&2; exit 1; }
@@ -34,16 +34,16 @@ cmux_check() {
 # cmux's control socket (socketControlMode: cmuxOnly) rejects detached/headless callers.
 # Open it in its own tab; skip if one's already running so re-runs don't stack managers.
 # This is the example's own manager (src/manager.ts): its connector launches run-agent.sh,
-# so each spawned tab is a real coder, not a bare `swarl join` peer.
+# so each spawned tab is a real coder, not a bare `cotal join` peer.
 manager_term() { # the example manager as a live pane, so its cmux spawns are authorized
-  term "bash -lc 'cd $HERE && SWARL_SPACE=$SPACE exec $TSX $HERE/src/manager.ts'"
+  term "bash -lc 'cd $HERE && COTAL_SPACE=$SPACE exec $TSX $HERE/src/manager.ts'"
 }
 manager_up() {
   if pgrep -f "$HERE/src/manager.ts" >/dev/null; then
     echo "✓ manager already running"
   else
     echo "opening the manager in its own cmux tab so the orchestrator can grow the team…"
-    $CMUX open swarl-manager "$(manager_term)"
+    $CMUX open cotal-manager "$(manager_term)"
   fi
 }
 
@@ -69,8 +69,8 @@ else
     echo "✗ nats-server not found. Install it: brew install nats-server" >&2
     exit 1
   }
-  echo "starting the mesh (pnpm swarl up) in the background…"
-  ( cd "$REPO_ROOT" && nohup pnpm swarl up >"$HERE/.mesh.log" 2>&1 & )
+  echo "starting the mesh (pnpm cotal up) in the background…"
+  ( cd "$REPO_ROOT" && nohup pnpm cotal up >"$HERE/.mesh.log" 2>&1 & )
   for _ in $(seq 1 20); do nats_up && break; sleep 0.25; done
   nats_up && echo "✓ mesh up (log: $HERE/.mesh.log)" || {
     echo "✗ mesh did not come up — see $HERE/.mesh.log" >&2; exit 1; }
@@ -94,7 +94,7 @@ agent_term() {
 # The workspace layout: console dashboard on top, orchestrator below.
 build_layout() {
   printf '{"direction":"vertical","split":0.4,"children":[%s,%s]}' \
-    "$(term "bash -lc 'cd $REPO_ROOT && pnpm swarl console --space $SPACE'")" \
+    "$(term "bash -lc 'cd $REPO_ROOT && pnpm cotal console --space $SPACE'")" \
     "$(agent_term orchestrator)"
 }
 
@@ -104,11 +104,11 @@ build_layout() {
 if [[ "${1:-}" == "--drive" ]]; then
   cmux_check
   manager_up
-  echo "opening the swarl-todo workspace (console + orchestrator)…"
-  $CMUX open swarl-todo "$(build_layout)"
+  echo "opening the cotal-todo workspace (console + orchestrator)…"
+  $CMUX open cotal-todo "$(build_layout)"
   echo "✓ workspace opened. Approve the plugin in the orchestrator pane if prompted,"
   echo "  then give it the human prompt (see below / README). It spawns todo-api/web/docs"
-  echo "  into their own tabs and dispatches the work. (manager runs in the swarl-manager tab)"
+  echo "  into their own tabs and dispatches the work. (manager runs in the cotal-manager tab)"
   exit 0
 fi
 
@@ -121,10 +121,10 @@ todo-api / todo-web / todo-docs into their own tabs:
 
   ./launch.sh --drive
 
-That opens the workspace via the @swarl/cmux driver (here's the layout if you
+That opens the workspace via the @cotal/cmux driver (here's the layout if you
 want to tweak it):
 
-  tsx extensions/cmux/src/cli.ts open swarl-todo '$(build_layout)'
+  tsx extensions/cmux/src/cli.ts open cotal-todo '$(build_layout)'
 
 …or open plain terminals / use the cmux.json palette. Start the orchestrator with:
 
@@ -135,7 +135,7 @@ run-agent.sh <role>.)
 
 EOF
 cat <<EOF
-Each pane loads the Swarl MCP server + hooks and turns on channel push (so an
+Each pane loads the Cotal MCP server + hooks and turns on channel push (so an
 idle worker wakes when a peer messages it) — no plugin install needed. The first
 time, accept claude's "load development channels?" prompt in each pane.
 

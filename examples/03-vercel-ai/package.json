@@ -1,5 +1,5 @@
 {
-  "name": "@swarl/example-03-vercel-ai",
+  "name": "@cotal/example-03-vercel-ai",
   "version": "0.0.0",
   "private": true,
   "license": "Apache-2.0",
@@ -10,9 +10,9 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@swarl/core": "workspace:*",
-    "@swarl/manager": "workspace:*",
-    "@swarl/vercel-ai": "workspace:*"
+    "@cotal/core": "workspace:*",
+    "@cotal/manager": "workspace:*",
+    "@cotal/vercel-ai": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.22.4"

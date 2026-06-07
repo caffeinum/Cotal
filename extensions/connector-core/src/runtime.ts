@@ -14,5 +14,5 @@ function tok(s: string): string {
  * this from the SAME identity, so they always agree without a discovery step.
  */
 export function controlSocketPath(space: string, name: string): string {
-  return join(tmpdir(), `swarl-${tok(space)}-${tok(name)}.sock`);
+  return join(tmpdir(), `cotal-${tok(space)}-${tok(name)}.sock`);
 }

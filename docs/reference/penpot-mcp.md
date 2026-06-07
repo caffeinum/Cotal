@@ -2,7 +2,7 @@
 
 How to build/edit Penpot designs programmatically from this repo's tooling. Practical
 notes distilled from the Penpot MCP `high_level_overview`, the official plugin API, and
-hands-on use. Not Swarl protocol — this is a workflow reference (hence `docs/reference/`).
+hands-on use. Not Cotal protocol — this is a workflow reference (hence `docs/reference/`).
 
 ## What it is
 

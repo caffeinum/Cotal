@@ -34,8 +34,8 @@ function fmtItem(i: InboxItem): string {
 /** The context block injected into a turn when peer messages are waiting (else undefined). */
 export function formatInjection(items: InboxItem[]): string | undefined {
   if (!items.length) return undefined;
-  const head = `📨 Swarl — ${items.length} new message${items.length === 1 ? "" : "s"} from peers:`;
-  const tail = `(Reply with swarl_send / swarl_dm, or swarl_roster to see who's here.)`;
+  const head = `📨 Cotal — ${items.length} new message${items.length === 1 ? "" : "s"} from peers:`;
+  const tail = `(Reply with cotal_send / cotal_dm, or cotal_roster to see who's here.)`;
   return `${head}\n${items.map(fmtItem).join("\n")}\n${tail}`;
 }
 
@@ -77,10 +77,10 @@ export function startControlServer(
     });
   });
   server.on("error", (e) =>
-    process.stderr.write(`[swarl-connector] control server error: ${(e as Error).message}\n`),
+    process.stderr.write(`[cotal-connector] control server error: ${(e as Error).message}\n`),
   );
   server.listen(socketPath, () =>
-    process.stderr.write(`[swarl-connector] control socket: ${socketPath}\n`),
+    process.stderr.write(`[cotal-connector] control socket: ${socketPath}\n`),
   );
   return server;
 }

@@ -1,5 +1,5 @@
 import * as pty from "@lydell/node-pty";
-import type { LaunchSpec } from "@swarl/core";
+import type { LaunchSpec } from "@cotal/core";
 import type { AgentHandle, AttachSession, Runtime } from "./types.js";
 
 const DEFAULT_COLS = 120;
@@ -22,7 +22,7 @@ function normalizeForMatch(s: string): string {
 /**
  * The default runtime: the manager spawns the agent in a pseudo-terminal it owns
  * via `@lydell/node-pty`. A real native TUI — the manager keeps full OS-signal
- * control, and `swarl attach` streams the same PTY. Terminal I/O stays off the
+ * control, and `cotal attach` streams the same PTY. Terminal I/O stays off the
  * mesh; the agent's own plugin still talks to NATS directly.
  */
 export class PtyRuntime implements Runtime {

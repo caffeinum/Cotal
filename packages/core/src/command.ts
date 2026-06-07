@@ -3,7 +3,7 @@ import type { Extension } from "./registry.js";
 /**
  * The contract for a composable CLI command — an {@link Extension} of kind
  * `"command"`. An implementation (the mesh CLI, the manager …) self-registers its
- * commands on import; the `swarl` binary resolves them from the registry.
+ * commands on import; the `cotal` binary resolves them from the registry.
  */
 export interface Command extends Extension {
   readonly kind: "command";

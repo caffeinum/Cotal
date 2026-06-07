@@ -1,9 +1,9 @@
-# Swarl — Working Overview (v0.1 draft)
+# Cotal — Working Overview (v0.1 draft)
 
-> Living draft — *what* Swarl should be able to do, not how it's built. Open questions
+> Living draft — *what* Cotal should be able to do, not how it's built. Open questions
 > are at the end; implementation and research detail live in [architecture.md](architecture.md).
 
-## What Swarl is
+## What Cotal is
 
 A standard interface for software — especially AI agents — to coordinate in real time
 as **lateral peers in a shared space**, instead of as nodes in an orchestrator tree.
@@ -19,7 +19,7 @@ cluster later). Reference implementation is **TypeScript**.
 ## Principles
 
 - **The wire contract is the standard.** The subjects, message schemas, and
-  presence/discovery conventions *are* Swarl; libraries are thin clients over them.
+  presence/discovery conventions *are* Cotal; libraries are thin clients over them.
 - **Primitives, not a prescribed topology.** Squad-of-peers, orchestrator-and-workers,
   or any hybrid are configurations on top — never baked in.
 - **One command to join.** Integration ease is the moat.
@@ -59,7 +59,7 @@ Four core capabilities, plus observability, history, and isolation.
   divide work and delegate over channels and DMs. They share one workspace with **no
   isolation** (no worktrees), staying out of each other's way by coordinating.
 - **Observability** — traces and presence are on the mesh, so any observer can render
-  them: `swarl console` (terminal) or `swarl web` (browser dashboard — presence, channels,
+  them: `cotal console` (terminal) or `cotal web` (browser dashboard — presence, channels,
   live feed; see [web.md](web.md)).
 - **History & late join** — a late participant replays recent messages and the current
   roster, then goes live.
@@ -75,18 +75,18 @@ Full scenario and run steps: **[examples/01-lateral-coordination](../examples/01
 
 ## Decided so far
 
-- **Stack** — TypeScript, pnpm monorepo (`@swarl/core`, `@swarl/cli`), NATS + JetStream.
+- **Stack** — TypeScript, pnpm monorepo (`@cotal/core`, `@cotal/cli`), NATS + JetStream.
 - **Wire shapes** — A2A-inspired `AgentCard` + `Message`/`Part`; **SLIM-inspired** addressing
   (`space / service / instance`) and the three delivery modes. See [architecture.md](architecture.md).
 - **Presence states** — `idle` / `waiting` / `working` / `offline`.
-- **Built so far** — `@swarl/core` endpoint (presence + all three delivery modes:
-  multicast / unicast / anycast) + `@swarl/cli` (`up` / `join` / `watch`), smoke-tested.
+- **Built so far** — `@cotal/core` endpoint (presence + all three delivery modes:
+  multicast / unicast / anycast) + `@cotal/cli` (`up` / `join` / `watch`), smoke-tested.
 - **Manager (supervisor)** — a long-lived **node** that owns agent *lifecycle + config*
   (not their work); CLI/dashboard drive it over the **control plane**
   (`start`/`stop`/`ps`/`status`/`bind`). Supervisor-only (agents self-connect; manager off the
   message hot path); demo spawns native agent TUIs in terminal panes.
-- **Claude Code integration (demo)** — **attach mode**: one Swarl **plugin** = a
-  dual-purpose MCP server (channel push + `swarl_send`/`swarl_dm`/`swarl_anycast` + `swarl_inbox`) plus `http`
+- **Claude Code integration (demo)** — **attach mode**: one Cotal **plugin** = a
+  dual-purpose MCP server (channel push + `cotal_send`/`cotal_dm`/`cotal_anycast` + `cotal_inbox`) plus `http`
   lifecycle hooks for presence/ambient. Deterministic **hook** injection is the spine; the
   **channel** adds async "wake when idle/away." Onboarding is **pure native** —
   `/plugin install` then launch the real `claude` with the plugin (space identity via env,
@@ -97,9 +97,9 @@ Full scenario and run steps: **[examples/01-lateral-coordination](../examples/01
 - **Roles** — a role is a reusable `<role>.md` template (YAML frontmatter + optional persona
   body) producing an A2A `AgentCard`: `role` = the addressable **service** (anycast),
   advertisement (`description` + `skills`/`tags`), optional persona, and runtime defaults
-  (channels, inbound policy). Resolved by the plugin from `SWARL_ROLE`; managed with
-  `swarl role new/list/show`. **Persona-optional** (primitives, not prescribed personas).
-- **Identity & authorization (on by default; `swarl up --open` to disable)** — the mesh is a
+  (channels, inbound policy). Resolved by the plugin from `COTAL_ROLE`; managed with
+  `cotal role new/list/show`. **Persona-optional** (primitives, not prescribed personas).
+- **Identity & authorization (on by default; `cotal up --open` to disable)** — the mesh is a
   real boundary against untrusted peers in a shared space: the **sender is encoded in the subject** (server-
   policed, not self-asserted), so an agent can only emit **as itself**; per-agent JWT ACLs scope
   publishing to its **declared channels**; and DMs are confidential on both leak paths (scoped
@@ -113,5 +113,5 @@ Full scenario and run steps: **[examples/01-lateral-coordination](../examples/01
 - **Control-plane commands** — manager ops (`start`/`stop`/`ps`/`status`/`bind`) are the first
   cut; still open is the agent-directed set (directive, set-role, pause/resume).
 - **Coordination primitives** — advisory intent records / leases: in or out, what shape.
-- **Collaboration patterns** — roles themselves are now defined (`.swarl/roles/<role>.md`);
+- **Collaboration patterns** — roles themselves are now defined (`.cotal/roles/<role>.md`);
   still open is how a user declares the *patterns between* them (who delegates to whom, leases).

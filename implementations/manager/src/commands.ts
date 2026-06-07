@@ -1,13 +1,13 @@
 import { parseArgs } from "node:util";
 import { readFileSync } from "node:fs";
 import {
-  SwarlEndpoint,
+  CotalEndpoint,
   isReachable,
   DEFAULT_SERVER,
   registry,
   type Command,
   type ControlReply,
-} from "@swarl/core";
+} from "@cotal/core";
 import { attachClient } from "./attach-client.js";
 import { c } from "./ui.js";
 
@@ -40,10 +40,10 @@ async function ask(
 ): Promise<ControlReply> {
   const creds = credsPath ? readFileSync(credsPath, "utf8") : undefined;
   if (!(await isReachable(server, { creds }))) {
-    console.error(c.red(`Can't reach NATS at ${server}. Run: swarl up`));
+    console.error(c.red(`Can't reach NATS at ${server}. Run: cotal up`));
     process.exit(1);
   }
-  const ep = new SwarlEndpoint({
+  const ep = new CotalEndpoint({
     space,
     servers: server,
     creds,
@@ -156,7 +156,7 @@ async function attach(argv: string[]): Promise<void> {
 }
 
 /** The manager's control-plane commands — thin NATS request/reply clients that
- *  drive a running manager. Self-registered on import; the `swarl` binary resolves
+ *  drive a running manager. Self-registered on import; the `cotal` binary resolves
  *  them from the registry. */
 const managerCommands: Command[] = [
   {
@@ -164,7 +164,7 @@ const managerCommands: Command[] = [
     name: "start",
     group: "Control plane",
     summary:
-      "ask the manager to spawn an agent — --name <n> [--role <r>] [--agent <a>] [--config <file>] (auto-discovers .swarl/agents/<n>.md)",
+      "ask the manager to spawn an agent — --name <n> [--role <r>] [--agent <a>] [--config <file>] (auto-discovers .cotal/agents/<n>.md)",
     run: start,
   },
   {

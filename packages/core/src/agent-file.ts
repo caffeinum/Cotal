@@ -1,7 +1,7 @@
 /**
  * Agent definition files — the persisted form of an agent's identity + persona.
  *
- *   .swarl/agents/<name>.md
+ *   .cotal/agents/<name>.md
  *   ---
  *   name: builder          # AgentCard-shaped identity in the frontmatter
  *   role: builder
@@ -112,9 +112,9 @@ export function loadAgentFile(path: string): AgentDef {
 
 /** Resolve a name-or-path to an agent file. A path (absolute, contains a slash,
  *  or ends in `.md`) is used as given; a bare name maps to the directory
- *  convention `<root>/.swarl/agents/<name>.md`. */
+ *  convention `<root>/.cotal/agents/<name>.md`. */
 export function agentFilePath(root: string, nameOrPath: string): string {
   if (isAbsolute(nameOrPath)) return nameOrPath;
   if (nameOrPath.includes("/") || nameOrPath.endsWith(".md")) return resolve(root, nameOrPath);
-  return join(root, ".swarl", "agents", `${nameOrPath}.md`);
+  return join(root, ".cotal", "agents", `${nameOrPath}.md`);
 }

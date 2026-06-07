@@ -1,5 +1,5 @@
 {
-  "name": "@swarl/example-02-cmux-handoff",
+  "name": "@cotal/example-02-cmux-handoff",
   "version": "0.0.0",
   "private": true,
   "license": "Apache-2.0",
@@ -10,8 +10,8 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@swarl/core": "workspace:*",
-    "@swarl/manager": "workspace:*"
+    "@cotal/core": "workspace:*",
+    "@cotal/manager": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.22.4"

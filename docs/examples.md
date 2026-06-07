@@ -4,7 +4,7 @@ Examples live in [`examples/`](../examples), one self-contained folder each. The
 protocol (`packages/*`) through one or more implementations and add nothing to it: an example
 only *configures + orchestrates* (roles, config, space name, runbook, optional driver) and
 picks which extensions to register — never new message kinds, subjects, or endpoint methods.
-Those belong in `@swarl/core`, generalized. Dependency direction is one-way:
+Those belong in `@cotal/core`, generalized. Dependency direction is one-way:
 `examples → implementations → packages`, never back.
 
 | Example | What it shows |

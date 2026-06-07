@@ -1,4 +1,4 @@
-import type { Command, Registry } from "@swarl/core";
+import type { Command, Registry } from "@cotal/core";
 import { c } from "./ui.js";
 
 function help(commands: Command[]): void {
@@ -8,7 +8,7 @@ function help(commands: Command[]): void {
     (groups.get(g) ?? groups.set(g, []).get(g)!).push(cmd);
   }
   const pad = Math.max(...commands.map((c) => c.name.length));
-  let out = `${c.bold("swarl")} — lateral agent coordination over NATS\n`;
+  let out = `${c.bold("cotal")} — lateral agent coordination over NATS\n`;
   for (const [group, cmds] of groups) {
     out += `\n${c.bold(group)}\n`;
     for (const cmd of cmds) out += `  ${cmd.name.padEnd(pad)}  ${c.dim(cmd.summary)}\n`;

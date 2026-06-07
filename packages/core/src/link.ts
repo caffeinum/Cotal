@@ -1,9 +1,9 @@
 /**
- * The Swarl join link — the onboarding half of the wire contract (v0).
+ * The Cotal join link — the onboarding half of the wire contract (v0).
  *
- *   swarl://[token@]host[:port]/space[?channel=a,b]    plaintext
- *   swarls://[token@]host[:port]/space[?channel=a,b]   TLS required
- *   swarl://user:pass@host/space                       user/password auth
+ *   cotal://[token@]host[:port]/space[?channel=a,b]    plaintext
+ *   cotals://[token@]host[:port]/space[?channel=a,b]   TLS required
+ *   cotal://user:pass@host/space                       user/password auth
  *
  * One copy-pasteable string carries server + credentials + space, so a peer
  * joins with a single value. The nats.js client does NOT read credentials from
@@ -24,19 +24,19 @@ export interface JoinLink {
   pass?: string;
 }
 
-/** Parse a `swarl://` / `swarls://` join link. Throws on anything malformed. */
+/** Parse a `cotal://` / `cotals://` join link. Throws on anything malformed. */
 export function parseJoinLink(link: string): JoinLink {
-  const tls = link.startsWith("swarls://");
-  if (!tls && !link.startsWith("swarl://"))
-    throw new Error(`not a Swarl link (expected swarl:// or swarls://): ${link}`);
+  const tls = link.startsWith("cotals://");
+  if (!tls && !link.startsWith("cotal://"))
+    throw new Error(`not a Cotal link (expected cotal:// or cotals://): ${link}`);
 
   // Reparse under a "special" scheme so the WHATWG URL parser populates the
   // authority (credentials/host/port) reliably — non-special schemes don't.
-  const u = new URL(link.replace(/^swarls?:\/\//, tls ? "https://" : "http://"));
-  if (!u.hostname) throw new Error(`Swarl link has no host: ${link}`);
+  const u = new URL(link.replace(/^cotals?:\/\//, tls ? "https://" : "http://"));
+  if (!u.hostname) throw new Error(`Cotal link has no host: ${link}`);
 
   const space = decodeURIComponent(u.pathname.replace(/^\/+/, "").split("/")[0] ?? "");
-  if (!space) throw new Error(`Swarl link has no space (swarl://host/<space>): ${link}`);
+  if (!space) throw new Error(`Cotal link has no space (cotal://host/<space>): ${link}`);
 
   const chParam = u.searchParams.get("channels") ?? u.searchParams.get("channel");
   const channels = chParam
@@ -67,7 +67,7 @@ export function formatJoinLink(opts: {
   tls?: boolean;
   channels?: string[];
 }): string {
-  const scheme = opts.tls ? "swarls" : "swarl";
+  const scheme = opts.tls ? "cotals" : "cotal";
   const cred = opts.token ? `${encodeURIComponent(opts.token)}@` : "";
   const port = opts.port ? `:${opts.port}` : "";
   const query = opts.channels?.length ? `?channel=${opts.channels.join(",")}` : "";

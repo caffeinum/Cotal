@@ -32,7 +32,7 @@ import type {
   Part,
   Presence,
   PresenceStatus,
-  SwarlMessage,
+  CotalMessage,
 } from "./types.js";
 import {
   anycastSubject,
@@ -91,14 +91,14 @@ export interface EndpointOptions {
 }
 
 /**
- * Events: "message" (SwarlMessage), "presence" (PresenceEvent), "roster" (Presence[]), "error" (Error).
+ * Events: "message" (CotalMessage), "presence" (PresenceEvent), "roster" (Presence[]), "error" (Error).
  *
  * Callers MUST attach an "error" listener before `start()`: async faults (incl. NATS
  * permission denials, surfaced via `watchStatus`) are emitted as "error", and Node throws
  * synchronously on an unhandled "error" — a missing listener turns any such fault into a
  * process crash instead of a logged denial.
  */
-export class SwarlEndpoint extends EventEmitter {
+export class CotalEndpoint extends EventEmitter {
   readonly card: AgentCard;
   readonly space: string;
   readonly channels: string[];
@@ -166,7 +166,7 @@ export class SwarlEndpoint extends EventEmitter {
   async start(): Promise<void> {
     this.nc = await connect({
       servers: this.servers,
-      name: `swarl:${this.card.name}`,
+      name: `cotal:${this.card.name}`,
       // Per-identity inbox namespace (the "Private Inbox" pattern). nats.js routes ALL
       // generated inboxes — request replies, JetStream pull delivery, kv.watch ordered-
       // consumer delivery — through this prefix. Paired with sub.allow=[_INBOX_<id>.>]
@@ -181,7 +181,7 @@ export class SwarlEndpoint extends EventEmitter {
     if (this.doWatch || this.doRegister) {
       const kvm = new Kvm(this.nc);
       // The presence bucket is a JetStream stream. Open mode lazily creates it; auth mode
-      // OPENs it (it's pre-created at `swarl up`; KV stream-create is denied to agents).
+      // OPENs it (it's pre-created at `cotal up`; KV stream-create is denied to agents).
       this.kv = this.creds
         ? await kvm.open(presenceBucket(this.space))
         : await kvm.create(presenceBucket(this.space), { ttl: this.ttlMs });
@@ -205,7 +205,7 @@ export class SwarlEndpoint extends EventEmitter {
     if (this.doConsume) {
       this.jsm = await jetstreamManager(this.nc);
       // Open mode: lazily create the streams on the first endpoint. Auth mode: they are
-      // pre-created at `swarl up` and STREAM.CREATE is denied to agents, so skip.
+      // pre-created at `cotal up` and STREAM.CREATE is denied to agents, so skip.
       if (!this.creds) await this.ensureStreams();
       await this.startConsumers();
     }
@@ -244,14 +244,14 @@ export class SwarlEndpoint extends EventEmitter {
   async multicast(
     text: string,
     opts?: { channel?: string; parts?: Part[]; replyTo?: string; contextId?: string; mentions?: string[] },
-  ): Promise<SwarlMessage> {
+  ): Promise<CotalMessage> {
     // Publish must target a concrete sub-channel — you can't broadcast to a
     // wildcard. Default to the first concrete channel we're on (channels[0] may
     // itself be a wildcard subscription like `team.>`).
     const channel = opts?.channel ?? this.channels.find(isConcreteChannel) ?? "general";
     if (!isConcreteChannel(channel))
       throw new Error(`cannot publish to wildcard channel "${channel}" — pick a concrete sub-channel`);
-    const msg: SwarlMessage = {
+    const msg: CotalMessage = {
       id: randomUUID(),
       ts: Date.now(),
       space: this.space,
@@ -273,8 +273,8 @@ export class SwarlEndpoint extends EventEmitter {
     instanceId: string,
     text: string,
     opts?: { parts?: Part[]; replyTo?: string; contextId?: string },
-  ): Promise<SwarlMessage> {
-    const msg: SwarlMessage = {
+  ): Promise<CotalMessage> {
+    const msg: CotalMessage = {
       id: randomUUID(),
       ts: Date.now(),
       space: this.space,
@@ -293,8 +293,8 @@ export class SwarlEndpoint extends EventEmitter {
     service: string,
     text: string,
     opts?: { parts?: Part[]; replyTo?: string; contextId?: string },
-  ): Promise<SwarlMessage> {
-    const msg: SwarlMessage = {
+  ): Promise<CotalMessage> {
+    const msg: CotalMessage = {
       id: randomUUID(),
       ts: Date.now(),
       space: this.space,
@@ -312,7 +312,7 @@ export class SwarlEndpoint extends EventEmitter {
    *  auth must pass `chatWildcard(space)` since its `sub.allow` only covers chat (DM/anycast
    *  stay confidential), otherwise the space-wildcard subscribe is denied and the feed dies. */
   tap(
-    handler: (subject: string, msg: SwarlMessage | undefined) => void,
+    handler: (subject: string, msg: CotalMessage | undefined) => void,
     opts?: { subject?: string },
   ): void {
     if (!this.nc) return;
@@ -320,9 +320,9 @@ export class SwarlEndpoint extends EventEmitter {
     this.subs.push(sub);
     void (async () => {
       for await (const m of sub) {
-        let decoded: SwarlMessage | undefined;
+        let decoded: CotalMessage | undefined;
         try {
-          decoded = m.json<SwarlMessage>();
+          decoded = m.json<CotalMessage>();
         } catch {
           decoded = undefined;
         }
@@ -441,7 +441,7 @@ export class SwarlEndpoint extends EventEmitter {
   async channelHistory(
     channel: string,
     opts?: { limit?: number },
-  ): Promise<SwarlMessage[]> {
+  ): Promise<CotalMessage[]> {
     // history from any sender
     return this.streamHistory(
       chatStream(this.space),
@@ -453,7 +453,7 @@ export class SwarlEndpoint extends EventEmitter {
   /** Fetch recent DMs (any sender→any recipient) from the space's DM backlog. God-view only:
    *  a normal agent/observer's ACL denies CONSUMER.CREATE on DM_<space>, so this throws-and-
    *  skips for them — only an `admin`-profile cred can read it. */
-  async dmHistory(opts?: { limit?: number }): Promise<SwarlMessage[]> {
+  async dmHistory(opts?: { limit?: number }): Promise<CotalMessage[]> {
     // every inst.<target>.<sender> DM
     return this.streamHistory(
       dmStream(this.space),
@@ -470,10 +470,10 @@ export class SwarlEndpoint extends EventEmitter {
     stream: string,
     subject: string,
     limit: number,
-  ): Promise<SwarlMessage[]> {
+  ): Promise<CotalMessage[]> {
     if (!this.nc) throw new Error("endpoint not started");
     const js = jetstream(this.nc);
-    const msgs: SwarlMessage[] = [];
+    const msgs: CotalMessage[] = [];
     try {
       const consumer = await js.consumers.get(stream, { filter_subjects: [subject] });
       const pending = Math.min(limit, (await consumer.info()).num_pending);
@@ -481,7 +481,7 @@ export class SwarlEndpoint extends EventEmitter {
       const iter = await consumer.fetch({ max_messages: pending });
       for await (const m of iter) {
         try {
-          msgs.push(m.json<SwarlMessage>());
+          msgs.push(m.json<CotalMessage>());
         } catch {
           /* skip undecodable */
         }
@@ -512,14 +512,14 @@ export class SwarlEndpoint extends EventEmitter {
     });
   }
 
-  private async publishMsg(subject: string, msg: SwarlMessage): Promise<void> {
+  private async publishMsg(subject: string, msg: CotalMessage): Promise<void> {
     if (!this.js) throw new Error("endpoint not started");
     // msgID = message id → free server-side dedup across JetStream redelivery.
     await this.js.publish(subject, JSON.stringify(msg), { msgID: msg.id });
   }
 
   /** Create the three backing streams for this space (idempotent). Open-mode lazy create;
-   *  the same definitions are used by `swarl up` at privileged setup. */
+   *  the same definitions are used by `cotal up` at privileged setup. */
   private async ensureStreams(): Promise<void> {
     if (!this.jsm) throw new Error("endpoint not started");
     await createSpaceStreams(this.jsm, this.space);
@@ -615,9 +615,9 @@ export class SwarlEndpoint extends EventEmitter {
     this.streamMsgs.push(msgs);
     void (async () => {
       for await (const m of msgs) {
-        let msg: SwarlMessage;
+        let msg: CotalMessage;
         try {
-          msg = m.json<SwarlMessage>();
+          msg = m.json<CotalMessage>();
         } catch (e) {
           m.term(); // undecodable — never redeliver
           this.emit("error", e as Error);

@@ -1,8 +1,8 @@
 import { generateText, tool, stepCountIs } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
-import { MeshAgent, configFromEnv } from "@swarl/connector-core";
-import type { InboxItem } from "@swarl/connector-core";
+import { MeshAgent, configFromEnv } from "@cotal/connector-core";
+import type { InboxItem } from "@cotal/connector-core";
 
 const MODEL = process.env.OPENAI_MODEL ?? "gpt-4.1";
 
@@ -19,7 +19,7 @@ export async function runVercelAgentPeer(): Promise<void> {
   // Read-only/awareness tools. Replies are delivered by the loop (see processNext)
   // on the correct delivery mode, so the model can't mis-route or duplicate them.
   const tools = {
-    swarl_roster: tool({
+    cotal_roster: tool({
       description: "List all peers currently on the mesh.",
       inputSchema: z.object({}),
       execute: async () => {
@@ -30,7 +30,7 @@ export async function runVercelAgentPeer(): Promise<void> {
           .join(", ");
       },
     }),
-    swarl_status: tool({
+    cotal_status: tool({
       description: "Update this peer's presence status.",
       inputSchema: z.object({
         status: z.enum(["idle", "waiting", "working"]).describe("New status"),
@@ -56,7 +56,7 @@ export async function runVercelAgentPeer(): Promise<void> {
 
       const context = `from ${item.fromName} via ${item.kind}`;
       const prompt = [
-        "You are a peer on a Swarl mesh — a shared pub/sub space where AI agents coordinate as lateral equals.",
+        "You are a peer on a Cotal mesh — a shared pub/sub space where AI agents coordinate as lateral equals.",
         "Reply with the answer itself as plain text; it is delivered automatically back to whoever messaged you. Be concise.",
         "",
         `[${context}]`,

@@ -2,15 +2,15 @@
 
 > Hook source: [code.claude.com/docs/en/hooks](https://code.claude.com/docs/en/hooks) (Claude Code 2.1.16x — 31 events).
 
-The connector turns a real `claude` session into a Swarl mesh peer: a bundled plugin inside the
+The connector turns a real `claude` session into a Cotal mesh peer: a bundled plugin inside the
 session joins NATS, maps lifecycle hooks to presence, and exposes the mesh tools — messaging,
-presence, and `swarl_spawn` (ask the manager to grow the team; the new teammate joins as a
+presence, and `cotal_spawn` (ask the manager to grow the team; the new teammate joins as a
 lateral peer). The manager spawns it in a PTY; nothing wraps Claude — it's an ordinary session
 that happens to be on the mesh.
 
-> The mesh runtime — agent, `swarl_*` tools, hook relay — lives in
-> [`@swarl/connector-core`](../extensions/connector-core); this package is the Claude-specific adapter
-> over it (its Codex sibling is [`@swarl/connector-codex`](../extensions/connector-codex)).
+> The mesh runtime — agent, `cotal_*` tools, hook relay — lives in
+> [`@cotal/connector-core`](../extensions/connector-core); this package is the Claude-specific adapter
+> over it (its Codex sibling is [`@cotal/connector-codex`](../extensions/connector-codex)).
 
 ## How a session joins
 
@@ -18,20 +18,20 @@ that happens to be on the mesh.
 launch the manager runs:
 
 ```
-claude --dangerously-load-development-channels plugin:swarl@swarl-mesh
-# env: SWARL_SPACE, SWARL_NAME, SWARL_ROLE, SWARL_SERVERS, SWARL_CHANNEL=1
+claude --dangerously-load-development-channels plugin:cotal@cotal-mesh
+# env: COTAL_SPACE, COTAL_NAME, COTAL_ROLE, COTAL_SERVERS, COTAL_CHANNEL=1
 ```
 
 - **Installed, not `--plugin-dir`.** The plugin is installed once
-  (`claude plugin install swarl@swarl-mesh --scope local`) — the wake channel only binds to an
+  (`claude plugin install cotal@cotal-mesh --scope local`) — the wake channel only binds to an
   *installed* plugin, so `--plugin-dir` (which loads but doesn't "install") isn't enough. Local
   scope keeps it to this repo (a gitignored `.claude/settings.local.json`), never user-global.
 - **Bundled.** The MCP server and hooks are esbuild-bundled to `dist/*.cjs` and run with plain
-  `node` (`pnpm --filter @swarl/connector-claude-code bundle`); the [`.mcp.json`](../extensions/connector-claude-code/.mcp.json)
+  `node` (`pnpm --filter @cotal/connector-claude-code bundle`); the [`.mcp.json`](../extensions/connector-claude-code/.mcp.json)
   and [`hooks.json`](../extensions/connector-claude-code/hooks/hooks.json) point at the bundles. Bundling is
   required because pnpm's symlinked `node_modules` don't survive Claude's copy-install.
-- **Identity-gated.** Connector code requires `SWARL_NAME` *or* `SWARL_LINK` (`hasIdentity()` in
-  [`config.ts`](../extensions/connector-core/src/config.ts)); a plain `claude` with no `SWARL_*` env
+- **Identity-gated.** Connector code requires `COTAL_NAME` *or* `COTAL_LINK` (`hasIdentity()` in
+  [`config.ts`](../extensions/connector-core/src/config.ts)); a plain `claude` with no `COTAL_*` env
   stays inert and never joins — so an operator's own sessions in the repo don't appear as stray peers.
 - **Hands-free spawn.** The dev-channels flag prints a one-time "Enter to confirm" prompt; the PTY
   runtime auto-clears it via `LaunchSpec.confirm`, so a supervised launch needs no keypress.
@@ -42,13 +42,13 @@ An agent's identity and persona can live in a local file instead of being passed
 Markdown file with YAML-ish frontmatter, the same shape Claude Code uses for subagents:
 
 ```
-.swarl/agents/<name>.md
+.cotal/agents/<name>.md
 ---
-name: dave              # → SWARL_NAME / card.name
-role: builder           # → SWARL_ROLE / card.role (presence + anycast)
+name: dave              # → COTAL_NAME / card.name
+role: builder           # → COTAL_ROLE / card.role (presence + anycast)
 description: …          # → card.description (A2A-style)
 tags: [edit, test]      # → card.tags ("what it can do")
-channels: [general, team.>]   # → SWARL_CHANNELS; channels it reads (hierarchical — subscribe a subtree)
+channels: [general, team.>]   # → COTAL_CHANNELS; channels it reads (hierarchical — subscribe a subtree)
 publish: [general, team.backend]  # channels it may post to (auth → pub-ACL); omit = same as channels
 model: opus             # optional → claude --model
 ---
@@ -58,13 +58,13 @@ You are a builder on a shared mesh of peer agents…   ← the body is the perso
 - **Frontmatter = identity** (an [`AgentCard`](../packages/core/src/types.ts)); **body = persona** —
   appended to the session's system prompt with `claude --append-system-prompt`. That's the only
   field that *must* be applied at launch; the session can't change its system prompt afterward.
-- **Discovery is by name.** A launcher resolves a bare name to `.swarl/agents/<name>.md` (via
+- **Discovery is by name.** A launcher resolves a bare name to `.cotal/agents/<name>.md` (via
   [`agentFilePath`/`loadAgentFile`](../packages/core/src/agent-file.ts)) — the directory convention,
   not an HTTP `/.well-known` card. Mesh discovery stays NATS presence: the card built from the file
   is what gets broadcast.
-- **One ref, like the join link.** The launcher sets `SWARL_AGENT_FILE=<abs path>` (the *who*) the
-  way `SWARL_LINK` carries the *where*; the joined session reads its card straight from the file via
-  `configFromEnv`. Individual `SWARL_*` vars still override it.
+- **One ref, like the join link.** The launcher sets `COTAL_AGENT_FILE=<abs path>` (the *who*) the
+  way `COTAL_LINK` carries the *where*; the joined session reads its card straight from the file via
+  `configFromEnv`. Individual `COTAL_*` vars still override it.
 - **Persona is a short contract, not a title.** Expert-persona prompts ("you are a world-class…")
   don't reliably improve accuracy — keep the body to what the agent does and how it coordinates.
 - **The agent is told its lanes.** The MCP server `instructions` name the channels it reads and may
@@ -76,10 +76,10 @@ differ only in how they *run* the spec:
 
 | Launcher | How to point at a file |
 |---|---|
-| Manager (supervised PTY) | `swarl start --name dave` (auto-discovers `.swarl/agents/dave.md` in the manager's workspace) or `--config <path>` — detached; view via console / `swarl attach` |
-| Foreground (`swarl spawn`) | `swarl spawn <name-or-path>` — the real Claude TUI takes over this terminal (run it inside a cmux/tmux pane to multiplex) |
+| Manager (supervised PTY) | `cotal start --name dave` (auto-discovers `.cotal/agents/dave.md` in the manager's workspace) or `--config <path>` — detached; view via console / `cotal attach` |
+| Foreground (`cotal spawn`) | `cotal spawn <name-or-path>` — the real Claude TUI takes over this terminal (run it inside a cmux/tmux pane to multiplex) |
 
-`.swarl/` is gitignored (user-local, like `.claude/`); the demo ships committed example files under
+`.cotal/` is gitignored (user-local, like `.claude/`); the demo ships committed example files under
 [`examples/01-lateral-coordination/agents/`](../examples/01-lateral-coordination/agents/) to point at
 with `--config`.
 
@@ -89,25 +89,25 @@ A single **join link** carries server + auth + space, so a peer joins by pasting
 instead of setting several env vars:
 
 ```
-swarls://<token>@host:4222/<space>?channel=general   # swarls:// = TLS, swarl:// = plaintext
+cotals://<token>@host:4222/<space>?channel=general   # cotals:// = TLS, cotal:// = plaintext
 ```
 
-- Humans: `swarl join --link swarls://…` (name defaults to the OS user).
-- Agents: `SWARL_LINK=swarls://… claude …` — the connector expands it into space / servers /
-  token and auto-joins; setting `SWARL_LINK` alone satisfies `hasIdentity()`. Individual
-  `SWARL_*` vars (and `SWARL_TOKEN` / `SWARL_TLS=1`) still override the link.
+- Humans: `cotal join --link cotals://…` (name defaults to the OS user).
+- Agents: `COTAL_LINK=cotals://… claude …` — the connector expands it into space / servers /
+  token and auto-joins; setting `COTAL_LINK` alone satisfies `hasIdentity()`. Individual
+  `COTAL_*` vars (and `COTAL_TOKEN` / `COTAL_TLS=1`) still override the link.
 
 The nats.js client does **not** read credentials from a URL, so the link is *ours*: we parse it
 ([`link.ts`](../packages/core/src/link.ts)) and pass `token` / `user`+`pass` / `tls` as explicit
-`connect()` options — the `swarl up --open` dev path, where isolation is **soft** (one shared
-token, spaces separated only by the `swarl.<space>.*` subject prefix). The **default** (`swarl up`)
-makes the account a real boundary: the connector threads a minted creds file via `SWARL_CREDS`
+`connect()` options — the `cotal up --open` dev path, where isolation is **soft** (one shared
+token, spaces separated only by the `cotal.<space>.*` subject prefix). The **default** (`cotal up`)
+makes the account a real boundary: the connector threads a minted creds file via `COTAL_CREDS`
 and the agent authenticates as its own JWT identity. See [architecture.md](architecture.md) →
 *Identity & authorization*.
 
 ## Presence mapping
 
-The connector wires a small subset of these to Swarl presence states
+The connector wires a small subset of these to Cotal presence states
 (`idle | waiting | working | offline`). Presence is coarse — only hooks that cross a
 state boundary move it; "what it's doing" rides on channel updates, not presence.
 
@@ -141,7 +141,7 @@ Two things move a message from the inbox to the model — **one delivers, one on
   The nudge never acks or removes anything — if the channel can't run, delivery still happens at the
   next turn. It takes three things together: the plugin's MCP declares the `claude/channel`
   capability, the session is launched with `--dangerously-load-development-channels
-  plugin:swarl@swarl-mesh` (research preview), **and** `SWARL_CHANNEL=1`. The last one matters:
+  plugin:cotal@cotal-mesh` (research preview), **and** `COTAL_CHANNEL=1`. The last one matters:
   Claude does not echo `claude/channel` back in its MCP client capabilities, so the connector would
   auto-detect the channel as *off* and never send the nudge — the env flag forces it on.
 

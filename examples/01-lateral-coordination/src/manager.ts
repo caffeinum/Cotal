@@ -1,7 +1,7 @@
 /**
  * Composition root for Demo 1's manager daemon. It picks which connectors this
- * demo can spawn: the built-in `swarl` CLI peer (defined + registered here) plus
- * the Claude Code connector (self-registers when `@swarl/connector-claude-code` is imported).
+ * demo can spawn: the built-in `cotal` CLI peer (defined + registered here) plus
+ * the Claude Code connector (self-registers when `@cotal/connector-claude-code` is imported).
  * The manager resolves them from the registry — it never sees this list directly.
  */
 import {
@@ -11,35 +11,35 @@ import {
   type Connector,
   type LaunchOpts,
   type LaunchSpec,
-} from "@swarl/core";
-import { Manager } from "@swarl/manager";
-import "@swarl/connector-claude-code"; // self-registers the `claude` connector
+} from "@cotal/core";
+import { Manager } from "@cotal/manager";
+import "@cotal/connector-claude-code"; // self-registers the `claude` connector
 
-/** The walking-skeleton peer: a manual CLI endpoint launched via `swarl join`. */
-const swarlConnector: Connector = {
+/** The walking-skeleton peer: a manual CLI endpoint launched via `cotal join`. */
+const cotalConnector: Connector = {
   kind: "connector",
-  name: "swarl",
+  name: "cotal",
   buildLaunch(opts: LaunchOpts): LaunchSpec {
-    const args = ["swarl", "join", "--space", opts.space, "--name", opts.name];
+    const args = ["cotal", "join", "--space", opts.space, "--name", opts.name];
     if (opts.role) args.push("--role", opts.role);
     if (opts.servers) args.push("--server", opts.servers);
     return { command: "pnpm", args };
   },
 };
-registry.register(swarlConnector);
+registry.register(cotalConnector);
 
-const space = process.env.SWARL_SPACE?.trim() || "demo";
-const server = process.env.SWARL_SERVERS?.trim() || DEFAULT_SERVER;
-const consolePort = Number(process.env.SWARL_CONSOLE_PORT) || 7878;
+const space = process.env.COTAL_SPACE?.trim() || "demo";
+const server = process.env.COTAL_SERVERS?.trim() || DEFAULT_SERVER;
+const consolePort = Number(process.env.COTAL_CONSOLE_PORT) || 7878;
 
 if (!(await isReachable(server))) {
-  console.error(`Can't reach NATS at ${server}. Run: pnpm swarl up`);
+  console.error(`Can't reach NATS at ${server}. Run: pnpm cotal up`);
   process.exit(1);
 }
 
 const mgr = new Manager({ space, servers: server, consolePort });
 await mgr.start();
-console.log(`example-01 manager up in space "${space}" — connectors: swarl, claude`);
+console.log(`example-01 manager up in space "${space}" — connectors: cotal, claude`);
 console.log(`console: ${mgr.consoleUrl}`);
 
 process.on("SIGINT", () => void mgr.stop().then(() => process.exit(0)));

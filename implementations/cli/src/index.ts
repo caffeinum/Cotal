@@ -1,4 +1,4 @@
-import { registry, type Command } from "@swarl/core";
+import { registry, type Command } from "@cotal/core";
 import { up } from "./commands/up.js";
 import { join } from "./commands/join.js";
 import { watch } from "./commands/watch.js";

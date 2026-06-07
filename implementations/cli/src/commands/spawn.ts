@@ -12,17 +12,17 @@ import {
   newIdentity,
   provisionAgent,
   registry,
-  SwarlEndpoint,
+  CotalEndpoint,
   type AgentDef,
   type Connector,
-} from "@swarl/core";
+} from "@cotal/core";
 
 /**
- * `swarl spawn <name-or-path>` — launch an agent in the FOREGROUND of this
+ * `cotal spawn <name-or-path>` — launch an agent in the FOREGROUND of this
  * terminal from a local agent file, joined to the mesh with its persona.
  *
- * Unlike `swarl start` (the manager spawns into a detached PTY you attach to),
- * `swarl spawn` hands the terminal straight to the agent: run it in your shell,
+ * Unlike `cotal start` (the manager spawns into a detached PTY you attach to),
+ * `cotal spawn` hands the terminal straight to the agent: run it in your shell,
  * or inside a cmux/tmux pane, and the real Claude TUI takes over.
  *
  * The launch recipe is the connector's `buildLaunch` (the single source of truth,
@@ -45,11 +45,11 @@ export async function spawn(argv: string[]): Promise<void> {
   });
 
   // Where the config lives: --config, else the positional <name-or-path>, else
-  // discover by --name (.swarl/agents/<name>.md). Same flags as `swarl start`.
+  // discover by --name (.cotal/agents/<name>.md). Same flags as `cotal start`.
   const ref = values.config ?? positionals[0] ?? values.name;
   if (!ref) {
     console.error(
-      "usage: swarl spawn <name-or-path> | --config <path> | --name <n>  [--agent <a>] [--role <r>] [--space <s>] [--server <url>]",
+      "usage: cotal spawn <name-or-path> | --config <path> | --name <n>  [--agent <a>] [--role <r>] [--space <s>] [--server <url>]",
     );
     process.exit(1);
   }
@@ -69,16 +69,16 @@ export async function spawn(argv: string[]): Promise<void> {
   const space = values.space ?? "demo";
   const server = values.server ?? DEFAULT_SERVER;
 
-  // Auth mode (`.swarl/auth` present): mint a stable identity + scoped creds for this agent
+  // Auth mode (`.cotal/auth` present): mint a stable identity + scoped creds for this agent
   // and pre-create its bind-only durables, via a short-lived privileged provisioner — the
   // same onboarding the manager does, so the foreground launch joins the authed mesh too.
-  // Open mode (no `.swarl/auth`): unchanged — the session connects without creds.
+  // Open mode (no `.cotal/auth`): unchanged — the session connects without creds.
   let id: string | undefined;
   let credsPath: string | undefined;
   const auth = loadSpaceAuth(authDir(process.cwd()));
   if (auth) {
     const identity = newIdentity();
-    const prov = new SwarlEndpoint({
+    const prov = new CotalEndpoint({
       space,
       servers: server,
       creds: await mintCreds(auth, newIdentity(), "manager"),

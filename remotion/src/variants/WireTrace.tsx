@@ -10,10 +10,10 @@ const TRACK_A = 32; // dot travels cols 32..69
 const TRACK_B = 69;
 
 const LANES = [
-  { subject: "swarl.demo.chat.general", mode: "multicast", color: C.cyan },
-  { subject: "swarl.demo.inst.bob", mode: "unicast", color: C.magenta },
-  { subject: "swarl.demo.svc.reviewer", mode: "anycast", color: C.yellow },
-  { subject: "swarl.demo.ctl.manager", mode: "control", color: C.green },
+  { subject: "cotal.demo.chat.general", mode: "multicast", color: C.cyan },
+  { subject: "cotal.demo.inst.bob", mode: "unicast", color: C.magenta },
+  { subject: "cotal.demo.svc.reviewer", mode: "anycast", color: C.yellow },
+  { subject: "cotal.demo.ctl.manager", mode: "control", color: C.green },
 ];
 
 function laneRow(subject: string, mode: string): string {

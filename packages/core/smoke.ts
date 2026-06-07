@@ -1,12 +1,12 @@
 /**
  * End-to-end smoke test (no test runner) — run with: pnpm smoke
- * Requires a nats-server running locally (pnpm swarl up).
+ * Requires a nats-server running locally (pnpm cotal up).
  */
 import { randomUUID } from "node:crypto";
 import { connect } from "@nats-io/transport-node";
 import { jetstreamManager } from "@nats-io/jetstream";
 import {
-  SwarlEndpoint,
+  CotalEndpoint,
   isReachable,
   chatStream,
   dmStream,
@@ -25,13 +25,13 @@ for (let i = 0; i < 50; i++) {
 
 // Unique space per run → isolated streams, no cross-run history bleed, deterministic.
 const space = `smoke-${randomUUID().slice(0, 8)}`;
-const a = new SwarlEndpoint({
+const a = new CotalEndpoint({
   space,
   card: { name: "alice", role: "planner", kind: "agent" },
   heartbeatMs: 500,
   ttlMs: 2000,
 });
-const b = new SwarlEndpoint({
+const b = new CotalEndpoint({
   space,
   card: { name: "bob", role: "builder", kind: "agent" },
   heartbeatMs: 500,
@@ -76,7 +76,7 @@ await wait(300);
 const carolId = randomUUID();
 await a.unicast(carolId, "stored while you were away");
 await wait(200);
-const carol = new SwarlEndpoint({
+const carol = new CotalEndpoint({
   space,
   card: { id: carolId, name: "carol", role: "tester", kind: "agent" },
   heartbeatMs: 500,

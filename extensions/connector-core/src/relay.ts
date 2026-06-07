@@ -1,5 +1,5 @@
 /**
- * Swarl lifecycle hook relay — stateless.
+ * Cotal lifecycle hook relay — stateless.
  *
  * The agent runtime runs a hook on a lifecycle event and pipes the event JSON (which
  * includes `hook_event_name`) on stdin. We forward it to this session's connector over

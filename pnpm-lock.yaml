@@ -8,19 +8,19 @@ importers:
 
   .:
     dependencies:
-      '@swarl/cli':
+      '@cotal/cli':
         specifier: workspace:*
         version: link:implementations/cli
-      '@swarl/connector-claude-code':
+      '@cotal/connector-claude-code':
         specifier: workspace:*
         version: link:extensions/connector-claude-code
-      '@swarl/connector-codex':
+      '@cotal/connector-codex':
         specifier: workspace:*
         version: link:extensions/connector-codex
-      '@swarl/core':
+      '@cotal/core':
         specifier: workspace:*
         version: link:packages/core
-      '@swarl/manager':
+      '@cotal/manager':
         specifier: workspace:*
         version: link:implementations/manager
     devDependencies:
@@ -36,13 +36,13 @@ importers:
 
   examples/01-lateral-coordination:
     dependencies:
-      '@swarl/connector-claude-code':
+      '@cotal/connector-claude-code':
         specifier: workspace:*
         version: link:../../extensions/connector-claude-code
-      '@swarl/core':
+      '@cotal/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@swarl/manager':
+      '@cotal/manager':
         specifier: workspace:*
         version: link:../../implementations/manager
     devDependencies:
@@ -52,10 +52,10 @@ importers:
 
   examples/02-cmux-handoff:
     dependencies:
-      '@swarl/core':
+      '@cotal/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@swarl/manager':
+      '@cotal/manager':
         specifier: workspace:*
         version: link:../../implementations/manager
     devDependencies:
@@ -65,13 +65,13 @@ importers:
 
   examples/03-openai-agents:
     dependencies:
-      '@swarl/core':
+      '@cotal/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@swarl/manager':
+      '@cotal/manager':
         specifier: workspace:*
         version: link:../../implementations/manager
-      '@swarl/openai-agents':
+      '@cotal/openai-agents':
         specifier: workspace:*
         version: link:../../extensions/openai-agents
     devDependencies:
@@ -81,13 +81,13 @@ importers:
 
   examples/03-vercel-ai:
     dependencies:
-      '@swarl/core':
+      '@cotal/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@swarl/manager':
+      '@cotal/manager':
         specifier: workspace:*
         version: link:../../implementations/manager
-      '@swarl/vercel-ai':
+      '@cotal/vercel-ai':
         specifier: workspace:*
         version: link:../../extensions/vercel-ai
     devDependencies:
@@ -103,14 +103,14 @@ importers:
 
   extensions/connector-claude-code:
     dependencies:
+      '@cotal/connector-core':
+        specifier: workspace:*
+        version: link:../connector-core
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.3)
-      '@swarl/connector-core':
-        specifier: workspace:*
-        version: link:../connector-core
     devDependencies:
-      '@swarl/core':
+      '@cotal/core':
         specifier: workspace:*
         version: link:../../packages/core
       esbuild:
@@ -122,17 +122,17 @@ importers:
 
   extensions/connector-codex:
     dependencies:
+      '@cotal/connector-core':
+        specifier: workspace:*
+        version: link:../connector-core
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.3)
-      '@swarl/connector-core':
-        specifier: workspace:*
-        version: link:../connector-core
       tsx:
         specifier: ^4.22.4
         version: 4.22.4
     devDependencies:
-      '@swarl/core':
+      '@cotal/core':
         specifier: workspace:*
         version: link:../../packages/core
 
@@ -145,18 +145,18 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
-      '@swarl/core':
+      '@cotal/core':
         specifier: workspace:*
         version: link:../../packages/core
 
   extensions/openai-agents:
     dependencies:
+      '@cotal/connector-core':
+        specifier: workspace:*
+        version: link:../connector-core
       '@openai/agents':
         specifier: ^0.11.6
         version: 0.11.6(ws@8.21.0)(zod@4.4.3)
-      '@swarl/connector-core':
-        specifier: workspace:*
-        version: link:../connector-core
       tsx:
         specifier: ^4.22.4
         version: 4.22.4
@@ -164,7 +164,7 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
-      '@swarl/core':
+      '@cotal/core':
         specifier: workspace:*
         version: link:../../packages/core
 
@@ -173,7 +173,7 @@ importers:
       '@ai-sdk/openai':
         specifier: ^3.0.68
         version: 3.0.68(zod@4.4.3)
-      '@swarl/connector-core':
+      '@cotal/connector-core':
         specifier: workspace:*
         version: link:../connector-core
       ai:
@@ -186,27 +186,27 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
-      '@swarl/core':
+      '@cotal/core':
         specifier: workspace:*
         version: link:../../packages/core
 
   implementations/cli:
     dependencies:
-      '@swarl/core':
+      '@cotal/core':
         specifier: workspace:*
         version: link:../../packages/core
 
   implementations/manager:
     dependencies:
+      '@cotal/cmux':
+        specifier: workspace:*
+        version: link:../../extensions/cmux
+      '@cotal/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@lydell/node-pty':
         specifier: 1.2.0-beta.12
         version: 1.2.0-beta.12
-      '@swarl/cmux':
-        specifier: workspace:*
-        version: link:../../extensions/cmux
-      '@swarl/core':
-        specifier: workspace:*
-        version: link:../../packages/core
       '@xterm/addon-attach':
         specifier: ^0.11.0
         version: 0.11.0(@xterm/xterm@5.5.0)

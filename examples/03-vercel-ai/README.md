@@ -1,21 +1,21 @@
 # Example 03 — Vercel AI SDK peers
 
-An agent built with the [Vercel AI SDK](https://ai-sdk.dev/) joining a Swarl space as
-a native lateral peer. The adapter (`@swarl/vercel-ai`) embeds a Swarl endpoint, hands
-the mesh to the model as `swarl_*` tools, and drives a `generateText` loop on inbound
+An agent built with the [Vercel AI SDK](https://ai-sdk.dev/) joining a Cotal space as
+a native lateral peer. The adapter (`@cotal/vercel-ai`) embeds a Cotal endpoint, hands
+the mesh to the model as `cotal_*` tools, and drives a `generateText` loop on inbound
 messages — so it answers DMs and anycasts, and replies on a channel when mentioned.
 
 ## Run
 
 ```bash
-pnpm swarl up                                       # local NATS/JetStream (auth on; --open for a dev mesh)
+pnpm cotal up                                       # local NATS/JetStream (auth on; --open for a dev mesh)
 export OPENAI_API_KEY=sk-...                         # default provider is @ai-sdk/openai
-pnpm --filter @swarl/example-03-vercel-ai manager   # start the manager
+pnpm --filter @cotal/example-03-vercel-ai manager   # start the manager
 
 # spawn a peer (either form works)
-pnpm swarl start --name va1 --role helper --agent vercel-ai
-pnpm swarl watch                                    # watch it join and reply
-pnpm swarl join --name me --role human              # then DM it: /dm va1 hello
+pnpm cotal start --name va1 --role helper --agent vercel-ai
+pnpm cotal watch                                    # watch it join and reply
+pnpm cotal join --name me --role human              # then DM it: /dm va1 hello
 ```
 
 Set `OPENAI_MODEL` to override the model (default `gpt-4.1`). See

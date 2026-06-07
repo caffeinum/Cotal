@@ -1,6 +1,6 @@
 node_modules/
 dist/
-.swarl/
+.cotal/
 *.log
 .DS_Store
 remotion/out/

@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
-  SwarlEndpoint,
+  CotalEndpoint,
   isReachable,
   DEFAULT_SERVER,
   deliveryOf,
@@ -15,8 +15,8 @@ import {
   loadSpaceAuth,
   mintCreds,
   newIdentity,
-  type SwarlMessage,
-} from "@swarl/core";
+  type CotalMessage,
+} from "@cotal/core";
 import { c } from "../ui.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -44,8 +44,8 @@ export async function web(argv: string[]): Promise<void> {
   const server = values.server ?? DEFAULT_SERVER;
   const port = values.port ? Number(values.port) : 7799;
   // The dashboard is always an admin god-view (no read-only viewer mode) so it can show DMs
-  // and anycast. Auth mode (`.swarl/auth` present): self-mint an `admin` cred so it joins the
-  // authed mesh with no manual --creds — like `swarl spawn`, it holds the space signing key.
+  // and anycast. Auth mode (`.cotal/auth` present): self-mint an `admin` cred so it joins the
+  // authed mesh with no manual --creds — like `cotal spawn`, it holds the space signing key.
   // An explicit --creds still wins. Open mode (no auth): connect bare.
   let creds = values.creds ? readFileSync(values.creds, "utf8") : undefined;
   if (!creds) {
@@ -61,12 +61,12 @@ export async function web(argv: string[]): Promise<void> {
     }
   }
   if (!(await isReachable(server, { creds }))) {
-    console.error(c.red(`Can't reach NATS at ${server}. Run: pnpm swarl up`));
+    console.error(c.red(`Can't reach NATS at ${server}. Run: pnpm cotal up`));
     process.exit(1);
   }
 
   // Observer: never registers presence, never consumes an inbox — invisible to peers.
-  const ep = new SwarlEndpoint({
+  const ep = new CotalEndpoint({
     space,
     servers: server,
     creds,
@@ -166,7 +166,7 @@ export async function web(argv: string[]): Promise<void> {
 
   await new Promise<void>((resolve) => httpServer.listen(port, "127.0.0.1", resolve));
   const url = `http://127.0.0.1:${port}/`;
-  console.log(`${c.bold("Swarl web")} — observing space ${c.bold(space)}`);
+  console.log(`${c.bold("Cotal web")} — observing space ${c.bold(space)}`);
   console.log(c.dim("  god-view — DMs + anycast visible"));
   console.log(`  ${c.cyan(url)}  ${c.dim("(Ctrl-C to stop)")}`);
   if (!values["no-open"]) openBrowser(url);

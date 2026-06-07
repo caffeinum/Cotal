@@ -1,5 +1,5 @@
 /**
- * Swarl wire types (v0).
+ * Cotal wire types (v0).
  *
  * These are the shapes that travel on the mesh. They are intentionally A2A-inspired
  * (AgentCard / Message / Part) but transport-agnostic. This file IS part of the
@@ -22,11 +22,11 @@ export interface AgentCard {
   name: string;
   /** 'agent' (participates in coordination) or a plain 'endpoint' (logger, dashboard…). */
   kind: EndpointKind;
-  /** Swarl addition: the role this participant plays (planner, reviewer, …). */
+  /** Cotal addition: the role this participant plays (planner, reviewer, …). */
   role?: string;
   /** A2A-style one-line summary of what this agent does (discovery / observability). */
   description?: string;
-  /** Swarl: free-form "what it can do" tags (A2A skill-tags, flattened) — discovery only. */
+  /** Cotal: free-form "what it can do" tags (A2A skill-tags, flattened) — discovery only. */
   tags?: string[];
   skills?: AgentSkill[];
   meta?: Record<string, unknown>;
@@ -62,7 +62,7 @@ export interface EndpointRef {
 }
 
 /** A message on the mesh (chat / direct message for now; extensible to other families). */
-export interface SwarlMessage {
+export interface CotalMessage {
   /** Unique message id. */
   id: string;
   /** Epoch ms. */
@@ -93,7 +93,7 @@ export type PresenceEvent =
   | { type: "offline"; presence: Presence };
 
 /**
- * Delivery control handed to "message" listeners alongside each {@link SwarlMessage}.
+ * Delivery control handed to "message" listeners alongside each {@link CotalMessage}.
  * The message stays on its JetStream stream until {@link Delivery.ack} is called — so
  * ack ONLY once the message has actually been surfaced (printed, injected, handled).
  * A crash before ack redelivers it.
