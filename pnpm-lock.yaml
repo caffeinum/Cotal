@@ -153,9 +153,15 @@ importers:
       '@nats-io/jetstream':
         specifier: ^3.4.0
         version: 3.4.0
+      '@nats-io/jwt':
+        specifier: 0.0.10-5
+        version: 0.0.10-5
       '@nats-io/kv':
         specifier: ^3.4.0
         version: 3.4.0
+      '@nats-io/nkeys':
+        specifier: ^2.0.3
+        version: 2.0.3
       '@nats-io/transport-node':
         specifier: ^3.4.0
         version: 3.4.0
@@ -370,11 +376,18 @@ packages:
   '@nats-io/jetstream@3.4.0':
     resolution: {integrity: sha512-GzHQodNJ942+R5LRb8PuZ5ugVWVWMRiufxUYLLVWkXKfwDXYN+Owo0d7L/b9O7BPyrbYD7jQWAC6+ZVuXa9Gyw==}
 
+  '@nats-io/jwt@0.0.10-5':
+    resolution: {integrity: sha512-DoBIEJIgWZJLtMRef+oFvk1lEgyTIVcAZbBXYGm91B7az1bCu7A3Npsn/VD7RH5waYAz+EPS8Ot7zyU6iKAuqg==}
+
   '@nats-io/kv@3.4.0':
     resolution: {integrity: sha512-168pcRJxWcIRHwdyczI3DaGk5r3CAj3CyKXuk4Nmx5KKj7N1znQOJPIxCoV0TPlAvoTidVb7eBv41J9imapMeQ==}
 
   '@nats-io/nats-core@3.4.0':
     resolution: {integrity: sha512-QMDM86EUNm+wudlKC67HLar/KHHQUvJGLfb4jbahje3pUk3K9afeck9fwsxBZF0eUFox6T/TA6m/t+lQqf+QsQ==}
+
+  '@nats-io/nkeys@1.2.0-8':
+    resolution: {integrity: sha512-o6nfNYySzVZL7mIJA+ejD3JdMFbLn9VWtptM2cnHh4jeF/FvhPhCkn8BH4jQE7asCV/SSialu6jGhsAFV1FKkQ==}
+    engines: {node: '>=16.0.0'}
 
   '@nats-io/nkeys@2.0.3':
     resolution: {integrity: sha512-JVt56GuE6Z89KUkI4TXUbSI9fmIfAmk6PMPknijmuL72GcD+UgIomTcRWiNvvJKxA01sBbmIPStqJs5cMRBC3A==}
@@ -936,6 +949,10 @@ snapshots:
     dependencies:
       '@nats-io/nats-core': 3.4.0
 
+  '@nats-io/jwt@0.0.10-5':
+    dependencies:
+      '@nats-io/nkeys': 1.2.0-8
+
   '@nats-io/kv@3.4.0':
     dependencies:
       '@nats-io/jetstream': 3.4.0
@@ -945,6 +962,10 @@ snapshots:
     dependencies:
       '@nats-io/nkeys': 2.0.3
       '@nats-io/nuid': 3.0.0
+
+  '@nats-io/nkeys@1.2.0-8':
+    dependencies:
+      tweetnacl: 1.0.3
 
   '@nats-io/nkeys@2.0.3':
     dependencies:

@@ -2,7 +2,7 @@
 name: dave
 role: builder
 description: Implements features and lands changes on the mesh.
-capabilities: [edit, test]
+tags: [edit, test]
 channels: [general]
 ---
 

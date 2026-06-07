@@ -11,7 +11,7 @@ Participants join a shared pub/sub space, keep presence, broadcast to the group 
 message one peer directly, see what others are doing, and coordinate as peers.
 
 The base unit is the **endpoint** — any software on the network. An **agent node** is
-an endpoint with identity, role, and capabilities.
+an endpoint with identity, role, and tags.
 
 Transport is **NATS + JetStream** (local demo first; the same design scales to a
 cluster later). Reference implementation is **TypeScript**.
@@ -32,7 +32,7 @@ cluster later). Reference implementation is **TypeScript**.
 | Primitive | What it is |
 |---|---|
 | **Endpoint** | Any software on the mesh: long-lived connection, own presence, subscribes to channels, buffers inbound. |
-| **Agent node** | An endpoint with identity, role, and capabilities (an A2A-style AgentCard). |
+| **Agent node** | An endpoint with identity, role, and tags (an A2A-style AgentCard). |
 | **Space** | A collaboration, isolated from other spaces. |
 | **Channel** | A named topic participants broadcast on and subscribe to. |
 | **Direct message** | A message addressed to one peer. |
@@ -58,8 +58,9 @@ Four core capabilities, plus observability, history, and isolation.
 - **Coordination** — agents announce intent and watch peers' presence/activity, then
   divide work and delegate over channels and DMs. They share one workspace with **no
   isolation** (no worktrees), staying out of each other's way by coordinating.
-- **Observability** — traces and presence are on the mesh, so a dashboard can be built
-  later; the first demo needs none (the user just watches the terminals).
+- **Observability** — traces and presence are on the mesh, so any observer can render
+  them: `swarl console` (terminal) or `swarl web` (browser dashboard — presence, channels,
+  live feed; see [web.md](web.md)).
 - **History & late join** — a late participant replays recent messages and the current
   roster, then goes live.
 - **Isolation** — spaces don't see each other; many can run on one machine.
@@ -98,6 +99,13 @@ Full scenario and run steps: **[examples/01-lateral-coordination](../examples/01
   advertisement (`description` + `skills`/`tags`), optional persona, and runtime defaults
   (channels, inbound policy). Resolved by the plugin from `SWARL_ROLE`; managed with
   `swarl role new/list/show`. **Persona-optional** (primitives, not prescribed personas).
+- **Identity & authorization (on by default; `swarl up --open` to disable)** — the mesh is a
+  real boundary against untrusted peers in a shared space: the **sender is encoded in the subject** (server-
+  policed, not self-asserted), so an agent can only emit **as itself**; per-agent JWT ACLs scope
+  publishing to its **declared channels**; and DMs are confidential on both leak paths (scoped
+  per-identity inbox + provisioner-pre-created bind-only durables). Account = space, user =
+  agent, minted by a **provisioner** (the signer capability, not manager-special). Open mode
+  stays the default. Full model + limitations in [architecture.md](architecture.md).
 
 ## Open questions
 

@@ -48,7 +48,7 @@ name: dave              # → SWARL_NAME / card.name
 role: builder           # → SWARL_ROLE / card.role (presence + anycast)
 description: …          # → card.description (A2A-style)
 tags: [edit, test]      # → card.tags ("what it can do")
-channels: [general]     # → SWARL_CHANNELS
+channels: [general, team.>]   # → SWARL_CHANNELS; channels are hierarchical (subscribe a subtree)
 model: opus             # optional → claude --model
 ---
 You are a builder on a shared mesh of peer agents…   ← the body is the persona
@@ -95,8 +95,11 @@ swarls://<token>@host:4222/<space>?channel=general   # swarls:// = TLS, swarl://
 
 The nats.js client does **not** read credentials from a URL, so the link is *ours*: we parse it
 ([`link.ts`](../packages/core/src/link.ts)) and pass `token` / `user`+`pass` / `tls` as explicit
-`connect()` options. Isolation is **soft** — one shared token, one NATS account, spaces separated
-only by the `swarl.<space>.*` subject prefix. Hard isolation (account-per-space) stays deferred.
+`connect()` options — the `swarl up --open` dev path, where isolation is **soft** (one shared
+token, spaces separated only by the `swarl.<space>.*` subject prefix). The **default** (`swarl up`)
+makes the account a real boundary: the connector threads a minted creds file via `SWARL_CREDS`
+and the agent authenticates as its own JWT identity. See [architecture.md](architecture.md) →
+*Identity & authorization*.
 
 ## Presence mapping
 

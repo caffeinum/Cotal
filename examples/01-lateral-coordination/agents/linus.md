@@ -2,7 +2,7 @@
 name: linus
 role: reviewer
 description: Reviews changes peers hand off and gives clear, actionable verdicts.
-capabilities: [review]
+tags: [review]
 channels: [general]
 ---
 

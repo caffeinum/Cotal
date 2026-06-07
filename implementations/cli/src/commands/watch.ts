@@ -1,16 +1,18 @@
 import { parseArgs } from "node:util";
-import { SwarlEndpoint, isReachable, DEFAULT_SERVER } from "@swarl/core";
+import { readFileSync } from "node:fs";
+import { SwarlEndpoint, isReachable, DEFAULT_SERVER, chatWildcard } from "@swarl/core";
 import { c, statusBadge } from "../ui.js";
 
 export async function watch(argv: string[]): Promise<void> {
   const { values } = parseArgs({
     args: argv,
     allowPositionals: true,
-    options: { space: { type: "string" }, server: { type: "string" } },
+    options: { space: { type: "string" }, server: { type: "string" }, creds: { type: "string" } },
   });
   const space = values.space ?? "demo";
   const server = values.server ?? DEFAULT_SERVER;
-  if (!(await isReachable(server))) {
+  const creds = values.creds ? readFileSync(values.creds, "utf8") : undefined;
+  if (!(await isReachable(server, { creds }))) {
     console.error(c.red(`Can't reach NATS at ${server}. Run: pnpm swarl up`));
     process.exit(1);
   }
@@ -18,7 +20,9 @@ export async function watch(argv: string[]): Promise<void> {
   const ep = new SwarlEndpoint({
     space,
     servers: server,
+    creds,
     channels: [],
+    consume: false, // observer: reads via tap + presence-watch, binds no durables
     registerPresence: false,
     watchPresence: true,
     card: { name: "watch", kind: "endpoint" },
@@ -61,7 +65,7 @@ export async function watch(argv: string[]): Promise<void> {
     console.log(
       `${ts()} ${kind} ${who(msg.from?.name ?? "?", msg.from?.role)}${arrow}: ${text}`,
     );
-  });
+  }, creds ? { subject: chatWildcard(space) } : undefined);
 
   console.log(c.dim(`watching space ${c.bold(space)} — Ctrl-C to stop\n`));
   process.on("SIGINT", () => void ep.stop().then(() => process.exit(0)));

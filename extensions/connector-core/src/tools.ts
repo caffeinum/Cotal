@@ -8,7 +8,7 @@
  */
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import type { PresenceStatus } from "@swarl/core";
+import { isConcreteChannel, type PresenceStatus } from "@swarl/core";
 import type { MeshAgent, InboxItem } from "./agent.js";
 import type { AgentConfig } from "./config.js";
 
@@ -89,7 +89,9 @@ export function registerSwarlTools(server: McpServer, agent: MeshAgent, config: 
         channel: z
           .string()
           .optional()
-          .describe(`Channel to send on (default: ${config.channels[0]}).`),
+          .describe(
+            `Channel to send on (default: ${config.channels.find(isConcreteChannel) ?? "general"}). Concrete only — not a wildcard like team.>; reply on the channel you received a message on.`,
+          ),
       },
     },
     async ({ text: msg, channel }) => {

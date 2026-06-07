@@ -1,4 +1,5 @@
 import { userInfo } from "node:os";
+import { readFileSync } from "node:fs";
 import { DEFAULT_SERVER, loadAgentFile, parseJoinLink, type AgentDef, type EndpointKind } from "@swarl/core";
 
 /**
@@ -9,10 +10,15 @@ import { DEFAULT_SERVER, loadAgentFile, parseJoinLink, type AgentDef, type Endpo
  */
 export interface AgentConfig {
   space: string;
+  /** Stable agent id (nkey public key) from the launcher; falls back to a random
+   *  uuid in the endpoint when absent (unmanaged sessions). */
+  id?: string;
+  /** Minted creds file content (auth mode); the endpoint authenticates with it. */
+  creds?: string;
   name: string;
   role?: string;
   description?: string;
-  capabilities?: string[];
+  tags?: string[];
   servers: string;
   channels: string[];
   kind: EndpointKind;
@@ -41,7 +47,7 @@ export function hasIdentity(env: NodeJS.ProcessEnv = process.env): boolean {
 /** Build an {@link AgentConfig} from `SWARL_*` environment variables. Two refs
  *  fill many fields at once: `SWARL_LINK` (swarl://token@host/space) supplies the
  *  *where* (server, auth, space); `SWARL_AGENT_FILE` (.swarl/agents/<name>.md)
- *  supplies the *who* (name, role, kind, channels, description, capabilities).
+ *  supplies the *who* (name, role, kind, channels, description, tags).
  *  Individual `SWARL_*` vars override both. Identity is NOT silently defaulted
  *  unless a link is present — guard with {@link hasIdentity} first. */
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AgentConfig {
@@ -53,12 +59,15 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AgentConfig
   if (!name)
     throw new Error("SWARL_NAME, SWARL_AGENT_FILE or SWARL_LINK is required — a Swarl session needs an explicit identity from its launcher");
   const channels = splitList(env.SWARL_CHANNELS);
+  const credsPath = env.SWARL_CREDS?.trim();
   return {
     space: env.SWARL_SPACE?.trim() || link?.space || "demo",
+    id: env.SWARL_ID?.trim() || undefined,
+    creds: credsPath ? readFileSync(credsPath, "utf8") : undefined,
     name,
     role: env.SWARL_ROLE?.trim() || def?.role || undefined,
     description: def?.description,
-    capabilities: def?.capabilities,
+    tags: def?.tags,
     servers: env.SWARL_SERVERS?.trim() || link?.servers || DEFAULT_SERVER,
     channels: channels.length ? channels : (def?.channels ?? link?.channels ?? ["general"]),
     kind: (env.SWARL_KIND?.trim() as EndpointKind) || def?.kind || "agent",

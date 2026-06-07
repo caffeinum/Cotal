@@ -2,18 +2,21 @@ import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import {
   connect,
+  credsAuthenticator,
   nanos,
+  AuthorizationError,
+  PermissionViolationError,
+  UserAuthenticationExpiredError,
   type NatsConnection,
   type Subscription,
 } from "@nats-io/transport-node";
+import { idFromCreds } from "./identity.js";
+import { createSpaceStreams, dmDurableConfig, taskDurableConfig } from "./streams.js";
 import {
   jetstream,
   jetstreamManager,
   AckPolicy,
   DeliverPolicy,
-  DiscardPolicy,
-  RetentionPolicy,
-  StorageType,
   type JetStreamClient,
   type JetStreamManager,
   type ConsumerMessages,
@@ -36,9 +39,12 @@ import {
   chatStream,
   chatDurable,
   chatSubject,
+  collapseFilterSubjects,
   controlServiceSubject,
   dmStream,
   dmDurable,
+  isConcreteChannel,
+  parseSubject,
   presenceBucket,
   spacePrefix,
   spaceWildcard,
@@ -60,6 +66,9 @@ export interface EndpointOptions {
   /** Username/password auth (both required together). */
   user?: string;
   pass?: string;
+  /** NATS user creds file *content* (JWT + nkey seed). When set, the endpoint
+   *  authenticates as that user and adopts the creds' identity as its card.id. */
+  creds?: string;
   /** Require a TLS connection to the server. */
   tls?: boolean;
   /** Channels to subscribe to; the first is the default broadcast target. */
@@ -80,7 +89,14 @@ export interface EndpointOptions {
   inactiveThresholdMs?: number;
 }
 
-/** Events: "message" (SwarlMessage), "presence" (PresenceEvent), "roster" (Presence[]), "error" (Error). */
+/**
+ * Events: "message" (SwarlMessage), "presence" (PresenceEvent), "roster" (Presence[]), "error" (Error).
+ *
+ * Callers MUST attach an "error" listener before `start()`: async faults (incl. NATS
+ * permission denials, surfaced via `watchStatus`) are emitted as "error", and Node throws
+ * synchronously on an unhandled "error" — a missing listener turns any such fault into a
+ * process crash instead of a logged denial.
+ */
 export class SwarlEndpoint extends EventEmitter {
   readonly card: AgentCard;
   readonly space: string;
@@ -90,6 +106,7 @@ export class SwarlEndpoint extends EventEmitter {
   private readonly token?: string;
   private readonly user?: string;
   private readonly pass?: string;
+  private readonly creds?: string;
   private readonly tls: boolean;
   private readonly heartbeatMs: number;
   private readonly ttlMs: number;
@@ -116,12 +133,20 @@ export class SwarlEndpoint extends EventEmitter {
   constructor(opts: EndpointOptions) {
     super();
     this.space = opts.space;
-    const id = opts.card.id ?? randomUUID();
+    // Identity precedence: an explicit card.id, else the creds' identity, else a random
+    // uuid. When both an id and creds are given they MUST name the same nkey — otherwise
+    // the subject sender token wouldn't match the authenticated user and every publish
+    // would be denied (a silent-failure class).
+    const credId = opts.creds ? idFromCreds(opts.creds) : undefined;
+    if (opts.card.id && credId && opts.card.id !== credId)
+      throw new Error(`card.id ${opts.card.id} != creds identity ${credId} — they must be the same nkey`);
+    const id = opts.card.id ?? credId ?? randomUUID();
     this.card = { ...opts.card, id };
     this.servers = opts.servers ?? DEFAULT_SERVER;
     this.token = opts.token;
     this.user = opts.user;
     this.pass = opts.pass;
+    this.creds = opts.creds;
     this.tls = opts.tls ?? false;
     this.channels = opts.channels ?? ["general"];
     this.heartbeatMs = opts.heartbeatMs ?? 2000;
@@ -141,12 +166,24 @@ export class SwarlEndpoint extends EventEmitter {
     this.nc = await connect({
       servers: this.servers,
       name: `swarl:${this.card.name}`,
-      ...authOpts({ token: this.token, user: this.user, pass: this.pass, tls: this.tls }),
+      // Per-identity inbox namespace (the "Private Inbox" pattern). nats.js routes ALL
+      // generated inboxes — request replies, JetStream pull delivery, kv.watch ordered-
+      // consumer delivery — through this prefix. Paired with sub.allow=[_INBOX_<id>.>]
+      // (auth mode) it stops a peer from subscribing the wildcard inbox to sniff others'
+      // DM deliveries. Set unconditionally so the prefix can never drift from the ACL.
+      inboxPrefix: `_INBOX_${this.card.id}`,
+      ...authOpts({ token: this.token, user: this.user, pass: this.pass, creds: this.creds, tls: this.tls }),
     });
+    this.watchStatus();
     this.js = jetstream(this.nc);
 
     if (this.doWatch || this.doRegister) {
-      this.kv = await new Kvm(this.nc).create(presenceBucket(this.space), { ttl: this.ttlMs });
+      const kvm = new Kvm(this.nc);
+      // The presence bucket is a JetStream stream. Open mode lazily creates it; auth mode
+      // OPENs it (it's pre-created at `swarl up`; KV stream-create is denied to agents).
+      this.kv = this.creds
+        ? await kvm.open(presenceBucket(this.space))
+        : await kvm.create(presenceBucket(this.space), { ttl: this.ttlMs });
     }
 
     if (this.doWatch) {
@@ -166,7 +203,9 @@ export class SwarlEndpoint extends EventEmitter {
 
     if (this.doConsume) {
       this.jsm = await jetstreamManager(this.nc);
-      await this.ensureStreams();
+      // Open mode: lazily create the streams on the first endpoint. Auth mode: they are
+      // pre-created at `swarl up` and STREAM.CREATE is denied to agents, so skip.
+      if (!this.creds) await this.ensureStreams();
       await this.startConsumers();
     }
   }
@@ -205,7 +244,12 @@ export class SwarlEndpoint extends EventEmitter {
     text: string,
     opts?: { channel?: string; parts?: Part[]; replyTo?: string; contextId?: string },
   ): Promise<SwarlMessage> {
-    const channel = opts?.channel ?? this.channels[0] ?? "general";
+    // Publish must target a concrete sub-channel — you can't broadcast to a
+    // wildcard. Default to the first concrete channel we're on (channels[0] may
+    // itself be a wildcard subscription like `team.>`).
+    const channel = opts?.channel ?? this.channels.find(isConcreteChannel) ?? "general";
+    if (!isConcreteChannel(channel))
+      throw new Error(`cannot publish to wildcard channel "${channel}" — pick a concrete sub-channel`);
     const msg: SwarlMessage = {
       id: randomUUID(),
       ts: Date.now(),
@@ -216,7 +260,7 @@ export class SwarlEndpoint extends EventEmitter {
       replyTo: opts?.replyTo,
       contextId: opts?.contextId,
     };
-    await this.publishMsg(chatSubject(this.space, channel), msg);
+    await this.publishMsg(chatSubject(this.space, this.card.id, channel), msg);
     return msg;
   }
 
@@ -236,7 +280,7 @@ export class SwarlEndpoint extends EventEmitter {
       replyTo: opts?.replyTo,
       contextId: opts?.contextId,
     };
-    await this.publishMsg(unicastSubject(this.space, instanceId), msg);
+    await this.publishMsg(unicastSubject(this.space, instanceId, this.card.id), msg);
     return msg;
   }
 
@@ -256,14 +300,19 @@ export class SwarlEndpoint extends EventEmitter {
       replyTo: opts?.replyTo,
       contextId: opts?.contextId,
     };
-    await this.publishMsg(anycastSubject(this.space, service), msg);
+    await this.publishMsg(anycastSubject(this.space, service, this.card.id), msg);
     return msg;
   }
 
-  /** Subscribe to every subject in the space (read-only observer). */
-  tap(handler: (subject: string, msg: SwarlMessage | undefined) => void): void {
+  /** Subscribe to a read-only observer feed. Defaults to the whole space; an observer under
+   *  auth must pass `chatWildcard(space)` since its `sub.allow` only covers chat (DM/anycast
+   *  stay confidential), otherwise the space-wildcard subscribe is denied and the feed dies. */
+  tap(
+    handler: (subject: string, msg: SwarlMessage | undefined) => void,
+    opts?: { subject?: string },
+  ): void {
     if (!this.nc) return;
-    const sub = this.nc.subscribe(spaceWildcard(this.space));
+    const sub = this.nc.subscribe(opts?.subject ?? spaceWildcard(this.space));
     this.subs.push(sub);
     void (async () => {
       for await (const m of sub) {
@@ -286,7 +335,7 @@ export class SwarlEndpoint extends EventEmitter {
     handler: (req: ControlRequest) => Promise<ControlReply> | ControlReply,
   ): void {
     if (!this.nc) throw new Error("endpoint not started");
-    const sub = this.nc.subscribe(controlServiceSubject(this.space, service), {
+    const sub = this.nc.subscribe(controlServiceSubject(this.space, service, "*"), {
       queue: service,
     });
     this.subs.push(sub);
@@ -294,7 +343,24 @@ export class SwarlEndpoint extends EventEmitter {
       for await (const m of sub) {
         let reply: ControlReply;
         try {
-          reply = await handler(m.json<ControlRequest>());
+          const req = m.json<ControlRequest>();
+          // Authenticity guard (fail closed): control is the most privileged surface
+          // (start/stop). The sender is encoded in the subject (ctl.<svc>.<sender>), which
+          // the server policed who could publish; the payload `from` is advisory and must
+          // match. Reject before the handler acts on a request claiming a forged sender.
+          const parsed = parseSubject(m.subject);
+          if (!parsed || req.from?.id !== parsed.sender) {
+            this.emit(
+              "error",
+              new Error(
+                `rejected control request on ${m.subject}: from ${req.from?.id ?? "(none)"} ` +
+                  `does not match subject sender ${parsed?.sender ?? "(unparseable)"}`,
+              ),
+            );
+            reply = { ok: false, error: "sender mismatch — request rejected" };
+          } else {
+            reply = await handler(req);
+          }
         } catch (e) {
           reply = { ok: false, error: (e as Error).message };
         }
@@ -315,7 +381,7 @@ export class SwarlEndpoint extends EventEmitter {
   ): Promise<ControlReply> {
     if (!this.nc) throw new Error("endpoint not started");
     const m = await this.nc.request(
-      controlServiceSubject(this.space, service),
+      controlServiceSubject(this.space, service, this.card.id),
       JSON.stringify({ ...req, from: req.from ?? this.ref() }),
       { timeout: timeoutMs },
     );
@@ -340,7 +406,107 @@ export class SwarlEndpoint extends EventEmitter {
     await this.publishPresence();
   }
 
+  // ---- channel discovery ---------------------------------------------------
+
+  /** List channels that have messages in the chat stream, with message counts.
+   *  Works even on observer endpoints (no consumers needed). */
+  async listChannels(): Promise<{ channel: string; messages: number }[]> {
+    if (!this.nc) throw new Error("endpoint not started");
+    const mgr = await jetstreamManager(this.nc);
+    let info;
+    try {
+      info = await mgr.streams.info(chatStream(this.space), { subjects_filter: ">" });
+    } catch {
+      return [];
+    }
+    // Subjects now carry the sender (chat.<sender>.<channel>), so collapse across senders:
+    // sum each channel's counts regardless of who published.
+    const counts = new Map<string, number>();
+    if (info.state.subjects) {
+      for (const [subject, count] of Object.entries(info.state.subjects)) {
+        const p = parseSubject(subject);
+        if (p?.kind === "chat") counts.set(p.rest, (counts.get(p.rest) ?? 0) + count);
+      }
+    }
+    return [...counts]
+      .map(([channel, messages]) => ({ channel, messages }))
+      .sort((a, b) => a.channel.localeCompare(b.channel));
+  }
+
+  /** Fetch recent messages from a channel's JetStream backlog. */
+  async channelHistory(
+    channel: string,
+    opts?: { limit?: number },
+  ): Promise<SwarlMessage[]> {
+    // history from any sender
+    return this.streamHistory(
+      chatStream(this.space),
+      chatSubject(this.space, "*", channel),
+      opts?.limit ?? 100,
+    );
+  }
+
+  /** Fetch recent DMs (any sender→any recipient) from the space's DM backlog. God-view only:
+   *  a normal agent/observer's ACL denies CONSUMER.CREATE on DM_<space>, so this throws-and-
+   *  skips for them — only an `admin`-profile cred can read it. */
+  async dmHistory(opts?: { limit?: number }): Promise<SwarlMessage[]> {
+    // every inst.<target>.<sender> DM
+    return this.streamHistory(
+      dmStream(this.space),
+      unicastSubject(this.space, "*", "*"),
+      opts?.limit ?? 100,
+    );
+  }
+
+  /** Drain up to `limit` recent messages matching `subject` from a stream's backlog via a
+   *  throwaway consumer. Fetches exactly the pending count (from consumer info) so it returns
+   *  the moment the backlog is delivered — a plain `fetch({max_messages: limit})` would instead
+   *  block for the pull's full expiry (~30s) whenever the backlog is smaller than `limit`. */
+  private async streamHistory(
+    stream: string,
+    subject: string,
+    limit: number,
+  ): Promise<SwarlMessage[]> {
+    if (!this.nc) throw new Error("endpoint not started");
+    const js = jetstream(this.nc);
+    const msgs: SwarlMessage[] = [];
+    try {
+      const consumer = await js.consumers.get(stream, { filter_subjects: [subject] });
+      const pending = Math.min(limit, (await consumer.info()).num_pending);
+      if (pending === 0) return msgs;
+      const iter = await consumer.fetch({ max_messages: pending });
+      for await (const m of iter) {
+        try {
+          msgs.push(m.json<SwarlMessage>());
+        } catch {
+          /* skip undecodable */
+        }
+      }
+    } catch {
+      /* stream missing or consumer create denied (non-admin) */
+    }
+    return msgs;
+  }
+
   // ---- internals -----------------------------------------------------------
+
+  /**
+   * Surface the connection's async status errors on our `error` event. NATS reports
+   * publish permission violations *only* here (subscription/request ones too), never on
+   * the failing call — so without this an over-tight ACL silently drops the agent's
+   * traffic and it just looks "absent". We annotate permission denials explicitly so a
+   * denial is never mistaken for absence (which already has a benign cause: MCP reconnect).
+   */
+  private watchStatus(): void {
+    if (!this.nc) return;
+    void (async () => {
+      for await (const s of this.nc!.status()) {
+        if (s.type === "error") this.emit("error", describeStatusError(s.error));
+      }
+    })().catch((e) => {
+      if (!this.stopped) this.emit("error", e as Error);
+    });
+  }
 
   private async publishMsg(subject: string, msg: SwarlMessage): Promise<void> {
     if (!this.js) throw new Error("endpoint not started");
@@ -348,30 +514,42 @@ export class SwarlEndpoint extends EventEmitter {
     await this.js.publish(subject, JSON.stringify(msg), { msgID: msg.id });
   }
 
-  /** Create the three backing streams for this space (idempotent). */
+  /** Create the three backing streams for this space (idempotent). Open-mode lazy create;
+   *  the same definitions are used by `swarl up` at privileged setup. */
   private async ensureStreams(): Promise<void> {
     if (!this.jsm) throw new Error("endpoint not started");
-    const p = spacePrefix(this.space);
-    await this.jsm.streams.add({
-      name: chatStream(this.space),
-      subjects: [`${p}.chat.>`],
-      retention: RetentionPolicy.Limits,
-      storage: StorageType.File,
-      max_msgs_per_subject: 1000, // capped per-channel backlog (buffer + history)
-      discard: DiscardPolicy.Old,
-    });
-    await this.jsm.streams.add({
-      name: dmStream(this.space),
-      subjects: [`${p}.inst.>`],
-      retention: RetentionPolicy.Limits,
-      storage: StorageType.File,
-    });
-    await this.jsm.streams.add({
-      name: taskStream(this.space),
-      subjects: [`${p}.svc.>`],
-      retention: RetentionPolicy.Workqueue,
-      storage: StorageType.File,
-    });
+    await createSpaceStreams(this.jsm, this.space);
+  }
+
+  /**
+   * Privileged: pre-create an agent's DM inbox durable (auth mode), so the agent can BIND
+   * it without holding CONSUMER.CREATE on DM_<space>. The creator sets the filter to
+   * inst.<targetId>.* — the agent never gets to choose it, which is what stops a peer from
+   * creating a durable filtered to someone else's inbox. Idempotent (byte-identical config),
+   * safe to call again on manager restart. The caller must be permissive on DM_<space>.
+   */
+  async provisionDmInbox(targetId: string): Promise<void> {
+    const jsm = await this.manager();
+    await jsm.consumers.add(dmStream(this.space), dmDurableConfig(this.space, targetId));
+  }
+
+  /**
+   * Privileged: pre-create a role's shared TASK work-queue durable (auth mode), so agents
+   * of that role can BIND it without holding CONSUMER.CREATE on TASK_<space>. The creator
+   * sets the filter to svc.<role>.* — agents never choose it, which stops cross-role drain.
+   * Idempotent per role. The caller must be permissive on TASK_<space>.
+   */
+  async provisionTaskQueue(role: string): Promise<void> {
+    const jsm = await this.manager();
+    await jsm.consumers.add(taskStream(this.space), taskDurableConfig(this.space, role));
+  }
+
+  /** Lazily obtain a JetStream manager — so a non-consuming endpoint (e.g. the supervisor,
+   *  consume:false) can still pre-create others' durables. */
+  private async manager(): Promise<JetStreamManager> {
+    if (!this.nc) throw new Error("endpoint not started");
+    this.jsm ??= await jetstreamManager(this.nc);
+    return this.jsm;
   }
 
   /** Bind this endpoint's durable consumers: DM inbox, chat, and (if a role) the task queue. */
@@ -381,22 +559,27 @@ export class SwarlEndpoint extends EventEmitter {
     const ack_wait = nanos(this.ackWaitMs);
     const inactive_threshold = nanos(this.inactiveThresholdMs);
 
-    // Unicast: this instance's private DM inbox.
-    await this.jsm.consumers.add(dmStream(this.space), {
-      durable_name: dmDurable(id),
-      filter_subject: unicastSubject(this.space, id),
-      ack_policy: AckPolicy.Explicit,
-      ack_wait,
-      deliver_policy: DeliverPolicy.All,
-      inactive_threshold,
-    });
+    // Unicast: this instance's private DM inbox. Open mode self-creates; auth mode BINDS a
+    // durable the provisioner pre-created (agents are denied CONSUMER.CREATE on DM_<space>,
+    // since the create-time filter_subject is the attack surface — see provisionDmInbox).
+    if (!this.creds) {
+      await this.jsm.consumers.add(
+        dmStream(this.space),
+        dmDurableConfig(this.space, id, {
+          ackWaitMs: this.ackWaitMs,
+          inactiveThresholdMs: this.inactiveThresholdMs,
+        }),
+      );
+    }
     await this.pump(dmStream(this.space), dmDurable(id));
 
     // Multicast: every message on our channels, at our own pace (replays the retained window).
     if (this.channels.length) {
       await this.jsm.consumers.add(chatStream(this.space), {
         durable_name: chatDurable(id),
-        filter_subjects: this.channels.map((ch) => chatSubject(this.space, ch)),
+        // Wildcard channels (team.>) may subsume concrete ones (team.backend);
+        // JetStream rejects overlapping filter_subjects, so collapse first.
+        filter_subjects: collapseFilterSubjects(this.channels.map((ch) => chatSubject(this.space, "*", ch))),
         ack_policy: AckPolicy.Explicit,
         ack_wait,
         deliver_policy: DeliverPolicy.All,
@@ -406,13 +589,16 @@ export class SwarlEndpoint extends EventEmitter {
     }
 
     // Anycast: a shared work-queue consumer for our role — one instance grabs each task.
+    // Open mode self-creates; auth mode BINDS the provisioner-pre-created svc_<role>
+    // durable (agents are denied CONSUMER.CREATE on TASK_<space>, since the create-time
+    // filter is the cross-role-drain attack surface — see provisionTaskQueue).
     if (this.card.role) {
-      await this.jsm.consumers.add(taskStream(this.space), {
-        durable_name: taskDurable(this.card.role),
-        filter_subject: anycastSubject(this.space, this.card.role),
-        ack_policy: AckPolicy.Explicit,
-        ack_wait,
-      });
+      if (!this.creds) {
+        await this.jsm.consumers.add(
+          taskStream(this.space),
+          taskDurableConfig(this.space, this.card.role, { ackWaitMs: this.ackWaitMs }),
+        );
+      }
       await this.pump(taskStream(this.space), taskDurable(this.card.role));
     }
   }
@@ -433,7 +619,23 @@ export class SwarlEndpoint extends EventEmitter {
           this.emit("error", e as Error);
           continue;
         }
-        if (msg.from?.id === this.card.id) {
+        // Authenticity guard (fail closed): the sender is encoded in the subject, which the
+        // server policed who could publish. The payload `from` is advisory — it must match,
+        // and a missing `from` or an unparseable subject on a delivery is itself an anomaly.
+        // Reject (term — a spoof is permanently invalid, never redeliver) BEFORE any handler.
+        const parsed = parseSubject(m.subject);
+        if (!parsed || !msg.from || msg.from.id !== parsed.sender) {
+          m.term();
+          this.emit(
+            "error",
+            new Error(
+              `dropped message on ${m.subject}: payload from ${msg.from?.id ?? "(none)"} ` +
+                `does not match subject sender ${parsed?.sender ?? "(unparseable)"}`,
+            ),
+          );
+          continue;
+        }
+        if (msg.from.id === this.card.id) {
           m.ack(); // our own echo — advance past it
           continue;
         }
@@ -544,14 +746,40 @@ interface AuthOpts {
   token?: string;
   user?: string;
   pass?: string;
+  creds?: string;
   tls?: boolean;
 }
 
 function authOpts(a: AuthOpts) {
-  return { token: a.token, user: a.user, pass: a.pass, tls: a.tls ? {} : undefined };
+  const tls = a.tls ? {} : undefined;
+  // creds (JWT/nkey) are mutually exclusive with token/user/pass — reject rather than
+  // silently pick one, so a misconfigured caller fails loud.
+  if (a.creds) {
+    if (a.token || a.user || a.pass)
+      throw new Error("creds are mutually exclusive with token/user/pass auth");
+    return { authenticator: credsAuthenticator(new TextEncoder().encode(a.creds)), tls };
+  }
+  return { token: a.token, user: a.user, pass: a.pass, tls };
 }
 
-/** Quick check whether a NATS server is accepting (authenticated) connections. */
+/** Turn a raw async-status error into one whose message says *why* — a permission
+ *  violation looks like absence unless it's named as a denial. */
+function describeStatusError(err: Error): Error {
+  if (err instanceof PermissionViolationError) {
+    return new Error(
+      `NATS permission denied: cannot ${err.operation} "${err.subject}" — check this ` +
+        `endpoint's ACLs (a denied peer looks "absent" rather than blocked)`,
+      { cause: err },
+    );
+  }
+  return err;
+}
+
+/** Whether a NATS server is *running* at `servers`. True on a successful connect AND on an
+ *  auth rejection — an auth error means a server is there, just refusing these creds (so the
+ *  caller should surface the real auth failure, not a misleading "server down", and `up`
+ *  must not try to start a duplicate on the bound port). Only a genuine connection failure
+ *  (refused / timeout / no server) returns false. */
 export async function isReachable(
   servers: string = DEFAULT_SERVER,
   opts: AuthOpts & { timeoutMs?: number } = {},
@@ -566,7 +794,7 @@ export async function isReachable(
     });
     await nc.close();
     return true;
-  } catch {
-    return false;
+  } catch (e) {
+    return e instanceof AuthorizationError || e instanceof UserAuthenticationExpiredError;
   }
 }

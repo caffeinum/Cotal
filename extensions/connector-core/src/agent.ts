@@ -68,14 +68,16 @@ export class MeshAgent extends EventEmitter {
       token: config.token,
       user: config.user,
       pass: config.pass,
+      creds: config.creds,
       tls: config.tls,
       channels: config.channels,
       card: {
+        id: config.id,
         name: config.name,
         role: config.role,
         kind: config.kind,
         description: config.description,
-        capabilities: config.capabilities,
+        tags: config.tags,
       },
     });
     this.ep.on("message", (m: SwarlMessage, d: Delivery) => this.ingest(m, d));

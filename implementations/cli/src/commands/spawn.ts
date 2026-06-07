@@ -1,10 +1,18 @@
 import { spawn as spawnProcess } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join, dirname } from "node:path";
 import { parseArgs } from "node:util";
 import {
   DEFAULT_SERVER,
   agentFilePath,
+  authDir,
   loadAgentFile,
+  loadSpaceAuth,
+  mintCreds,
+  newIdentity,
+  provisionAgent,
   registry,
+  SwarlEndpoint,
   type AgentDef,
   type Connector,
 } from "@swarl/core";
@@ -58,12 +66,50 @@ export async function spawn(argv: string[]): Promise<void> {
   // --name / --role override the file (name defaults from the file's frontmatter).
   const name = values.name ?? def.name;
   const role = values.role ?? def.role;
+  const space = values.space ?? "demo";
+  const server = values.server ?? DEFAULT_SERVER;
+
+  // Auth mode (`.swarl/auth` present): mint a stable identity + scoped creds for this agent
+  // and pre-create its bind-only durables, via a short-lived privileged provisioner — the
+  // same onboarding the manager does, so the foreground launch joins the authed mesh too.
+  // Open mode (no `.swarl/auth`): unchanged — the session connects without creds.
+  let id: string | undefined;
+  let credsPath: string | undefined;
+  const auth = loadSpaceAuth(authDir(process.cwd()));
+  if (auth) {
+    const identity = newIdentity();
+    const prov = new SwarlEndpoint({
+      space,
+      servers: server,
+      creds: await mintCreds(auth, newIdentity(), "manager"),
+      channels: [],
+      consume: false,
+      registerPresence: false,
+      watchPresence: false,
+      card: { name: "spawn-provisioner", role: "manager", kind: "endpoint" },
+    });
+    prov.on("error", (e: Error) => console.error(`! provisioner: ${e.message}`));
+    await prov.start();
+    const creds = await provisionAgent(prov, auth, identity, {
+      channels: def.publish ?? def.channels,
+      role,
+    });
+    await prov.stop();
+    credsPath = join(authDir(process.cwd()), "creds", `${name}.creds`);
+    mkdirSync(dirname(credsPath), { recursive: true });
+    writeFileSync(credsPath, creds, { mode: 0o600 });
+    id = identity.id;
+    console.error(`minted creds for ${name} (auth mode) → ${credsPath}`);
+  }
+
   const connector = registry.resolve<Connector>("connector", values.agent ?? "claude");
   const spec = connector.buildLaunch({
-    space: values.space ?? "demo",
+    space,
     name,
     role,
-    servers: values.server ?? DEFAULT_SERVER,
+    id,
+    creds: credsPath,
+    servers: server,
     configPath: path,
   });
 
