@@ -55,35 +55,32 @@ COTAL_SPACE="$SPACE" COTAL_SERVERS="$SERVER" TRANSCRIPT="$TRANSCRIPT" \
 OBS=$!
 
 # --- manager (pty runtime, from the worktree) -----------------------------
-COTAL_SPACE="$SPACE" COTAL_SERVERS="$SERVER" COTAL_RUNTIME=pty \
+# COTAL_HEADLESS=1 in the manager env → every agent it spawns (orchestrator + the
+# workers it cotal_spawns) inherits headless mode. The PTY runtime gives each a real
+# pty with an OPEN stdin (so claude doesn't EOF-exit) and auto-confirms dev-channels.
+COTAL_HEADLESS=1 COTAL_SPACE="$SPACE" COTAL_SERVERS="$SERVER" COTAL_RUNTIME=pty \
   "$TSX" "$RUNDIR/$EXREL/src/manager.ts" >"$HERE/.manager-$ITER.log" 2>&1 &
 MGR=$!
 sleep 4
 
-# --- orchestrator under a PTY (script) so claude's TUI has a terminal -----
-ORCH_LOG="$HERE/.orch-$ITER.log"
-if script -q /dev/null true 2>/dev/null; then          # GNU/Linux script: -c
-  COTAL_HEADLESS=1 COTAL_SPACE="$SPACE" COTAL_SERVERS="$SERVER" \
-    script -q -c "$RUNDIR/$EXREL/run-agent.sh orchestrator" /dev/null >"$ORCH_LOG" 2>&1 &
-else                                                    # BSD/macOS script: trailing cmd
-  COTAL_HEADLESS=1 COTAL_SPACE="$SPACE" COTAL_SERVERS="$SERVER" \
-    script -q /dev/null "$RUNDIR/$EXREL/run-agent.sh" orchestrator >"$ORCH_LOG" 2>&1 &
-fi
-ORCH=$!
-log "swarm running (space=$SPACE, timeout=${TIMEOUT}s) — orch=$ORCH mgr=$MGR obs=$OBS"
+# --- orchestrator: ask the manager to spawn it (PTY runtime), not a fragile
+#     `script` wrapper (which EOF-exits under nohup). It then cotal_spawns the workers.
+COTAL_SPACE="$SPACE" COTAL_SERVERS="$SERVER" \
+  "$TSX" "$RUNDIR/bin/cotal.ts" start --space "$SPACE" --server "$SERVER" \
+    --name orchestrator --role orchestrator >"$HERE/.orch-start-$ITER.log" 2>&1 \
+  || log "cotal start orchestrator failed (see .orch-start-$ITER.log)"
+log "swarm running (space=$SPACE, timeout=${TIMEOUT}s) — mgr=$MGR obs=$OBS"
 
 # --- wait for completion / exit / timeout ---------------------------------
 deadline=$(( $(date +%s) + TIMEOUT ))
 outcome="timeout"
 while [ "$(date +%s)" -lt "$deadline" ]; do
   if grep -q "DEMO COMPLETE" "$TRANSCRIPT" 2>/dev/null; then outcome="complete"; break; fi
-  if ! kill -0 "$ORCH" 2>/dev/null; then outcome="orchestrator-exited"; break; fi
   sleep 5
 done
 log "outcome: $outcome"
 
 # --- teardown (specific PIDs only; never broad-pkill claude) ---------------
-kill "$ORCH" 2>/dev/null || true
 kill "$MGR" 2>/dev/null || true      # manager's SIGTERM handler stops spawned agents
 sleep 2
 kill "$OBS" 2>/dev/null || true

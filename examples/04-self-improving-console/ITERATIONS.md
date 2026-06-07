@@ -16,6 +16,7 @@ examples/04-self-improving-console/harness/run-once.sh <iter>
 | Iter | Outcome | build | peer-to-peer (pairs) | failure mode | fix applied |
 |------|---------|-------|----------------------|--------------|-------------|
 | 0 | scaffold | n/a | n/a | — | Phase A built (see below) |
+| 1 | 🔴 RED | ok | none | no-traffic — orchestrator EOF-exited immediately | spawn orchestrator via manager PTY (`cotal start`) + manager headless; drop `script` |
 
 ---
 
@@ -45,3 +46,20 @@ agents wake on incoming DMs without cmux key-injection.
   with `--dangerously-skip-permissions` (and accept dev-channels) without a human? Unverified.
 - Completion detection relies on the orchestrator broadcasting `DEMO COMPLETE`.
 - Nested Claude Code sessions (a claude session spawning claude agents) — feasibility unverified.
+
+## Iteration 1 — first live run (🔴 RED)
+**Verdict:** `{green:false, buildOk:true, peerToPeer:false, messages:0, failureMode:"no-traffic"}`,
+outcome `orchestrator-exited`. Prereqs confirmed present: claude 2.1.161, nats-server 2.14.2,
+node-pty (manager imports OK). The worktree + pnpm install + tsc path works (`buildOk:true`).
+
+**Root cause:** the orchestrator was launched via `script -q /dev/null … run-agent.sh orchestrator`
+under `nohup`, so claude got a **closed stdin → read EOF → exited instantly** (the `^D` in the log).
+No agent ever joined → 0 messages.
+
+**Fix applied (for iter 2):** stop using `script`. Run the manager with `COTAL_HEADLESS=1` and ask it
+to spawn the orchestrator via the **PTY runtime** (`cotal start --name orchestrator`). node-pty gives
+a real pty with an OPEN stdin (no EOF) and auto-confirms the dev-channels prompt; every agent the
+manager spawns inherits headless mode. This makes the orchestrator and the workers boot identically.
+
+**Next risks to watch:** does the orchestrator actually act on the GOAL init under the PTY runtime and
+`cotal_spawn` the workers? Do the workers wake on its DMs? Is `DEMO COMPLETE` ever broadcast?
