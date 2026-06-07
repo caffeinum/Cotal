@@ -178,7 +178,7 @@ export class SwarlEndpoint extends EventEmitter {
     if (this.doWatch || this.doRegister) {
       const kvm = new Kvm(this.nc);
       // The presence bucket is a JetStream stream. Open mode lazily creates it; auth mode
-      // OPENs it (it's pre-created at `swarl up --auth`; KV stream-create is denied to agents).
+      // OPENs it (it's pre-created at `swarl up`; KV stream-create is denied to agents).
       this.kv = this.creds
         ? await kvm.open(presenceBucket(this.space))
         : await kvm.create(presenceBucket(this.space), { ttl: this.ttlMs });
@@ -202,7 +202,7 @@ export class SwarlEndpoint extends EventEmitter {
     if (this.doConsume) {
       this.jsm = await jetstreamManager(this.nc);
       // Open mode: lazily create the streams on the first endpoint. Auth mode: they are
-      // pre-created at `swarl up --auth` and STREAM.CREATE is denied to agents, so skip.
+      // pre-created at `swarl up` and STREAM.CREATE is denied to agents, so skip.
       if (!this.creds) await this.ensureStreams();
       await this.startConsumers();
     }
@@ -486,7 +486,7 @@ export class SwarlEndpoint extends EventEmitter {
   }
 
   /** Create the three backing streams for this space (idempotent). Open-mode lazy create;
-   *  the same definitions are used by `swarl up --auth` at privileged setup. */
+   *  the same definitions are used by `swarl up` at privileged setup. */
   private async ensureStreams(): Promise<void> {
     if (!this.jsm) throw new Error("endpoint not started");
     await createSpaceStreams(this.jsm, this.space);

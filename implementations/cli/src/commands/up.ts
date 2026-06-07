@@ -25,7 +25,6 @@ export async function up(argv: string[]): Promise<void> {
       server: { type: "string" },
       "store-dir": { type: "string" },
       space: { type: "string" },
-      auth: { type: "boolean" }, // accepted for back-compat; auth is the default
       open: { type: "boolean" }, // disable auth — run an open dev mesh
     },
   });

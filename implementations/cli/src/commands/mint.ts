@@ -33,7 +33,7 @@ export async function mint(argv: string[]): Promise<void> {
   const dir = authDir(process.cwd());
   const auth = loadSpaceAuth(dir);
   if (!auth) {
-    console.error(c.red("no space auth found here — run `swarl up --auth` first"));
+    console.error(c.red("no space auth found here — run `swarl up` first"));
     process.exit(1);
   }
   // For agents, derive the publish allow-list AND role from the agent file if one exists
