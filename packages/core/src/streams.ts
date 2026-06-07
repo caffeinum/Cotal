@@ -67,20 +67,28 @@ export async function createSpaceStreams(
  * an idempotent re-add can never error on a config delta. The `filter_subject` binds the
  * durable to inst.<id>.* — only the privileged creator sets it, which is the whole point:
  * an agent can't create a durable filtered to someone else's inbox.
+ *
+ * `inactive_threshold` is set ONLY when the caller passes one — i.e. the open-mode
+ * self-create, where the agent owns the durable and a threshold cleanly retires its inbox
+ * after it departs. The privileged auth pre-create OMITS it: the agent BINDS-only and is
+ * denied CONSUMER.CREATE, so a threshold would retire the durable before a late/relaunched
+ * agent binds it, and the bind would then fail permanently ("consumer not found"). Persisting
+ * it is the price of bind-only; explicit cleanup on agent-stop is a follow-up.
  */
 export function dmDurableConfig(
   space: string,
   id: string,
   opts: { ackWaitMs?: number; inactiveThresholdMs?: number } = {},
 ): Partial<ConsumerConfig> {
-  return {
+  const cfg: Partial<ConsumerConfig> = {
     durable_name: dmDurable(id),
     filter_subject: unicastSubject(space, id, "*"),
     ack_policy: AckPolicy.Explicit,
     ack_wait: nanos(opts.ackWaitMs ?? 60_000),
     deliver_policy: DeliverPolicy.All,
-    inactive_threshold: nanos(opts.inactiveThresholdMs ?? 600_000),
   };
+  if (opts.inactiveThresholdMs) cfg.inactive_threshold = nanos(opts.inactiveThresholdMs);
+  return cfg;
 }
 
 /**
