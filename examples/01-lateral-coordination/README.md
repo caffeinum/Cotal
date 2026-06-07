@@ -35,7 +35,7 @@ who delegates to whom — is just how you set it up.
 **1. Start the mesh** (one terminal — stays running):
 
 ```
-pnpm swarl up
+pnpm swarl up --open
 ```
 
 If a nats-server is already listening on `:4222`, Swarl detects it and reuses it.
@@ -79,7 +79,7 @@ shows one live terminal per managed agent. PTY bytes stream over a direct WebSoc
 stream `swarl attach` consumes), never the mesh. One example, all three surfaces together:
 
 ```
-pnpm swarl up                                              # 1. mesh (terminal stays running)
+pnpm swarl up --open                                       # 1. mesh, unauthenticated (terminal stays running)
 (cd examples/01-lateral-coordination && pnpm manager)      # 2. manager + console → prints http://127.0.0.1:7878/
 
 # 3. drive it from the CLI — the console updates live

@@ -25,7 +25,8 @@ export async function up(argv: string[]): Promise<void> {
       server: { type: "string" },
       "store-dir": { type: "string" },
       space: { type: "string" },
-      auth: { type: "boolean" },
+      auth: { type: "boolean" }, // accepted for back-compat; auth is the default
+      open: { type: "boolean" }, // disable auth — run an open dev mesh
     },
   });
   const server = values.server ?? DEFAULT_SERVER;
@@ -36,18 +37,18 @@ export async function up(argv: string[]): Promise<void> {
   const storeDir = resolve(values["store-dir"] ?? ".swarl/nats");
   mkdirSync(storeDir, { recursive: true });
 
-  // Auth mode (opt-in): start the server in decentralized-JWT mode so agents must present
-  // minted creds. Without --auth the server stays open — the default dev path, and the
-  // pre-cutover state for the whole identity/ACL feature.
+  // Secure by default: start the server in decentralized-JWT mode so agents must present
+  // minted creds. `--open` runs the unauthenticated dev mesh instead.
+  const useAuth = !values.open;
   const space = values.space ?? "demo";
-  const setup = values.auth ? await authSetup(storeDir, server, space) : undefined;
+  const setup = useAuth ? await authSetup(storeDir, server, space) : undefined;
   const args = setup ? ["-c", setup.confPath] : ["-js", "-sd", storeDir];
 
   console.log(
     c.dim(
-      values.auth
+      useAuth
         ? `Starting nats-server (JetStream, JWT auth) — store: ${storeDir}`
-        : `Starting nats-server (JetStream) — store: ${storeDir}`,
+        : `Starting nats-server (JetStream, OPEN/no-auth) — store: ${storeDir}`,
     ),
   );
   console.log(c.dim("Press Ctrl-C to stop.\n"));

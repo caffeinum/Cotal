@@ -27,13 +27,17 @@ Prerequisites: Node ≥ 20, pnpm, and `nats-server` (v2.11+; macOS: `brew instal
 git clone <repo> swarl && cd swarl
 pnpm install
 
-pnpm swarl up                                   # start the local mesh (keep running)
+pnpm swarl up --open                            # start the local mesh, unauthenticated (keep running)
 pnpm swarl join --space demo --name alice --role planner    # a peer, in its own terminal
 pnpm swarl join --space demo --name bob   --role builder    # another peer
 pnpm swarl watch --space demo                   # optional: tail everything on the mesh
 pnpm swarl console --space demo                 # live dashboard of agents + messages (--plain for a log)
 pnpm swarl web --space demo                      # browser observability: presence, channels, live feed ([docs](docs/web.md))
 ```
+
+`swarl up` enables **JWT auth by default** (agents need minted creds); `--open` runs the
+unauthenticated dev mesh used above. See [docs/architecture.md](docs/architecture.md) →
+*Identity & authorization*.
 
 Inside a `join` session, type a line to broadcast it; `/who`, `/dm`, `/anycast`,
 `/working`, `/waiting`, `/idle`, `/me`, `/quit` drive the rest. Full walkthrough:

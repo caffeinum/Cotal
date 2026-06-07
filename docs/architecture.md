@@ -415,20 +415,20 @@ covers three things at once: live delivery, the inbound buffer, and late-join hi
   which brings built-in **discovery** (`$SRV.PING`/`INFO`) and **stats** for free. The
   `ControlRequest`/`ControlReply` envelope is unchanged; only the transport underneath swaps.
 - **Isolation:** one NATS **account** per space (later: split `space` into `org/namespace`).
-  Open mode is one shared account; **auth mode** (below) makes the account a real boundary.
+  Auth mode (the default) makes the account a real boundary; `--open` is one shared account.
 - **Transport choice:** JetStream streams for all three delivery modes (durability + per-reader
   bookmarks + history), KV for presence, Object Store for artifacts, and the Services API for
   the control plane.
 - **Auth & onboarding:** open mode uses connection auth (token or user/password, optional TLS)
   via explicit `connect()` options — nats.js ignores credentials embedded in a URL — bundled
   into a one-string join link (`swarl(s)://token@host/space`,
-  [`link.ts`](../packages/core/src/link.ts)). **Auth mode** (`swarl up --auth`, opt-in) replaces
-  this with decentralized JWT — see *Identity & authorization* below.
+  [`link.ts`](../packages/core/src/link.ts)) — this is the `--open` dev path. The **default**
+  is decentralized JWT auth — see *Identity & authorization* below.
 
 ## Identity & authorization (auth mode)
 
-Opt-in via `swarl up --auth` (open mode stays the default). Makes the mesh a real boundary
-against untrusted peers *within* a shared space: an agent can only emit messages **as itself**,
+**On by default** (`swarl up`); `swarl up --open` runs an unauthenticated dev mesh instead.
+Makes the mesh a real boundary against untrusted peers *within* a shared space: an agent can only emit messages **as itself**,
 only to its **declared channels**, and can only read **its own DMs** — enforced by the NATS
 server, not by agent goodwill. It is containment + authenticity for a single trusted broker
 (not non-repudiation; doesn't survive an untrusted relay — that needs signed envelopes, later).
@@ -436,7 +436,7 @@ server, not by agent goodwill. It is containment + authenticity for a single tru
 - **Account = space, user = agent.** Decentralized **JWT**: an operator signs the account
   (= the space), an account **signing key** signs per-agent users. Generated programmatically
   with `@nats-io/jwt` (no `nsc` dependency). The server runs operator mode + a MEMORY resolver
-  (operator JWT + `system_account` + the demo & SYS account JWTs); `swarl up --auth` renders
+  (operator JWT + `system_account` + the demo & SYS account JWTs); `swarl up` renders
   this config and is **load-or-create** on `.swarl/auth` (so the signing key that minted creds
   is always the one the server trusts).
 - **The provisioner** ([`provision.ts`](../packages/core/src/provision.ts)) is the *signer
@@ -470,7 +470,7 @@ server, not by agent goodwill. It is containment + authenticity for a single tru
   role's queue. Fix: the privileged provisioner **pre-creates** the DM (`dm_<id>`, filter
   `inst.<id>.*`) and TASK (`svc_<role>`, filter `svc.<role>.*`) durables; agents **bind only**,
   and **all** create forms on `DM_<space>`/`TASK_<space>` are denied.
-- **Streams are infrastructure**, pre-created at `swarl up --auth` (agents are denied
+- **Streams are infrastructure**, pre-created at `swarl up` (agents are denied
   `STREAM.CREATE`); the presence KV bucket is a stream too, so it's pre-created and agents open
   (not create) it. Open mode keeps the lazy first-endpoint create.
 - **Denials are loud, never silent** — NATS publish permission violations surface only on the
@@ -498,7 +498,7 @@ server, not by agent goodwill. It is containment + authenticity for a single tru
 
 - **Sessions + moderator** — managed group membership (admit/remove), per SLIM's Group session.
 - **Verifiable identity** — NKey/JWT decentralized auth + the account-per-space boundary are
-  **built** (opt-in, *Identity & authorization* above); what remains deferred is
+  **built** (on by default, *Identity & authorization* above); what remains deferred is
   *non-repudiation* — signed message envelopes (and `instance` as a `did:key`) so authenticity
   survives an untrusted relay/federation hop, not just a single trusted broker.
 - **Instant offline (`$SYS`)** — subscribe the manager to `$SYS.ACCOUNT.<id>.DISCONNECT` for

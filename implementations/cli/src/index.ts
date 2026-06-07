@@ -16,7 +16,7 @@ const baseCommands: Command[] = [
     kind: "command",
     name: "up",
     group: "Mesh",
-    summary: "start a local nats-server (JetStream)",
+    summary: "start a local nats-server (JetStream, JWT auth by default; --open for an unauthenticated dev mesh)",
     run: up,
   },
   {
