@@ -1,14 +1,18 @@
 /**
- * harness/replay.ts <transcript> [space] [stepMs] — re-enact a recorded run on a LIVE mesh.
+ * harness/replay.ts <transcript> [space] [targetSec] — re-enact a recorded run on a LIVE mesh.
  *
  * Spins up one real endpoint per agent in the transcript (so they show in the roster), then
  * replays every presence change + message (multicast / peer DM / anycast) in order, looping.
  * Point `cotal console-ink --space <space>` at it to watch the swarm coordinate — no agents,
  * no cost, fully repeatable. The demo's "play button".
  *
+ * Pacing is length-aware: a fixed time budget (targetSec, default 120s) is spread across the
+ * messages by text length, so long posts (the reviewer's findings, the contract negotiation)
+ * linger and short acks go quick — one loop runs ~targetSec, not rushed.
+ *
  *   pnpm cotal up --open
  *   pnpm tsx examples/04-self-improving-console/harness/replay.ts \
- *     examples/04-self-improving-console/reference/run-5-green/transcript.jsonl demo-replay
+ *     examples/04-self-improving-console/reference/run-5-green/transcript.jsonl demo-replay 120
  *   pnpm cotal console-ink --space demo-replay   # in a real terminal
  */
 import { readFileSync } from "node:fs";
@@ -16,9 +20,9 @@ import { CotalEndpoint, DEFAULT_SERVER } from "@cotal/core";
 
 const transcript = process.argv[2];
 const space = process.argv[3] ?? "demo-replay";
-const stepMs = Number(process.argv[4] ?? "650");
+const targetSec = Number(process.argv[4] ?? "120"); // total seconds per replay loop
 if (!transcript) {
-  console.error("usage: replay.ts <transcript> [space] [stepMs]");
+  console.error("usage: replay.ts <transcript> [space] [targetSec]");
   process.exit(1);
 }
 const server = process.env.COTAL_SERVERS?.trim() || DEFAULT_SERVER;
@@ -62,6 +66,18 @@ const idToName: Record<string, string> = {};
 for (const r of recs) if (r.fromId && r.from) idToName[r.fromId] = r.from;
 const newIdOf = (name?: string) => (name ? eps.get(name)?.card.id : undefined);
 
+// Length-aware pacing: spread a fixed time budget across the messages by text length, so long
+// posts linger and short acks go quick. Every message gets at least MIN_MS; the rest of the
+// budget is shared in proportion to length so one loop lands around targetSec.
+const GAP_MS = 3000; // pause between loops
+const MIN_MS = 1500; // floor so even a short "standing by" is readable
+const paced = recs.filter((r) => r.type === "message" && r.text && r.from && eps.has(r.from));
+const totalLen = paced.reduce((a, r) => a + Math.max(1, (r.text ?? "").length), 0) || 1;
+const budget = Math.max(paced.length * MIN_MS, targetSec * 1000 - GAP_MS);
+const extra = budget - paced.length * MIN_MS;
+const delayOf = new Map<Rec, number>();
+for (const r of paced) delayOf.set(r, MIN_MS + (extra * Math.max(1, (r.text ?? "").length)) / totalLen);
+
 async function once() {
   for (const r of recs) {
     if (r.type === "presence" && (r.ev === "update" || r.ev === "join") && r.name && eps.has(r.name)) {
@@ -80,13 +96,15 @@ async function once() {
     } catch (e) {
       console.error(`  (skipped ${r.mode} from ${r.from}: ${(e as Error).message})`);
     }
-    await sleep(stepMs);
+    await sleep(delayOf.get(r) ?? MIN_MS);
   }
 }
 
-console.log("replay: looping the recorded session — Ctrl-C to stop. Open the console now:");
+console.log(
+  `replay: ${paced.length} messages paced over ~${Math.round((budget + GAP_MS) / 1000)}s/loop — Ctrl-C to stop. Open the console:`,
+);
 console.log(`  cotal console-ink --space ${space}`);
 for (;;) {
   await once();
-  await sleep(3000);
+  await sleep(GAP_MS);
 }
