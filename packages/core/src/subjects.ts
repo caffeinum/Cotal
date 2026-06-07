@@ -115,6 +115,12 @@ export function spaceWildcard(space: string): string {
   return `${spacePrefix(space)}.>`;
 }
 
+/** Wildcard matching every chat (multicast) subject in a space — the read surface an
+ *  observer is allowed (DM/anycast stay confidential). */
+export function chatWildcard(space: string): string {
+  return `${spacePrefix(space)}.chat.>`;
+}
+
 /** The three peer-message delivery modes (control/trace/presence are not deliveries). */
 export type DeliveryMode = "chat" | "anycast" | "unicast";
 

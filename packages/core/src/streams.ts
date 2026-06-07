@@ -1,12 +1,19 @@
 import {
   jetstreamManager,
+  AckPolicy,
+  DeliverPolicy,
   RetentionPolicy,
   DiscardPolicy,
   StorageType,
+  type ConsumerConfig,
   type JetStreamManager,
 } from "@nats-io/jetstream";
-import { connect, credsAuthenticator } from "@nats-io/transport-node";
-import { spacePrefix, chatStream, dmStream, taskStream } from "./subjects.js";
+import { connect, credsAuthenticator, nanos } from "@nats-io/transport-node";
+import { Kvm } from "@nats-io/kv";
+import { spacePrefix, chatStream, dmStream, dmDurable, unicastSubject, taskStream, presenceBucket } from "./subjects.js";
+
+/** Default presence-bucket entry TTL (ms) — matches the endpoint's default liveness window. */
+const PRESENCE_TTL_MS = 6_000;
 
 /**
  * Create (idempotently) the three backing streams for a space — CHAT (multicast backlog +
@@ -44,6 +51,28 @@ export async function createSpaceStreams(
   });
 }
 
+/**
+ * The DM inbox durable for an instance — ONE definition, used both by the privileged
+ * pre-create (manager/provisioner, auth mode) and the endpoint's open-mode self-create, so
+ * an idempotent re-add can never error on a config delta. The `filter_subject` binds the
+ * durable to inst.<id>.* — only the privileged creator sets it, which is the whole point:
+ * an agent can't create a durable filtered to someone else's inbox.
+ */
+export function dmDurableConfig(
+  space: string,
+  id: string,
+  opts: { ackWaitMs?: number; inactiveThresholdMs?: number } = {},
+): Partial<ConsumerConfig> {
+  return {
+    durable_name: dmDurable(id),
+    filter_subject: unicastSubject(space, id, "*"),
+    ack_policy: AckPolicy.Explicit,
+    ack_wait: nanos(opts.ackWaitMs ?? 60_000),
+    deliver_policy: DeliverPolicy.All,
+    inactive_threshold: nanos(opts.inactiveThresholdMs ?? 600_000),
+  };
+}
+
 /** Connect with the given (privileged) creds, create the space's streams, and disconnect.
  *  Used by `swarl up --auth` to pre-create streams once at setup. */
 export async function setupSpaceStreams(opts: {
@@ -57,6 +86,9 @@ export async function setupSpaceStreams(opts: {
   });
   try {
     await createSpaceStreams(await jetstreamManager(nc), opts.space);
+    // The presence KV bucket is a stream too — pre-create it so agents (denied KV
+    // stream-create) can open it. Idempotent.
+    await new Kvm(nc).create(presenceBucket(opts.space), { ttl: PRESENCE_TTL_MS });
   } finally {
     await nc.drain();
   }

@@ -25,10 +25,18 @@ import {
 import { createOperator, createAccount, fromPublic, fromSeed } from "@nats-io/nkeys";
 import {
   token,
+  spacePrefix,
   chatSubject,
   unicastSubject,
   anycastSubject,
   controlServiceSubject,
+  chatStream,
+  dmStream,
+  taskStream,
+  chatDurable,
+  dmDurable,
+  taskDurable,
+  presenceBucket,
 } from "./subjects.js";
 import type { Identity } from "./identity.js";
 
@@ -95,6 +103,8 @@ export interface MintOpts {
    *  resolved by the caller). Each is run through the chat-subject builder so a wildcard
    *  subtree like `team.>` becomes `chat.<id>.team.>`. Defaults to `["general"]`. */
   channels?: string[];
+  /** The agent's role — scopes its TASK-queue consumer to svc_<role>. */
+  role?: string;
   /** Control service the agent may address. Defaults to `"manager"`. */
   manager?: string;
 }
@@ -124,35 +134,94 @@ export async function mintCreds(
   return new TextDecoder().decode(creds);
 }
 
-/** Build the NATS user permission object for a profile. Returns `{}` (→ allow-all defaults)
- *  for the still-permissive profiles; an explicit scoped `pub.allow` for "agent". */
+/** Build the NATS user permission object for a profile: a default-deny allow-list scoped to
+ *  exactly what each profile does. "manager" stays permissive (the privileged provisioner
+ *  host). Subject/stream/durable names come from the shared builders so the ACLs can't drift
+ *  from the wire layout. */
 function permissionsFor(
   profile: Profile,
   space: string,
   id: string,
   opts: MintOpts,
 ): Record<string, unknown> {
-  if (profile !== "agent") return {}; // manager/observer permissive until steps 6–7
+  if (profile === "manager") return {}; // privileged: allow-all defaults
+  const CHAT = chatStream(space), DM = dmStream(space), TASK = taskStream(space);
+  const KV = `KV_${presenceBucket(space)}`;
+  const inbox = `_INBOX_${id}.>`;
+
+  if (profile === "observer") {
+    // Read-only: live chat via tap (sub chat.>), history + presence via ephemeral/ordered
+    // consumers it creates on CHAT + the presence KV. No chat/inst/svc/ctl publish → can't
+    // post. DM_<space> never named anywhere → DMs structurally invisible (and step-6 inbox
+    // scoping means it can't sniff deliveries either).
+    return {
+      sub: { allow: [`${spacePrefix(space)}.chat.>`, inbox] },
+      pub: {
+        allow: [
+          "$JS.API.INFO",
+          `$JS.API.STREAM.INFO.${CHAT}`,
+          `$JS.API.STREAM.INFO.${KV}`,
+          `$JS.API.CONSUMER.CREATE.${CHAT}.>`, // ephemeral backlog consumer (channelHistory)
+          `$JS.API.CONSUMER.INFO.${CHAT}.>`,
+          `$JS.API.CONSUMER.MSG.NEXT.${CHAT}.>`,
+          `$JS.ACK.${CHAT}.>`,
+          `$JS.API.CONSUMER.CREATE.${KV}.>`, // kv.watch ordered consumer (roster is public)
+          `$JS.API.CONSUMER.INFO.${KV}.>`,
+          "$JS.FC.>", // ordered-consumer flow control
+        ],
+      },
+    };
+  }
+
+  // ---- agent ----
   const channels = opts.channels?.length ? opts.channels : ["general"];
   const manager = opts.manager ?? "manager";
-  // Built from the real subject builders so the allow-list can never drift from what the
-  // endpoint actually publishes. Every entry is prefixed with the agent's own id, so one
-  // list enforces identity (publish only AS yourself) and channel scope at once.
+  const chatD = chatDurable(id), dmD = dmDurable(id);
+  const svcD = opts.role ? taskDurable(opts.role) : undefined;
   const pubAllow = [
-    ...channels.map((ch) => chatSubject(space, id, ch)), // chat.<id>.<channel> (channelPath keeps team.>)
+    // peer subjects — identity + channel scope (step 5), built from the real builders.
+    ...channels.map((ch) => chatSubject(space, id, ch)),
     unicastSubject(space, "*", id), //  inst.*.<id>   — DM any instance, as me
     anycastSubject(space, "*", id), //  svc.*.<id>    — anycast any role, as me
     controlServiceSubject(space, manager, id), // ctl.<mgr>.<id>
-    // Infrastructure, broad for now — step 7 scopes $JS.API + the DM-durable surface.
-    "$JS.>", // JetStream API + ACKs (consumer create/bind/fetch/ack)
-    "$KV.>", // presence KV puts
+    // JetStream control plane — scoped to this agent's own streams/durables.
+    "$JS.API.INFO",
+    `$JS.API.STREAM.INFO.${CHAT}`, `$JS.API.STREAM.INFO.${DM}`, `$JS.API.STREAM.INFO.${TASK}`, `$JS.API.STREAM.INFO.${KV}`,
+    // CHAT consumer: self-create (chat is world-readable, so name-scope is enough).
+    `$JS.API.CONSUMER.DURABLE.CREATE.${CHAT}.${chatD}`,
+    `$JS.API.CONSUMER.INFO.${CHAT}.${chatD}`,
+    `$JS.API.CONSUMER.MSG.NEXT.${CHAT}.${chatD}`,
+    `$JS.ACK.${CHAT}.${chatD}.>`,
+    // DM consumer: BIND ONLY — info/fetch/ack its own pre-created durable, never create.
+    `$JS.API.CONSUMER.INFO.${DM}.${dmD}`,
+    `$JS.API.CONSUMER.MSG.NEXT.${DM}.${dmD}`,
+    `$JS.ACK.${DM}.${dmD}.>`,
+    // Presence: watch (read, public roster) + flow control + PUT OWN KEY ONLY.
+    `$JS.API.CONSUMER.CREATE.${KV}.>`,
+    `$JS.API.CONSUMER.INFO.${KV}.>`,
+    "$JS.FC.>",
+    `$KV.${presenceBucket(space)}.${id}`, // own presence key only — can't spoof peers
   ];
-  // sub.allow is scoped to this agent's OWN inbox namespace only (matches the endpoint's
-  // inboxPrefix). All delivery — chat/dm/task pull, kv.watch, request replies — rides the
-  // inbox, so this is sufficient AND it denies subscribing a peer's inbox to sniff their
-  // DM deliveries (the wildcard-_INBOX hole). The two MUST stay in lockstep with the
-  // endpoint inboxPrefix; both derive from the same id, so they can't drift.
-  return { pub: { allow: pubAllow }, sub: { allow: [`_INBOX_${id}.>`] } };
+  if (svcD) {
+    // TASK consumer: NAME-scoped to the agent's own role (svc_<role>). NOTE: name-scoped only,
+    // not filter-scoped — see the tracked cross-role-task-drain limitation.
+    pubAllow.push(
+      `$JS.API.CONSUMER.CREATE.${TASK}.${svcD}.>`,
+      `$JS.API.CONSUMER.DURABLE.CREATE.${TASK}.${svcD}`,
+      `$JS.API.CONSUMER.INFO.${TASK}.${svcD}`,
+      `$JS.API.CONSUMER.MSG.NEXT.${TASK}.${svcD}`,
+      `$JS.ACK.${TASK}.${svcD}.>`,
+    );
+  }
+  // Explicit DM-create deny (defense-in-depth over default-deny): covers the bare ephemeral
+  // form (no trailing token), the named/new-API form, and the old durable form — the create
+  // filter_subject is the DM attack surface, so no create path is permitted on DM_<space>.
+  const pubDeny = [
+    `$JS.API.CONSUMER.CREATE.${DM}`,
+    `$JS.API.CONSUMER.CREATE.${DM}.>`,
+    `$JS.API.CONSUMER.DURABLE.CREATE.${DM}.>`,
+  ];
+  return { pub: { allow: pubAllow, deny: pubDeny }, sub: { allow: [inbox] } };
 }
 
 /** Render the `nats-server` config that trusts this space's operator and serves its

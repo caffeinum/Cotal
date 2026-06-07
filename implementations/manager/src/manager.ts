@@ -172,8 +172,13 @@ export class Manager {
       // The publish allow-list is the file's `publish:`, falling back to `channels:`.
       let credsPath: string | undefined;
       if (this.auth) {
+        // Pre-create the agent's DM inbox durable (filter inst.<id>.*) BEFORE launch — the
+        // agent is denied CONSUMER.CREATE on DM_<space> and only binds it. The manager (the
+        // privileged provisioner host) sets the filter; the agent never chooses it.
+        await this.ep.provisionDmInbox(identity.id);
         const creds = await mintCreds(this.auth, identity, "agent", {
           channels: def?.publish ?? def?.channels,
+          role,
         });
         credsPath = join(authDir(this.workspaceRoot), "creds", `${name}.creds`);
         mkdirSync(dirname(credsPath), { recursive: true });

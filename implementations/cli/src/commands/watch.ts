@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util";
 import { readFileSync } from "node:fs";
-import { SwarlEndpoint, isReachable, DEFAULT_SERVER } from "@swarl/core";
+import { SwarlEndpoint, isReachable, DEFAULT_SERVER, chatWildcard } from "@swarl/core";
 import { c, statusBadge } from "../ui.js";
 
 export async function watch(argv: string[]): Promise<void> {
@@ -22,6 +22,7 @@ export async function watch(argv: string[]): Promise<void> {
     servers: server,
     creds,
     channels: [],
+    consume: false, // observer: reads via tap + presence-watch, binds no durables
     registerPresence: false,
     watchPresence: true,
     card: { name: "watch", kind: "endpoint" },
@@ -64,7 +65,7 @@ export async function watch(argv: string[]): Promise<void> {
     console.log(
       `${ts()} ${kind} ${who(msg.from?.name ?? "?", msg.from?.role)}${arrow}: ${text}`,
     );
-  });
+  }, creds ? { subject: chatWildcard(space) } : undefined);
 
   console.log(c.dim(`watching space ${c.bold(space)} — Ctrl-C to stop\n`));
   process.on("SIGINT", () => void ep.stop().then(() => process.exit(0)));

@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util";
 import { readFileSync } from "node:fs";
-import { SwarlEndpoint, isReachable, DEFAULT_SERVER } from "@swarl/core";
+import { SwarlEndpoint, isReachable, DEFAULT_SERVER, chatWildcard } from "@swarl/core";
 import { c } from "../ui.js";
 import { runLog, runDashboard } from "../render.js";
 
@@ -29,13 +29,17 @@ export async function console_(argv: string[]): Promise<void> {
     servers: server,
     creds,
     channels: [],
+    consume: false, // observer: reads via dashboard render + presence-watch, binds no durables
     registerPresence: false,
     watchPresence: true,
     card: { name: "console", kind: "endpoint" },
   });
   ep.on("error", (e: Error) => console.error(c.red("! " + e.message)));
 
+  // Under auth the observer may only sub chat.> (DM/anycast stay confidential), so narrow
+  // the tap; open mode taps the whole space.
+  const tapSubject = creds ? chatWildcard(space) : undefined;
   // Dashboard needs a real terminal; piped/--plain falls back to the classic log.
-  if (values.plain || process.stdout.isTTY !== true) await runLog(ep, space);
-  else await runDashboard(ep, space);
+  if (values.plain || process.stdout.isTTY !== true) await runLog(ep, space, tapSubject);
+  else await runDashboard(ep, space, tapSubject);
 }

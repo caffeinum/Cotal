@@ -10,6 +10,7 @@ import {
   DEFAULT_SERVER,
   deliveryOf,
   parseSubject,
+  chatWildcard,
   type SwarlMessage,
 } from "@swarl/core";
 import { c } from "../ui.js";
@@ -50,6 +51,7 @@ export async function web(argv: string[]): Promise<void> {
     servers: server,
     creds,
     channels: [],
+    consume: false, // observer: reads via tap + history + presence-watch, binds no durables
     registerPresence: false,
     watchPresence: true,
     card: { name: "web", kind: "endpoint" },
@@ -74,7 +76,7 @@ export async function web(argv: string[]): Promise<void> {
     // policed who could publish it), vs the advisory `from` in the payload.
     const senderId = parseSubject(subject)?.sender;
     broadcast("message", { mode, senderId, msg });
-  });
+  }, creds ? { subject: chatWildcard(space) } : undefined);
 
   const httpServer = createServer(async (req, res) => {
     const path = (req.url ?? "/").split("?")[0];

@@ -9,7 +9,7 @@ import {
   type Subscription,
 } from "@nats-io/transport-node";
 import { idFromCreds } from "./identity.js";
-import { createSpaceStreams } from "./streams.js";
+import { createSpaceStreams, dmDurableConfig } from "./streams.js";
 import {
   jetstream,
   jetstreamManager,
@@ -176,7 +176,12 @@ export class SwarlEndpoint extends EventEmitter {
     this.js = jetstream(this.nc);
 
     if (this.doWatch || this.doRegister) {
-      this.kv = await new Kvm(this.nc).create(presenceBucket(this.space), { ttl: this.ttlMs });
+      const kvm = new Kvm(this.nc);
+      // The presence bucket is a JetStream stream. Open mode lazily creates it; auth mode
+      // OPENs it (it's pre-created at `swarl up --auth`; KV stream-create is denied to agents).
+      this.kv = this.creds
+        ? await kvm.open(presenceBucket(this.space))
+        : await kvm.create(presenceBucket(this.space), { ttl: this.ttlMs });
     }
 
     if (this.doWatch) {
@@ -297,10 +302,15 @@ export class SwarlEndpoint extends EventEmitter {
     return msg;
   }
 
-  /** Subscribe to every subject in the space (read-only observer). */
-  tap(handler: (subject: string, msg: SwarlMessage | undefined) => void): void {
+  /** Subscribe to a read-only observer feed. Defaults to the whole space; an observer under
+   *  auth must pass `chatWildcard(space)` since its `sub.allow` only covers chat (DM/anycast
+   *  stay confidential), otherwise the space-wildcard subscribe is denied and the feed dies. */
+  tap(
+    handler: (subject: string, msg: SwarlMessage | undefined) => void,
+    opts?: { subject?: string },
+  ): void {
     if (!this.nc) return;
-    const sub = this.nc.subscribe(spaceWildcard(this.space));
+    const sub = this.nc.subscribe(opts?.subject ?? spaceWildcard(this.space));
     this.subs.push(sub);
     void (async () => {
       for await (const m of sub) {
@@ -465,6 +475,18 @@ export class SwarlEndpoint extends EventEmitter {
     await createSpaceStreams(this.jsm, this.space);
   }
 
+  /**
+   * Privileged: pre-create an agent's DM inbox durable (auth mode), so the agent can BIND
+   * it without holding CONSUMER.CREATE on DM_<space>. The creator sets the filter to
+   * inst.<targetId>.* — the agent never gets to choose it, which is what stops a peer from
+   * creating a durable filtered to someone else's inbox. Idempotent (byte-identical config),
+   * safe to call again on manager restart. The caller must be permissive on DM_<space>.
+   */
+  async provisionDmInbox(targetId: string): Promise<void> {
+    if (!this.jsm) throw new Error("endpoint not started");
+    await this.jsm.consumers.add(dmStream(this.space), dmDurableConfig(this.space, targetId));
+  }
+
   /** Bind this endpoint's durable consumers: DM inbox, chat, and (if a role) the task queue. */
   private async startConsumers(): Promise<void> {
     if (!this.jsm) throw new Error("endpoint not started");
@@ -472,15 +494,18 @@ export class SwarlEndpoint extends EventEmitter {
     const ack_wait = nanos(this.ackWaitMs);
     const inactive_threshold = nanos(this.inactiveThresholdMs);
 
-    // Unicast: this instance's private DM inbox.
-    await this.jsm.consumers.add(dmStream(this.space), {
-      durable_name: dmDurable(id),
-      filter_subject: unicastSubject(this.space, id, "*"), // DMs to me, from any sender
-      ack_policy: AckPolicy.Explicit,
-      ack_wait,
-      deliver_policy: DeliverPolicy.All,
-      inactive_threshold,
-    });
+    // Unicast: this instance's private DM inbox. Open mode self-creates; auth mode BINDS a
+    // durable the provisioner pre-created (agents are denied CONSUMER.CREATE on DM_<space>,
+    // since the create-time filter_subject is the attack surface — see provisionDmInbox).
+    if (!this.creds) {
+      await this.jsm.consumers.add(
+        dmStream(this.space),
+        dmDurableConfig(this.space, id, {
+          ackWaitMs: this.ackWaitMs,
+          inactiveThresholdMs: this.inactiveThresholdMs,
+        }),
+      );
+    }
     await this.pump(dmStream(this.space), dmDurable(id));
 
     // Multicast: every message on our channels, at our own pace (replays the retained window).
