@@ -105,6 +105,11 @@ export class Manager {
       servers: this.servers,
       channels: [],
       creds,
+      // The supervisor serves control + watches presence; it never consumes chat/dm/task
+      // (no message handler). consume:false avoids binding consumers it doesn't use — and
+      // under auth avoids trying to bind its own DM/task durables that nothing pre-created.
+      // It still pre-creates OTHERS' durables via provisionDmInbox/provisionTaskQueue (lazy jsm).
+      consume: false,
       card: { id, name: this.name, role: "manager", kind: "endpoint" },
     });
     // Surface endpoint errors (incl. NATS permission denials) — without a listener an
@@ -172,10 +177,12 @@ export class Manager {
       // The publish allow-list is the file's `publish:`, falling back to `channels:`.
       let credsPath: string | undefined;
       if (this.auth) {
-        // Pre-create the agent's DM inbox durable (filter inst.<id>.*) BEFORE launch — the
-        // agent is denied CONSUMER.CREATE on DM_<space> and only binds it. The manager (the
-        // privileged provisioner host) sets the filter; the agent never chooses it.
+        // Pre-create the agent's DM inbox durable (filter inst.<id>.*) and, if it has a role,
+        // its shared TASK queue durable (filter svc.<role>.*) BEFORE launch — the agent is
+        // denied CONSUMER.CREATE on DM_<space>/TASK_<space> and only binds them. The manager
+        // (privileged provisioner host) sets the filters; the agent never chooses them.
         await this.ep.provisionDmInbox(identity.id);
+        if (role) await this.ep.provisionTaskQueue(role);
         const creds = await mintCreds(this.auth, identity, "agent", {
           channels: def?.publish ?? def?.channels,
           role,

@@ -10,7 +10,17 @@ import {
 } from "@nats-io/jetstream";
 import { connect, credsAuthenticator, nanos } from "@nats-io/transport-node";
 import { Kvm } from "@nats-io/kv";
-import { spacePrefix, chatStream, dmStream, dmDurable, unicastSubject, taskStream, presenceBucket } from "./subjects.js";
+import {
+  spacePrefix,
+  chatStream,
+  dmStream,
+  dmDurable,
+  unicastSubject,
+  taskStream,
+  taskDurable,
+  anycastSubject,
+  presenceBucket,
+} from "./subjects.js";
 
 /** Default presence-bucket entry TTL (ms) — matches the endpoint's default liveness window. */
 const PRESENCE_TTL_MS = 6_000;
@@ -70,6 +80,26 @@ export function dmDurableConfig(
     ack_wait: nanos(opts.ackWaitMs ?? 60_000),
     deliver_policy: DeliverPolicy.All,
     inactive_threshold: nanos(opts.inactiveThresholdMs ?? 600_000),
+  };
+}
+
+/**
+ * The TASK work-queue durable for a role — ONE definition, shared by the privileged
+ * pre-create (auth mode) and the endpoint's open-mode self-create. The durable is shared
+ * across all instances of a role (queue group); the privileged creator sets the
+ * filter_subject to svc.<role>.* so an agent can't bind a consumer filtered to another
+ * role's queue (the same create-time-filter attack surface as DM). Idempotent per role.
+ */
+export function taskDurableConfig(
+  space: string,
+  role: string,
+  opts: { ackWaitMs?: number } = {},
+): Partial<ConsumerConfig> {
+  return {
+    durable_name: taskDurable(role),
+    filter_subject: anycastSubject(space, role, "*"),
+    ack_policy: AckPolicy.Explicit,
+    ack_wait: nanos(opts.ackWaitMs ?? 60_000),
   };
 }
 

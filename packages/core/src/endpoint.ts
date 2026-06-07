@@ -9,7 +9,7 @@ import {
   type Subscription,
 } from "@nats-io/transport-node";
 import { idFromCreds } from "./identity.js";
-import { createSpaceStreams, dmDurableConfig } from "./streams.js";
+import { createSpaceStreams, dmDurableConfig, taskDurableConfig } from "./streams.js";
 import {
   jetstream,
   jetstreamManager,
@@ -500,8 +500,27 @@ export class SwarlEndpoint extends EventEmitter {
    * safe to call again on manager restart. The caller must be permissive on DM_<space>.
    */
   async provisionDmInbox(targetId: string): Promise<void> {
-    if (!this.jsm) throw new Error("endpoint not started");
-    await this.jsm.consumers.add(dmStream(this.space), dmDurableConfig(this.space, targetId));
+    const jsm = await this.manager();
+    await jsm.consumers.add(dmStream(this.space), dmDurableConfig(this.space, targetId));
+  }
+
+  /**
+   * Privileged: pre-create a role's shared TASK work-queue durable (auth mode), so agents
+   * of that role can BIND it without holding CONSUMER.CREATE on TASK_<space>. The creator
+   * sets the filter to svc.<role>.* — agents never choose it, which stops cross-role drain.
+   * Idempotent per role. The caller must be permissive on TASK_<space>.
+   */
+  async provisionTaskQueue(role: string): Promise<void> {
+    const jsm = await this.manager();
+    await jsm.consumers.add(taskStream(this.space), taskDurableConfig(this.space, role));
+  }
+
+  /** Lazily obtain a JetStream manager — so a non-consuming endpoint (e.g. the supervisor,
+   *  consume:false) can still pre-create others' durables. */
+  private async manager(): Promise<JetStreamManager> {
+    if (!this.nc) throw new Error("endpoint not started");
+    this.jsm ??= await jetstreamManager(this.nc);
+    return this.jsm;
   }
 
   /** Bind this endpoint's durable consumers: DM inbox, chat, and (if a role) the task queue. */
@@ -541,13 +560,16 @@ export class SwarlEndpoint extends EventEmitter {
     }
 
     // Anycast: a shared work-queue consumer for our role — one instance grabs each task.
+    // Open mode self-creates; auth mode BINDS the provisioner-pre-created svc_<role>
+    // durable (agents are denied CONSUMER.CREATE on TASK_<space>, since the create-time
+    // filter is the cross-role-drain attack surface — see provisionTaskQueue).
     if (this.card.role) {
-      await this.jsm.consumers.add(taskStream(this.space), {
-        durable_name: taskDurable(this.card.role),
-        filter_subject: anycastSubject(this.space, this.card.role, "*"), // tasks for my role, any sender
-        ack_policy: AckPolicy.Explicit,
-        ack_wait,
-      });
+      if (!this.creds) {
+        await this.jsm.consumers.add(
+          taskStream(this.space),
+          taskDurableConfig(this.space, this.card.role, { ackWaitMs: this.ackWaitMs }),
+        );
+      }
       await this.pump(taskStream(this.space), taskDurable(this.card.role));
     }
   }

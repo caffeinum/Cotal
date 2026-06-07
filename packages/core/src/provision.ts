@@ -203,23 +203,26 @@ function permissionsFor(
     `$KV.${presenceBucket(space)}.${id}`, // own presence key only — can't spoof peers
   ];
   if (svcD) {
-    // TASK consumer: NAME-scoped to the agent's own role (svc_<role>). NOTE: name-scoped only,
-    // not filter-scoped — see the tracked cross-role-task-drain limitation.
+    // TASK consumer: BIND ONLY its own role's pre-created durable (svc_<role>). Like DM, the
+    // create-time filter_subject isn't reliably ACL-constrainable, so no create path is
+    // allowed — the privileged provisioner pre-creates svc_<role> filtered to svc.<role>.*.
     pubAllow.push(
-      `$JS.API.CONSUMER.CREATE.${TASK}.${svcD}.>`,
-      `$JS.API.CONSUMER.DURABLE.CREATE.${TASK}.${svcD}`,
       `$JS.API.CONSUMER.INFO.${TASK}.${svcD}`,
       `$JS.API.CONSUMER.MSG.NEXT.${TASK}.${svcD}`,
       `$JS.ACK.${TASK}.${svcD}.>`,
     );
   }
-  // Explicit DM-create deny (defense-in-depth over default-deny): covers the bare ephemeral
-  // form (no trailing token), the named/new-API form, and the old durable form — the create
-  // filter_subject is the DM attack surface, so no create path is permitted on DM_<space>.
+  // Explicit create-deny (defense-in-depth over default-deny) on the two streams whose
+  // create-time filter_subject is the attack surface — DM (private content) and TASK
+  // (cross-role work-stealing). Covers the bare ephemeral form (no trailing token), the
+  // named/new-API form, and the old durable form. No create path on either stream.
   const pubDeny = [
     `$JS.API.CONSUMER.CREATE.${DM}`,
     `$JS.API.CONSUMER.CREATE.${DM}.>`,
     `$JS.API.CONSUMER.DURABLE.CREATE.${DM}.>`,
+    `$JS.API.CONSUMER.CREATE.${TASK}`,
+    `$JS.API.CONSUMER.CREATE.${TASK}.>`,
+    `$JS.API.CONSUMER.DURABLE.CREATE.${TASK}.>`,
   ];
   return { pub: { allow: pubAllow, deny: pubDeny }, sub: { allow: [inbox] } };
 }
