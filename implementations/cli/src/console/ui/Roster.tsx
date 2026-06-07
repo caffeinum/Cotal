@@ -3,7 +3,7 @@ import { Box, Text, useFocus, useInput } from "ink";
 import type { Presence } from "@cotal/core";
 import { agentColor, STATUS, ago } from "./theme.js";
 
-function RosterRow({ p, selected }: { p: Presence; selected: boolean }) {
+function RosterRow({ p, selected, wide }: { p: Presence; selected: boolean; wide: boolean }) {
   const isAgent = p.card.kind === "agent";
   const s = STATUS[p.status];
   return (
@@ -12,6 +12,13 @@ function RosterRow({ p, selected }: { p: Presence; selected: boolean }) {
       <Text color={isAgent ? agentColor(p.card.name) : undefined} dimColor={!isAgent}>
         {p.card.name}
       </Text>
+      {wide ? (
+        isAgent ? (
+          <Text color={s.color}>{"  " + s.word}</Text>
+        ) : (
+          <Text dimColor>{"  endpoint"}</Text>
+        )
+      ) : null}
       {p.activity ? <Text dimColor>{"  " + p.activity}</Text> : null}
       <Text dimColor>{"  " + ago(p.ts)}</Text>
     </Text>
@@ -24,6 +31,7 @@ export function Roster({
   endpoints,
   boxWidth,
   boxHeight,
+  wide,
   helpOpen,
   onFocus,
 }: {
@@ -31,6 +39,7 @@ export function Roster({
   endpoints: Presence[];
   boxWidth: number;
   boxHeight: number;
+  wide: boolean;
   helpOpen: boolean;
   onFocus: (id: "roster" | "feed") => void;
 }) {
@@ -78,7 +87,12 @@ export function Roster({
         <Text dimColor>(nobody present)</Text>
       ) : (
         visible.map((p, i) => (
-          <RosterRow key={p.card.id} p={p} selected={isFocused && start + i === selClamped} />
+          <RosterRow
+            key={p.card.id}
+            p={p}
+            selected={isFocused && start + i === selClamped}
+            wide={wide}
+          />
         ))
       )}
     </Box>

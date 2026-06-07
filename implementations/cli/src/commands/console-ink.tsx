@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeSync } from "node:fs";
 import { render } from "ink";
 import { CotalEndpoint, isReachable, DEFAULT_SERVER, chatWildcard } from "@cotal/core";
 import { c } from "../ui.js";
@@ -53,10 +53,39 @@ export async function consoleInk(argv: string[]): Promise<void> {
     return;
   }
 
+  // Full-screen takeover + mouse-wheel scroll, the way `render.ts` does it: the alternate screen
+  // gives a clean app-like canvas (and restores the user's scrollback on exit), and xterm
+  // alt-scroll (?1007h) makes the wheel/trackpad emit ↑/↓ — which Ink delivers to useInput, so the
+  // feed's existing arrow-key scroll just works. No SGR mouse parsing, no new deps.
+  let restored = false;
+  // Synchronous writes (fs.writeSync) so the sequences flush before the process exits — a plain
+  // process.stdout.write over a TTY is async and gets truncated by process.exit() on a signal.
+  const restore = () => {
+    if (restored) return;
+    restored = true;
+    try {
+      writeSync(process.stdout.fd, "\x1b[?1007l\x1b[?1049l\x1b[?25h"); // alt-scroll off, leave alt-screen, show cursor
+    } catch {
+      /* stdout already gone */
+    }
+  };
+  writeSync(process.stdout.fd, "\x1b[?1049h\x1b[?1007h"); // enter alt-screen + alt-scroll before Ink's first frame
+  process.once("exit", restore); // synchronous safety net for any exit path
+  // External kill: restore the terminal, then actually exit (a bare handler would just hang).
+  process.once("SIGINT", () => {
+    restore();
+    process.exit(0);
+  });
+  process.once("SIGTERM", () => {
+    restore();
+    process.exit(0);
+  });
+
   const { waitUntilExit } = render(<App ep={ep} tapSubject={tapSubject} />, {
     exitOnCtrlC: true,
     maxFps: 30,
     incrementalRendering: true,
   });
   await waitUntilExit();
+  restore();
 }

@@ -93,6 +93,7 @@ export function App({ ep, tapSubject }: { ep: CotalEndpoint; tapSubject?: string
           endpoints={mesh.endpoints}
           boxWidth={roster.w}
           boxHeight={roster.h}
+          wide={!narrow}
           helpOpen={helpOpen}
           onFocus={onFocus}
         />
