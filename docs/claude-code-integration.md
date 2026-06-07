@@ -91,8 +91,11 @@ swarls://<token>@host:4222/<space>?channel=general   # swarls:// = TLS, swarl://
 
 The nats.js client does **not** read credentials from a URL, so the link is *ours*: we parse it
 ([`link.ts`](../packages/core/src/link.ts)) and pass `token` / `user`+`pass` / `tls` as explicit
-`connect()` options. Isolation is **soft** — one shared token, one NATS account, spaces separated
-only by the `swarl.<space>.*` subject prefix. Hard isolation (account-per-space) stays deferred.
+`connect()` options. In open mode isolation is **soft** — one shared token, spaces separated only
+by the `swarl.<space>.*` subject prefix. **Auth mode** (`swarl up --auth`, opt-in) makes the
+account a real boundary: the connector threads a minted creds file via `SWARL_CREDS` and the
+agent authenticates as its own JWT identity. See [architecture.md](architecture.md) →
+*Identity & authorization*.
 
 ## Presence mapping
 

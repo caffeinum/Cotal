@@ -99,6 +99,13 @@ Full scenario and run steps: **[examples/01-lateral-coordination](../examples/01
   advertisement (`description` + `skills`/`tags`), optional persona, and runtime defaults
   (channels, inbound policy). Resolved by the plugin from `SWARL_ROLE`; managed with
   `swarl role new/list/show`. **Persona-optional** (primitives, not prescribed personas).
+- **Identity & authorization (opt-in, `swarl up --auth`)** — the mesh can be a real boundary
+  against untrusted peers in a shared space: the **sender is encoded in the subject** (server-
+  policed, not self-asserted), so an agent can only emit **as itself**; per-agent JWT ACLs scope
+  publishing to its **declared channels**; and DMs are confidential on both leak paths (scoped
+  per-identity inbox + provisioner-pre-created bind-only durables). Account = space, user =
+  agent, minted by a **provisioner** (the signer capability, not manager-special). Open mode
+  stays the default. Full model + limitations in [architecture.md](architecture.md).
 
 ## Open questions
 

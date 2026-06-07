@@ -358,29 +358,36 @@ DM, a task, or a channel post sent while an agent is mid-turn is silently lost. 
 its own pace* when it frees up — nothing missed, no interruption required. One mechanism then
 covers three things at once: live delivery, the inbound buffer, and late-join history.
 
-- **Subjects (delivery modes):** publishers write to the same subjects; the difference is
-  *who consumes* the backing stream.
-  - multicast → `swarl.<space>.chat.<channel>`  — broadcast to a channel
-  - unicast → `swarl.<space>.inst.<instance>`  — one specific endpoint
-  - anycast → `swarl.<space>.svc.<service>`  — any one instance of a service (role)
-  - trace → `swarl.<space>.trace.<instance>`, control → `swarl.<space>.control.<instance>` *(later)*
-  - `*` = one token, `>` = trailing tokens; `swarl.<space>.>` taps everything (the `watch` command).
+- **Subjects (delivery modes):** the **sender is encoded in the subject** — a
+  server-policeable fact, not a self-asserted payload field. `parseSubject()` is the single
+  authority on the layout (the sender position is asymmetric: `[3]` for chat, `[4]` for the
+  rest — read it through `parseSubject`, never index a subject directly).
+  - multicast → `swarl.<space>.chat.<sender>.<channel…>`  — broadcast to a channel
+  - unicast → `swarl.<space>.inst.<target>.<sender>`  — one specific endpoint
+  - anycast → `swarl.<space>.svc.<role>.<sender>`  — any one instance of a service (role)
+  - control → `swarl.<space>.ctl.<service>.<sender>`  — request/reply to a service
+  - Receivers read the sender **from the subject**; the payload `from` is advisory and is
+    rejected on mismatch (fail-closed, on every receive path — see *Identity & authorization*).
+  - `*` = one token, `>` = trailing tokens. Subscribers wildcard the sender position
+    (`chat.*.<channel>`, `inst.<myId>.*`); an observer taps `swarl.<space>.chat.>`.
 - **Streams (one model, three read patterns):**
   - **`CHAT_<space>`** (multicast) — captures `chat.>`, **Limits** retention with
     `MaxMsgsPerSubject` (a capped per-channel backlog). **Every** agent reads **every**
     message via its **own** consumer/bookmark, at its own pace; a late joiner replays the
     window. This *is* both the inbound channel buffer and history.
   - **`DM_<space>`** (unicast) — captures `inst.>`, **Limits** retention. Each agent has a
-    **per-instance durable consumer** (durable name = instance id, filter `inst.<id>`) — its
-    private inbox. Retained for **session length**: the inbox lives as long as the agent's
-    context does (an `InactiveThreshold` retires the consumer when the context ends, so a
-    retired/`new`-context id never inherits a stale inbox — mirrors the *Instance continuity*
-    rule). `swarl_inbox` = pull the unread batch; push = the consumer delivers on attach.
+    **per-instance durable consumer** (durable name = instance id, filter `inst.<id>.*`) — its
+    private inbox. Retained for **session length** (an `InactiveThreshold` retires the consumer
+    when the context ends, mirroring the *Instance continuity* rule). Under auth this durable is
+    **pre-created by the provisioner** and the agent only binds it (see *Identity &
+    authorization* — the create-time filter is the DM confidentiality surface). `swarl_inbox` =
+    pull the unread batch; push = the consumer delivers on attach.
   - **`TASK_<space>`** (anycast) — captures `svc.>`, **WorkQueuePolicy**. A **shared pull
-    consumer per service** (filter `svc.<role>`): a task with no worker online *waits*; the
-    first available instance of the role grabs it; multiple online instances load-balance; the
-    task is removed once acked. Durable replacement for the old core queue-group, which dropped
-    the task if no one was subscribed.
+    consumer per role** (durable `svc_<role>`, filter `svc.<role>.*`): a task with no worker
+    online *waits*; the first available instance of the role grabs it; multiple online instances
+    load-balance; the task is removed once acked. Under auth this durable is **pre-created
+    per-role by the provisioner** and agents bind it (same create-time-filter reason as DM —
+    prevents cross-role work-stealing).
   - **Acks** are explicit and happen when a message is actually surfaced/injected (not on
     pull), so a crash before injection redelivers (`AckExplicit` + `AckWait`).
 - **Presence:** NATS **KV bucket per space** (key = instance id), bucket-level TTL + a
@@ -408,20 +415,92 @@ covers three things at once: live delivery, the inbound buffer, and late-join hi
   which brings built-in **discovery** (`$SRV.PING`/`INFO`) and **stats** for free. The
   `ControlRequest`/`ControlReply` envelope is unchanged; only the transport underneath swaps.
 - **Isolation:** one NATS **account** per space (later: split `space` into `org/namespace`).
+  Open mode is one shared account; **auth mode** (below) makes the account a real boundary.
 - **Transport choice:** JetStream streams for all three delivery modes (durability + per-reader
   bookmarks + history), KV for presence, Object Store for artifacts, and the Services API for
   the control plane.
-- **Auth & onboarding:** connection auth (token or user/password, optional TLS) is passed as
-  explicit `connect()` options — nats.js ignores credentials embedded in a URL — and bundled into a
-  one-string join link (`swarl(s)://token@host/space`, [`link.ts`](../packages/core/src/link.ts)).
-  Today this is **soft** multi-tenancy: one shared account, spaces isolated by the `swarl.<space>.*`
-  subject prefix. Hard isolation (a NATS account per space) is the deferred step below.
+- **Auth & onboarding:** open mode uses connection auth (token or user/password, optional TLS)
+  via explicit `connect()` options — nats.js ignores credentials embedded in a URL — bundled
+  into a one-string join link (`swarl(s)://token@host/space`,
+  [`link.ts`](../packages/core/src/link.ts)). **Auth mode** (`swarl up --auth`, opt-in) replaces
+  this with decentralized JWT — see *Identity & authorization* below.
+
+## Identity & authorization (auth mode)
+
+Opt-in via `swarl up --auth` (open mode stays the default). Makes the mesh a real boundary
+against untrusted peers *within* a shared space: an agent can only emit messages **as itself**,
+only to its **declared channels**, and can only read **its own DMs** — enforced by the NATS
+server, not by agent goodwill. It is containment + authenticity for a single trusted broker
+(not non-repudiation; doesn't survive an untrusted relay — that needs signed envelopes, later).
+
+- **Account = space, user = agent.** Decentralized **JWT**: an operator signs the account
+  (= the space), an account **signing key** signs per-agent users. Generated programmatically
+  with `@nats-io/jwt` (no `nsc` dependency). The server runs operator mode + a MEMORY resolver
+  (operator JWT + `system_account` + the demo & SYS account JWTs); `swarl up --auth` renders
+  this config and is **load-or-create** on `.swarl/auth` (so the signing key that minted creds
+  is always the one the server trusts).
+- **The provisioner** ([`provision.ts`](../packages/core/src/provision.ts)) is the *signer
+  capability*: it holds the account signing key and mints profile-scoped creds. The manager
+  hosts it in Demo 1, but it's not manager-special — privilege attaches to the signer, and a
+  space can run with no manager. `swarl mint <name> --profile <agent|observer>` is the
+  out-of-band path; the manager calls the same lib at spawn.
+- **Identity = the agent's nkey public key**, used identically everywhere: `card.id`, the
+  subject sender token, the JWT subject, the DM/inbox durable names. Generated locally
+  ([`identity.ts`](../packages/core/src/identity.ts)); the provisioner signs over only the
+  public key (`fromPublic`). The endpoint accepts a creds file and adopts its identity as
+  `card.id` (asserting any explicitly-set id matches, else publishes would silently deny).
+- **Profiles** (a default-deny allow-list each, built from the shared subject/stream/durable
+  builders so the ACLs can't drift from the wire layout):
+  - **agent** — publish only `chat.<ownId>.<declared-channel>` (the `publish:` list in the
+    agent file, falling back to `channels:`; wildcard subtrees like `team.>` flow through),
+    plus `inst.*.<ownId>` / `svc.*.<ownId>` / `ctl.<mgr>.<ownId>`. Presence PUT scoped to its
+    own key. `$JS.API` scoped to its own chat/task/DM durables (chat & task self-created
+    name-scoped; **DM and TASK bind-only** — create denied). `sub.allow = [_INBOX_<ownId>.>]`.
+  - **observer** — read-only: `sub.allow = [chat.>, _INBOX_<ownId>.>]`, pub = CHAT + presence
+    read verbs only. No chat/inst/svc publish (can't post); DM streams never named (DMs
+    invisible). `swarl watch/console/web` run `consume:false` and narrow their tap to `chat.>`.
+  - **manager** — privileged (broad), the provisioner host; pre-creates others' DM/TASK
+    durables. (Eventually should be scoped too — see limitations.)
+- **DM & TASK confidentiality close two leak paths.** *Delivery path:* all NATS delivery rides
+  the connection inbox, and NATS delivers a subject to every subscriber, so a wildcard
+  `_INBOX.>` subscribe would sniff peers' deliveries. Fix: a **per-identity inbox prefix**
+  (`connect({inboxPrefix: _INBOX_<ownId>})`) + `sub.allow = [_INBOX_<ownId>.>]`. *Stream path:*
+  the consumer **create-time `filter_subject`** isn't ACL-constrainable (it's in the request
+  payload for the durable API), so an allowed create could filter to a victim's inbox / another
+  role's queue. Fix: the privileged provisioner **pre-creates** the DM (`dm_<id>`, filter
+  `inst.<id>.*`) and TASK (`svc_<role>`, filter `svc.<role>.*`) durables; agents **bind only**,
+  and **all** create forms on `DM_<space>`/`TASK_<space>` are denied.
+- **Streams are infrastructure**, pre-created at `swarl up --auth` (agents are denied
+  `STREAM.CREATE`); the presence KV bucket is a stream too, so it's pre-created and agents open
+  (not create) it. Open mode keeps the lazy first-endpoint create.
+- **Denials are loud, never silent** — NATS publish permission violations surface only on the
+  connection status stream, so the endpoint routes them to its `error` event with a "denied,
+  not absent" message. This is why an over-tight ACL shows up as a logged denial, not a peer
+  that mysteriously looks absent.
+
+**Known limitations (Demo 1):**
+- **Standalone/late-join DM receipt** needs a *connected* provisioner (the manager) to
+  pre-create `dm_<id>`; chat/task/presence late-join works with no manager. Full fix is the
+  callout stage. (Fails loud via the denial log, not silent.)
+- **Signing key + operator seed are hot** in `.swarl/auth` (the mint/manager box) — not yet
+  key-confined; the "real boundary" holds only given operator-controlled cred distribution.
+  Operator seed should be cold-stored (it's the root; only needed for account setup/rotation).
+- **No revocation / TTL** on minted creds yet.
+- `isReachable` conflates auth-failure with server-down (misleading "run swarl up").
+- The **manager profile is allow-all** — fine for Demo 1, but the most-privileged identity
+  should eventually be scoped for the full untrusted-peer claim.
+- **Callout stage (later, additive):** auth-callout (NATS 2.10+) mints creds *at connect* from
+  a per-space/per-profile bootstrap token (the `token@` the join link already parses), moving
+  the signing key into the callout service (true key-confinement) and removing the out-of-band
+  mint.
 
 ## Deferred (designed-for, not built)
 
 - **Sessions + moderator** — managed group membership (admit/remove), per SLIM's Group session.
-- **Verifiable identity** — `instance` becomes a `did:key`; messages signed, peers verify;
-  the natural pairing is NATS **NKey/JWT** decentralized auth over the account-per-space split.
+- **Verifiable identity** — NKey/JWT decentralized auth + the account-per-space boundary are
+  **built** (opt-in, *Identity & authorization* above); what remains deferred is
+  *non-repudiation* — signed message envelopes (and `instance` as a `did:key`) so authenticity
+  survives an untrusted relay/federation hop, not just a single trusted broker.
 - **Instant offline (`$SYS`)** — subscribe the manager to `$SYS.ACCOUNT.<id>.DISCONNECT` for
   immediate offline detection instead of waiting out the heartbeat window. Needs `system_account`
   config + a privileged connection, connection names that carry the instance id (not just the
