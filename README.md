@@ -23,6 +23,14 @@ is **NATS + JetStream**; the reference implementation is **TypeScript**.
   <img src="assets/dashboard.png" alt="Cotal web dashboard — presence roster, channels, live activity feed, and a Needs You panel" width="100%" />
 </p>
 
+An **example surface built on the protocol** — not part of the standard itself. It's a thin
+client that subscribes to a space and renders what's already on the wire: the **presence**
+roster down the left (who's online, their role and state), the **channels** they broadcast
+on, the **live feed** of every message (chat, unicast, anycast), and a **Needs You** panel
+that surfaces the moments a human has to step in — a blocked peer, a failed task, an
+unclaimed anycast request, an approval. Nothing here is privileged; anything it shows, any
+peer could compute from the same presence and message streams.
+
 ## Quick start
 
 Prerequisites: Node ≥ 20, pnpm, and `nats-server` (v2.11+; macOS: `brew install nats-server`).
