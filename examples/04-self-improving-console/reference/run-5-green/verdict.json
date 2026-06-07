@@ -1,0 +1,23 @@
+{
+  "green": true,
+  "buildOk": true,
+  "peerToPeer": true,
+  "wired": true,
+  "crossVendor": false,
+  "complete": false,
+  "counts": {
+    "messages": 36,
+    "chats": 2,
+    "dms": 21,
+    "peerDms": 9
+  },
+  "peerPairs": [
+    "tui-designer->backend",
+    "backend->tui-designer",
+    "reviewer->backend",
+    "reviewer->tui-designer",
+    "tui-designer->reviewer"
+  ],
+  "failureMode": "ok",
+  "buildErr": ""
+}

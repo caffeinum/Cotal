@@ -142,3 +142,29 @@ call (time pressure): **dropped codex from the loop.**
   `DEMO COMPLETE`; more headroom lets the orchestrator close the loop.
 
 Green streak: **1 / 2.** Need iter 5 green to stop.
+
+## Iteration 5 — GREEN again → **2 in a row, loop STOPPED** (🟢🟢)
+**Verdict:** `{green:true, buildOk:true, peerToPeer:true, wired:true, crossVendor:false,
+complete:false, peerDms:9, pairs:[backend↔tui-designer, reviewer→backend, reviewer→tui-designer,
+tui-designer→reviewer]}`. Snapshot in `reference/run-5-green/`.
+
+**The Claude `reviewer` works** (replacing scuffed codex). It joined, reviewed the SPEC, **posted a
+sharp grounded review to `#team`** (caught real observer semantics: `emit("message")` only fires from
+`pump()`, which `consume:false` never starts — 7 concrete gaps) and **DM'd backend + tui-designer
+directly** with specifics. It even adapted on the fly — noticing `#team` broadcasts don't wake idle
+inboxes, it switched to direct DMs. 6 reviewer messages; reviewer↔worker pairs now show up in the
+peer graph. This is the value codex couldn't deliver headless.
+
+**Stable pipeline:** research SPEC → backend `useMesh()` → tui-designer wires `console-ink` → real
+`<App/>` + panels, contract settled peer-to-peer, build green, UI wired — two runs running.
+
+**Open item (not blocking green):** `DEMO COMPLETE` never emitted in either green run — the
+orchestrator runs out the clock before its final completion check. Green doesn't require it
+("ideally" only), but for a cleaner stage demo a future tweak could make the orchestrator poll
+worker `done:` + typecheck earlier.
+
+### Conclusion
+**Stop condition met: 2 consecutive green runs (4 + 5).** Loop cron `06ba73af` deleted. Best setup is
+on the branch; known-good output preserved in `reference/run-4-green/` and `reference/run-5-green/`.
+Hardened contracts: `agents/{orchestrator,research,backend,tui-designer,reviewer}.md`, `GOAL.md`,
+`run-agent.sh` (+`reviewer` role), `evaluate.ts` (strict `wired` metric).
