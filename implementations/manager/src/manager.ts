@@ -8,6 +8,7 @@ import {
   loadSpaceAuth,
   mintCreds,
   newIdentity,
+  provisionAgent,
   registry,
 } from "@swarl/core";
 import type { Connector, ControlReply, ControlRequest, SpaceAuth } from "@swarl/core";
@@ -177,13 +178,10 @@ export class Manager {
       // The publish allow-list is the file's `publish:`, falling back to `channels:`.
       let credsPath: string | undefined;
       if (this.auth) {
-        // Pre-create the agent's DM inbox durable (filter inst.<id>.*) and, if it has a role,
-        // its shared TASK queue durable (filter svc.<role>.*) BEFORE launch — the agent is
-        // denied CONSUMER.CREATE on DM_<space>/TASK_<space> and only binds them. The manager
-        // (privileged provisioner host) sets the filters; the agent never chooses them.
-        await this.ep.provisionDmInbox(identity.id);
-        if (role) await this.ep.provisionTaskQueue(role);
-        const creds = await mintCreds(this.auth, identity, "agent", {
+        // Pre-create the agent's bind-only DM (+ role TASK) durables and mint its scoped
+        // creds — the shared onboarding step (provisionAgent), the manager just supplies its
+        // own connected endpoint as the privileged provisioner.
+        const creds = await provisionAgent(this.ep, this.auth, identity, {
           channels: def?.publish ?? def?.channels,
           role,
         });

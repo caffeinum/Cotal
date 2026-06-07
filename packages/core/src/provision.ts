@@ -109,6 +109,27 @@ export interface MintOpts {
   manager?: string;
 }
 
+/** The privileged onboarding ops a launcher needs — implemented by a connected, permissive
+ *  endpoint (the manager, or a short-lived provisioner that `swarl spawn` opens). */
+export interface DurableProvisioner {
+  provisionDmInbox(id: string): Promise<void>;
+  provisionTaskQueue(role: string): Promise<void>;
+}
+
+/** Onboard an agent for launch (auth mode): pre-create its bind-only DM (+ role TASK) durables
+ *  and mint its scoped creds. The single shared step so every launcher — the manager and
+ *  `swarl spawn` alike — provisions identically (manager not special). */
+export async function provisionAgent(
+  provisioner: DurableProvisioner,
+  auth: SpaceAuth,
+  identity: Identity,
+  opts: MintOpts = {},
+): Promise<string> {
+  await provisioner.provisionDmInbox(identity.id);
+  if (opts.role) await provisioner.provisionTaskQueue(opts.role);
+  return mintCreds(auth, identity, "agent", opts);
+}
+
 /** Mint a user creds file for an agent {@link Identity} (its stable id+seed from
  *  {@link newIdentity}). The account signing key signs over ONLY the public key
  *  (`fromPublic`) — the agent seed is never part of the signature, it's only folded into
