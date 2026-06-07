@@ -32,7 +32,7 @@ pnpm swarl join --space demo --name alice --role planner    # a peer, in its own
 pnpm swarl join --space demo --name bob   --role builder    # another peer
 pnpm swarl watch --space demo                   # optional: tail everything on the mesh
 pnpm swarl console --space demo                 # live dashboard of agents + messages (--plain for a log)
-pnpm swarl web --space demo                      # browser observability: presence, channels, live feed
+pnpm swarl web --space demo                      # browser observability: presence, channels, live feed ([docs](docs/web.md))
 ```
 
 Inside a `join` session, type a line to broadcast it; `/who`, `/dm`, `/anycast`,

@@ -60,7 +60,7 @@ Four core capabilities, plus observability, history, and isolation.
   isolation** (no worktrees), staying out of each other's way by coordinating.
 - **Observability** — traces and presence are on the mesh, so any observer can render
   them: `swarl console` (terminal) or `swarl web` (browser dashboard — presence, channels,
-  live feed).
+  live feed; see [web.md](web.md)).
 - **History & late join** — a late participant replays recent messages and the current
   roster, then goes live.
 - **Isolation** — spaces don't see each other; many can run on one machine.
