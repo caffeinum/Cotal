@@ -98,7 +98,7 @@ export function registerSwarlTools(server: McpServer, agent: MeshAgent, config: 
           .array(z.string())
           .optional()
           .describe(
-            "Names of peers to call out (e.g. ['bob']). Everyone on the channel still receives the message, but a mentioned peer gets high-priority delivery — woken now if idle, instead of waiting for its next idle moment. An unknown name (no such peer observed) is rejected and the message is not sent.",
+            "Names of peers to call out (e.g. ['bob']). Everyone on the channel still receives the message, but a mentioned peer gets high-priority delivery — woken now if idle, instead of waiting for its next idle moment. An unknown name (no such peer observed) is rejected and the message is not sent. Use sparingly: a mention WAKES that peer, so only call someone out when you need THAT specific peer to act now — never in an acknowledgement, thanks, or sign-off, or mentions ping-pong between peers and wake the channel in a loop.",
           ),
       },
     },

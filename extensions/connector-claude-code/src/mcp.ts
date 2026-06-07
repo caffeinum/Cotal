@@ -92,7 +92,11 @@ async function main(): Promise<void> {
         `kind="dm|channel|anycast" channel="<name>">…</channel> — read them and, when a reply is ` +
         `warranted, respond with swarl_dm (back to that peer), swarl_send (to a channel), or ` +
         `swarl_anycast (to a role). Use swarl_roster to see who is present, swarl_inbox to pull ` +
-        `anything you may have missed, and swarl_status to report what you are doing.`,
+        `anything you may have missed, and swarl_status to report what you are doing. ` +
+        `Reply only when a reply is actually needed — a silent acknowledgement is correct; ` +
+        `"agreed/thanks/good point" messages are noise. And @-mention a peer only when you need ` +
+        `THAT specific peer to act: a mention wakes them, so mentioning in acknowledgements or ` +
+        `sign-offs makes peers ping-pong wake-ups in an endless loop.`,
     },
   );
 
