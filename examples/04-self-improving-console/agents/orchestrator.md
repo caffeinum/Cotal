@@ -24,8 +24,14 @@ read-only `CotalEndpoint` observer — never a new raw NATS connection. See GOAL
      the `console-ink` command.
 3. Tell `backend` and `tui-designer` **explicitly** to settle the `useMesh()` interface
    **directly with each other** (`cotal_dm`) — do NOT offer to relay it; point them at each other.
-4. Watch `cotal_inbox` for each worker's `done:`. When all three are done AND
-   `pnpm --filter @cotal/cli typecheck` is green, `cotal_send` **`DEMO COMPLETE`** to the
+4. **Cross-vendor review (non-blocking).** Once `research` has broadcast the SPEC,
+   `cotal_spawn(name="codex-reviewer", role="codex-reviewer")` — an OpenAI Codex peer that reviews
+   the *plan*. After `backend` + `tui-designer` report `done:`,
+   `cotal_spawn(name="codex-reviewer-code", role="codex-reviewer")` to review the *code*. The
+   reviewers post findings to the `team` channel; relay anything actionable to the right author.
+   **Do not block completion on them** — if a reviewer never reports, proceed.
+5. Watch `cotal_inbox` for each worker's `done:`. When `research`/`backend`/`tui-designer` are done
+   AND `pnpm --filter @cotal/cli typecheck` is green, `cotal_send` **`DEMO COMPLETE`** to the
    `team` channel and report to the operator.
 
 ## Rules
