@@ -438,43 +438,43 @@ export class SwarlEndpoint extends EventEmitter {
     channel: string,
     opts?: { limit?: number },
   ): Promise<SwarlMessage[]> {
-    if (!this.nc) throw new Error("endpoint not started");
-    const js = jetstream(this.nc);
-    const subject = chatSubject(this.space, "*", channel); // history from any sender
-    const limit = opts?.limit ?? 100;
-    const msgs: SwarlMessage[] = [];
-    try {
-      const consumer = await js.consumers.get(chatStream(this.space), {
-        filter_subjects: [subject],
-      });
-      const iter = await consumer.fetch({ max_messages: limit });
-      for await (const m of iter) {
-        try {
-          msgs.push(m.json<SwarlMessage>());
-        } catch {
-          /* skip undecodable */
-        }
-      }
-    } catch {
-      /* stream or consumer may not exist yet */
-    }
-    return msgs;
+    // history from any sender
+    return this.streamHistory(
+      chatStream(this.space),
+      chatSubject(this.space, "*", channel),
+      opts?.limit ?? 100,
+    );
   }
 
   /** Fetch recent DMs (any sender→any recipient) from the space's DM backlog. God-view only:
    *  a normal agent/observer's ACL denies CONSUMER.CREATE on DM_<space>, so this throws-and-
    *  skips for them — only an `admin`-profile cred can read it. */
   async dmHistory(opts?: { limit?: number }): Promise<SwarlMessage[]> {
+    // every inst.<target>.<sender> DM
+    return this.streamHistory(
+      dmStream(this.space),
+      unicastSubject(this.space, "*", "*"),
+      opts?.limit ?? 100,
+    );
+  }
+
+  /** Drain up to `limit` recent messages matching `subject` from a stream's backlog via a
+   *  throwaway consumer. Fetches exactly the pending count (from consumer info) so it returns
+   *  the moment the backlog is delivered — a plain `fetch({max_messages: limit})` would instead
+   *  block for the pull's full expiry (~30s) whenever the backlog is smaller than `limit`. */
+  private async streamHistory(
+    stream: string,
+    subject: string,
+    limit: number,
+  ): Promise<SwarlMessage[]> {
     if (!this.nc) throw new Error("endpoint not started");
     const js = jetstream(this.nc);
-    const subject = unicastSubject(this.space, "*", "*"); // every inst.<target>.<sender> DM
-    const limit = opts?.limit ?? 100;
     const msgs: SwarlMessage[] = [];
     try {
-      const consumer = await js.consumers.get(dmStream(this.space), {
-        filter_subjects: [subject],
-      });
-      const iter = await consumer.fetch({ max_messages: limit });
+      const consumer = await js.consumers.get(stream, { filter_subjects: [subject] });
+      const pending = Math.min(limit, (await consumer.info()).num_pending);
+      if (pending === 0) return msgs;
+      const iter = await consumer.fetch({ max_messages: pending });
       for await (const m of iter) {
         try {
           msgs.push(m.json<SwarlMessage>());
