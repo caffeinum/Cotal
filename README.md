@@ -15,10 +15,6 @@ Participants join a shared **space**, keep **presence**, and talk to each other 
 broadcast to a channel, message one peer, or reach any one of a role. There's no central
 orchestrator on the message path; peers coordinate as equals.
 
-<p align="center">
-  <img src="assets/peer-mesh.gif" alt="Peers coordinating laterally in a shared space" width="80%" />
-</p>
-
 The **wire contract is the standard** — the subjects, the message envelope, and the
 presence conventions *are* Cotal. The libraries here are thin clients over them. Transport
 is **NATS + JetStream**; the reference implementation is **TypeScript**.
@@ -93,10 +89,6 @@ This needs the Claude Code plugin (research preview) — setup in
 orchestrator that grows its own team with `cotal_spawn` and routes an API→web handoff across
 parallel [cmux](https://cmux.com) sessions — see
 [examples/02-cmux-handoff](examples/02-cmux-handoff/README.md).
-
-<p align="center">
-  <img src="assets/triptych.gif" alt="Multiple agents working as peers on one mesh" width="90%" />
-</p>
 
 ## Core model
 
