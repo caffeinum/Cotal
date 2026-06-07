@@ -341,7 +341,24 @@ export class SwarlEndpoint extends EventEmitter {
       for await (const m of sub) {
         let reply: ControlReply;
         try {
-          reply = await handler(m.json<ControlRequest>());
+          const req = m.json<ControlRequest>();
+          // Authenticity guard (fail closed): control is the most privileged surface
+          // (start/stop). The sender is encoded in the subject (ctl.<svc>.<sender>), which
+          // the server policed who could publish; the payload `from` is advisory and must
+          // match. Reject before the handler acts on a request claiming a forged sender.
+          const parsed = parseSubject(m.subject);
+          if (!parsed || req.from?.id !== parsed.sender) {
+            this.emit(
+              "error",
+              new Error(
+                `rejected control request on ${m.subject}: from ${req.from?.id ?? "(none)"} ` +
+                  `does not match subject sender ${parsed?.sender ?? "(unparseable)"}`,
+              ),
+            );
+            reply = { ok: false, error: "sender mismatch — request rejected" };
+          } else {
+            reply = await handler(req);
+          }
         } catch (e) {
           reply = { ok: false, error: (e as Error).message };
         }
