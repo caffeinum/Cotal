@@ -18,6 +18,7 @@ examples/04-self-improving-console/harness/run-once.sh <iter>
 | 0 | scaffold | n/a | n/a | — | Phase A built (see below) |
 | 1 | 🔴 RED | ok | none | no-traffic — orchestrator EOF-exited immediately | spawn orchestrator via manager PTY (`cotal start`) + manager headless; drop `script` |
 | 2 | 🟡 partial | — | spawn+coordinate works | worktree isolation LEAKS — research wrote SPEC to MAIN, workers read worktree placeholder | switch harness to main + git-reset between runs; fix peer-to-peer metric (resolve `to` id→name) |
+| 3 | 🟢→🟡 | ok | **8 DMs** (backend↔tui-designer, both ways) | ui-not-wired — app.tsx/console-ink still placeholder | tighten green to require wired UI; tui-designer "wire first"; surgical reset (don't clobber license work) |
 
 ---
 
@@ -87,3 +88,31 @@ orchestrator/manager/cli) so a worker's `done:`→orchestrator no longer counts 
 
 **Caveat:** run-2's own verdict (worktree typecheck of placeholders) is not meaningful; iter 3 on
 main is the first run that can fairly score build + peer-to-peer.
+
+## Iteration 3 — first green-ish, with a real peer-to-peer negotiation (🟢→🟡)
+**Verdict (old metric):** `{green:true, buildOk:true, peerToPeer:true, peerDms:8,
+pairs:[tui-designer→backend, backend→tui-designer]}`. On main+reset; first fairly-scored run.
+
+**The money shot happened for real.** backend and tui-designer negotiated the `useMesh()` contract
+**directly, peer-to-peer**, across many turns: "Proposing useMesh(ep) returns this shape — does it
+cover your panels?" → "Love it… Accepting RosterEntry/ChannelInfo/FeedEntry" → "our messages
+crossed — I'd ACKed YOUR shape, you locked MINE" → "Locked. Building against your EXACT exports" →
+"EXPORTS LANDED ✓ typecheck GREEN". 8 peer DMs, zero contract-routing through the orchestrator.
+research wrote a 194-line SPEC and broadcast it; backend produced an excellent `mesh.ts` (typed
+contract, MeshStore with coalescing/rate-ring/StrictMode-safe tap). Snapshot kept in
+`reference/run-3-green/`.
+
+**The gap:** `app.tsx` and `console-ink.tsx` were still placeholders at timeout — tui-designer built
+`ui/{Feed,Roster,Tabs}.tsx` + `mesh.ts` but never wired them into the command. So `cotal console-ink`
+still renders the placeholder. Build+p2p passed while the deliverable was unwired → my green metric
+was too weak.
+
+**Fixes applied (for iter 4+):**
+- **evaluate.ts:** green now also requires `wired` (app.tsx is a real component AND console-ink renders
+  it, no "placeholder"). New failure mode `ui-not-wired`.
+- **tui-designer contract:** "WIRE FIRST" — make console-ink render a minimal real `<App/>` and pass
+  typecheck *before* enriching panels; not done until app.tsx is real + command wired.
+- **harness reset:** surgical (only console scaffold + console-ink + index.ts) so it won't revert the
+  parallel Apache-2.0 license edits to package.json/tsconfig.
+
+Under the stricter metric, iter 3 is NOT green (ui-not-wired). The 2-in-a-row streak starts fresh.

@@ -31,13 +31,12 @@ log() { echo "[run-once $ITER] $*"; }
 mkdir -p "$RESULTS"
 
 # --- reset the console scaffold to committed placeholder state -------------
+# Only the swarm-owned files. NOT package.json/tsconfig/pnpm-lock — parallel
+# licensing work lives there and the swarm doesn't need to touch deps (already committed).
 git -C "$REPO" checkout -- \
   implementations/cli/src/console \
   implementations/cli/src/commands/console-ink.tsx \
-  implementations/cli/src/index.ts \
-  implementations/cli/package.json \
-  implementations/cli/tsconfig.json \
-  pnpm-lock.yaml 2>/dev/null || true
+  implementations/cli/src/index.ts 2>/dev/null || true
 git -C "$REPO" clean -fd implementations/cli/src/console/ui >/dev/null 2>&1 || true
 log "console scaffold reset to clean state"
 

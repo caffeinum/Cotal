@@ -79,7 +79,16 @@ const peerDms = dms.filter((m) => {
 const peerPairs = [...new Set(peerDms.map((m) => `${m.from}->${nameOf(m.to) ?? "?"}`))];
 const complete = msgs.some((m) => (m.text ?? "").includes("DEMO COMPLETE"));
 const peerToPeer = peerDms.length >= 1;
-const green = buildOk && peerToPeer;
+
+// "wired": the swarm actually replaced the placeholders — app.tsx is a real component and the
+// console-ink command renders it. Build+p2p can both pass with the UI unwired (iter 3), so
+// green must require a working command too.
+const read = (p: string): string => (existsSync(p) ? readFileSync(p, "utf8") : "");
+const appSrc = read(`${repoDir}/implementations/cli/src/console/app.tsx`);
+const cmdSrc = read(`${repoDir}/implementations/cli/src/commands/console-ink.tsx`);
+const wired = appSrc.length > 200 && !appSrc.includes("TODO(demo)") && !/placeholder/i.test(cmdSrc);
+
+const green = buildOk && peerToPeer && wired;
 
 const failureMode = !msgs.length
   ? "no-traffic — agents never communicated (spawn/wake/TTY problem)"
@@ -87,12 +96,15 @@ const failureMode = !msgs.length
     ? "star-topology — all comms via orchestrator, no peer-to-peer DMs"
     : !buildOk
       ? "build-failed — typecheck red"
-      : "ok";
+      : !wired
+        ? "ui-not-wired — mesh/components built but app.tsx/console-ink still placeholder"
+        : "ok";
 
 const verdict = {
   green,
   buildOk,
   peerToPeer,
+  wired,
   complete,
   counts: {
     messages: msgs.length,
