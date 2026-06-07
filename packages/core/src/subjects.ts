@@ -47,15 +47,16 @@ function channelPath(channel: string): string {
     .join(".");
 }
 
-/** A sender/route token, preserving the `*` wildcard used on the subscribe side but
- *  sanitizing everything else. Real ids are nkey public keys (base32 [A-Z0-9]) so
- *  `token()` is a no-op on them — only `*` needs the bypass. */
-function senderToken(s: string): string {
+/** A routing token (sender, target, role, service), preserving the literal `*` wildcard
+ *  used on the subscribe/allow side but sanitizing everything else. A no-op on real ids
+ *  (nkey public keys are base32 [A-Z0-9]) and equal to `token()` on every concrete value —
+ *  it only additionally lets `*` through, e.g. for `inst.*.<id>` / `svc.*.<id>` allow rules. */
+function routeToken(s: string): string {
   return s === "*" ? "*" : token(s);
 }
 
 export function chatSubject(space: string, sender: string, channel: string): string {
-  return `${spacePrefix(space)}.chat.${senderToken(sender)}.${channelPath(channel)}`;
+  return `${spacePrefix(space)}.chat.${routeToken(sender)}.${channelPath(channel)}`;
 }
 
 /** True if a channel names a concrete sub-channel (no `*`/`>`) — i.e. it can be
@@ -85,19 +86,20 @@ export function collapseFilterSubjects(subjects: string[]): string[] {
   return uniq.filter((x) => !uniq.some((y) => y !== x && subjectMatches(y, x)));
 }
 
-/** Unicast: a specific instance's inbox, tagged with the sender. */
+/** Unicast: a specific instance's inbox, tagged with the sender. (Either position may be
+ *  `*` for subscribe/allow rules: `inst.<myId>.*` to receive, `inst.*.<myId>` to send as me.) */
 export function unicastSubject(space: string, target: string, sender: string): string {
-  return `${spacePrefix(space)}.inst.${token(target)}.${senderToken(sender)}`;
+  return `${spacePrefix(space)}.inst.${routeToken(target)}.${routeToken(sender)}`;
 }
 
 /** Anycast: a service (role), tagged with the sender. Subscribers join a queue group so one instance receives. */
 export function anycastSubject(space: string, service: string, sender: string): string {
-  return `${spacePrefix(space)}.svc.${token(service)}.${senderToken(sender)}`;
+  return `${spacePrefix(space)}.svc.${routeToken(service)}.${routeToken(sender)}`;
 }
 
 /** Control request/reply to a service (e.g. the manager), tagged with the sender; anycast via queue group. */
 export function controlServiceSubject(space: string, service: string, sender: string): string {
-  return `${spacePrefix(space)}.ctl.${token(service)}.${senderToken(sender)}`;
+  return `${spacePrefix(space)}.ctl.${routeToken(service)}.${routeToken(sender)}`;
 }
 
 export function traceSubject(space: string, agentId: string): string {

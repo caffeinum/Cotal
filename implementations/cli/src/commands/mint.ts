@@ -1,7 +1,15 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { resolve, join, dirname } from "node:path";
 import { parseArgs } from "node:util";
-import { authDir, loadSpaceAuth, mintCreds, newIdentity, type Profile } from "@swarl/core";
+import {
+  authDir,
+  agentFilePath,
+  loadAgentFile,
+  loadSpaceAuth,
+  mintCreds,
+  newIdentity,
+  type Profile,
+} from "@swarl/core";
 import { c } from "../ui.js";
 
 /** Out-of-band cred minting: generate an identity, sign a profile-scoped user JWT with the
@@ -28,8 +36,18 @@ export async function mint(argv: string[]): Promise<void> {
     console.error(c.red("no space auth found here — run `swarl up --auth` first"));
     process.exit(1);
   }
+  // For agents, derive the publish allow-list from the agent file if one exists
+  // (publish: ?? channels:); observers/managers ignore it.
+  let channels: string[] | undefined;
+  if (profile === "agent") {
+    const f = agentFilePath(process.cwd(), name);
+    if (existsSync(f)) {
+      const def = loadAgentFile(f);
+      channels = def.publish ?? def.channels;
+    }
+  }
   const identity = newIdentity();
-  const creds = await mintCreds(auth, identity, profile);
+  const creds = await mintCreds(auth, identity, profile, { channels });
   const out = resolve(values.out ?? join(dir, "creds", `${name}.creds`));
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, creds, { mode: 0o600 });

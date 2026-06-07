@@ -7,7 +7,8 @@
  *   role: builder
  *   description: …
  *   tags: [edit, test]
- *   channels: [general]
+ *   channels: [general]    # channels this agent subscribes to (read)
+ *   publish: [general]     # channels this agent may post to (write); omit = same as channels
  *   model: opus            # optional CLI/model override
  *   ---
  *   <the Markdown body is the persona — an appended system prompt>
@@ -28,6 +29,10 @@ export interface AgentDef {
   description?: string;
   tags?: string[];
   channels?: string[];
+  /** Channels this agent is allowed to publish to (auth mode → minted into pub-allow ACLs).
+   *  Entries may be wildcard subtrees (`team.>`), symmetric with `channels`. Omitted means
+   *  no explicit restriction beyond identity (the provisioner falls back to `channels`). */
+  publish?: string[];
   /** Model override handed to the agent CLI (e.g. `claude --model`). */
   model?: string;
   /** Markdown body — the agent's persona / appended system prompt. */
@@ -99,6 +104,7 @@ export function loadAgentFile(path: string): AgentDef {
     description: str("description"),
     tags: list("tags"),
     channels: list("channels"),
+    publish: list("publish"),
     model: str("model"),
     persona: persona || undefined,
   };

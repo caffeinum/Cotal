@@ -165,12 +165,16 @@ export class Manager {
     let handle: AgentHandle;
     try {
       const connector = registry.resolve<Connector>("connector", agent);
-      if (configPath && !role) role = loadAgentFile(configPath).role;
+      const def = configPath ? loadAgentFile(configPath) : undefined;
+      if (!role) role = def?.role;
       // In auth mode, mint the agent's creds from the space signing key and write them
       // where the spawned session reads them (SWARL_CREDS path). Open mesh → no creds.
+      // The publish allow-list is the file's `publish:`, falling back to `channels:`.
       let credsPath: string | undefined;
       if (this.auth) {
-        const creds = await mintCreds(this.auth, identity, "agent");
+        const creds = await mintCreds(this.auth, identity, "agent", {
+          channels: def?.publish ?? def?.channels,
+        });
         credsPath = join(authDir(this.workspaceRoot), "creds", `${name}.creds`);
         mkdirSync(dirname(credsPath), { recursive: true });
         writeFileSync(credsPath, creds, { mode: 0o600 });

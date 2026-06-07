@@ -23,7 +23,13 @@ import {
   fmtCreds,
 } from "@nats-io/jwt";
 import { createOperator, createAccount, fromPublic, fromSeed } from "@nats-io/nkeys";
-import { token } from "./subjects.js";
+import {
+  token,
+  chatSubject,
+  unicastSubject,
+  anycastSubject,
+  controlServiceSubject,
+} from "./subjects.js";
 import type { Identity } from "./identity.js";
 
 /** Cred profiles (per the plan's class table). Demo-1 mints all permissively; steps 5–7
@@ -83,22 +89,66 @@ export async function createSpaceAuth(space: string): Promise<SpaceAuth> {
   };
 }
 
+/** Options shaping a minted user's permissions. */
+export interface MintOpts {
+  /** Channels an "agent" may publish to (the agent file's `publish:` allow-list, already
+   *  resolved by the caller). Each is run through the chat-subject builder so a wildcard
+   *  subtree like `team.>` becomes `chat.<id>.team.>`. Defaults to `["general"]`. */
+  channels?: string[];
+  /** Control service the agent may address. Defaults to `"manager"`. */
+  manager?: string;
+}
+
 /** Mint a user creds file for an agent {@link Identity} (its stable id+seed from
  *  {@link newIdentity}). The account signing key signs over ONLY the public key
  *  (`fromPublic`) — the agent seed is never part of the signature, it's only folded into
- *  the resulting creds file. Demo-1 mints permissive (allow-all default permissions);
- *  steps 5–7 scope per profile. */
-export async function mintCreds(auth: SpaceAuth, identity: Identity, _profile: Profile): Promise<string> {
+ *  the resulting creds file. The "agent" profile is scoped to publish only as itself and
+ *  only to its declared channels (the channel-restriction enforcement); "manager" and
+ *  "observer" stay permissive here and are scoped in steps 6–7. */
+export async function mintCreds(
+  auth: SpaceAuth,
+  identity: Identity,
+  profile: Profile,
+  opts: MintOpts = {},
+): Promise<string> {
   const signer = fromSeed(new TextEncoder().encode(auth.account.signingSeed));
+  const perms = permissionsFor(profile, auth.space, identity.id, opts);
   const userJwt = await encodeUser(
-    _profile,
+    profile,
     fromPublic(identity.id),
     fromPublic(auth.account.pub),
-    {},
+    perms,
     { signer },
   );
   const creds = fmtCreds(userJwt, fromSeed(new TextEncoder().encode(identity.seed)));
   return new TextDecoder().decode(creds);
+}
+
+/** Build the NATS user permission object for a profile. Returns `{}` (→ allow-all defaults)
+ *  for the still-permissive profiles; an explicit scoped `pub.allow` for "agent". */
+function permissionsFor(
+  profile: Profile,
+  space: string,
+  id: string,
+  opts: MintOpts,
+): Record<string, unknown> {
+  if (profile !== "agent") return {}; // manager/observer permissive until steps 6–7
+  const channels = opts.channels?.length ? opts.channels : ["general"];
+  const manager = opts.manager ?? "manager";
+  // Built from the real subject builders so the allow-list can never drift from what the
+  // endpoint actually publishes. Every entry is prefixed with the agent's own id, so one
+  // list enforces identity (publish only AS yourself) and channel scope at once.
+  const pubAllow = [
+    ...channels.map((ch) => chatSubject(space, id, ch)), // chat.<id>.<channel> (channelPath keeps team.>)
+    unicastSubject(space, "*", id), //  inst.*.<id>   — DM any instance, as me
+    anycastSubject(space, "*", id), //  svc.*.<id>    — anycast any role, as me
+    controlServiceSubject(space, manager, id), // ctl.<mgr>.<id>
+    // Infrastructure, broad for now — step 7 scopes $JS.API + the DM-durable surface.
+    "$JS.>", // JetStream API + ACKs (consumer create/bind/fetch/ack)
+    "$KV.>", // presence KV puts
+    "_INBOX.>", // request/reply + JetStream publish-ack inboxes
+  ];
+  return { pub: { allow: pubAllow } };
 }
 
 /** Render the `nats-server` config that trusts this space's operator and serves its
