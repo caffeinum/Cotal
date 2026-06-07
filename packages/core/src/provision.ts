@@ -26,8 +26,11 @@ import { createOperator, createAccount, fromPublic, fromSeed } from "@nats-io/nk
 import { token } from "./subjects.js";
 import type { Identity } from "./identity.js";
 
-/** Cred profiles. Demo-1 mints both permissively; steps 5–7 scope them. */
-export type Profile = "agent" | "observer";
+/** Cred profiles (per the plan's class table). Demo-1 mints all permissively; steps 5–7
+ *  scope each one — at which point the manager MUST already hold its own privileged
+ *  profile (broad: pre-create others' DM durables, serve ctl), not "agent", or it
+ *  silently loses those powers the moment "agent" is tightened. */
+export type Profile = "agent" | "observer" | "manager";
 
 /** A space's persisted trust material. The `signingSeed` is the sensitive provisioner
  *  secret; everything else is public (JWTs) or recoverable. */

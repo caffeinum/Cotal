@@ -653,8 +653,13 @@ interface AuthOpts {
 
 function authOpts(a: AuthOpts) {
   const tls = a.tls ? {} : undefined;
-  // creds (JWT/nkey) take precedence and are mutually exclusive with token/user/pass.
-  if (a.creds) return { authenticator: credsAuthenticator(new TextEncoder().encode(a.creds)), tls };
+  // creds (JWT/nkey) are mutually exclusive with token/user/pass — reject rather than
+  // silently pick one, so a misconfigured caller fails loud.
+  if (a.creds) {
+    if (a.token || a.user || a.pass)
+      throw new Error("creds are mutually exclusive with token/user/pass auth");
+    return { authenticator: credsAuthenticator(new TextEncoder().encode(a.creds)), tls };
+  }
   return { token: a.token, user: a.user, pass: a.pass, tls };
 }
 

@@ -96,7 +96,9 @@ export class Manager {
     if (this.auth) {
       const identity = newIdentity();
       id = identity.id;
-      creds = await mintCreds(this.auth, identity, "agent");
+      // Privileged profile — the manager pre-creates others' DM durables and serves ctl;
+      // minting it as "agent" would silently strip those once step 5 scopes "agent".
+      creds = await mintCreds(this.auth, identity, "manager");
     }
     this.ep = new SwarlEndpoint({
       space: this.space,
