@@ -9,14 +9,12 @@ import {
   type Subscription,
 } from "@nats-io/transport-node";
 import { idFromCreds } from "./identity.js";
+import { createSpaceStreams } from "./streams.js";
 import {
   jetstream,
   jetstreamManager,
   AckPolicy,
   DeliverPolicy,
-  DiscardPolicy,
-  RetentionPolicy,
-  StorageType,
   type JetStreamClient,
   type JetStreamManager,
   type ConsumerMessages,
@@ -198,7 +196,9 @@ export class SwarlEndpoint extends EventEmitter {
 
     if (this.doConsume) {
       this.jsm = await jetstreamManager(this.nc);
-      await this.ensureStreams();
+      // Open mode: lazily create the streams on the first endpoint. Auth mode: they are
+      // pre-created at `swarl up --auth` and STREAM.CREATE is denied to agents, so skip.
+      if (!this.creds) await this.ensureStreams();
       await this.startConsumers();
     }
   }
@@ -458,30 +458,11 @@ export class SwarlEndpoint extends EventEmitter {
     await this.js.publish(subject, JSON.stringify(msg), { msgID: msg.id });
   }
 
-  /** Create the three backing streams for this space (idempotent). */
+  /** Create the three backing streams for this space (idempotent). Open-mode lazy create;
+   *  the same definitions are used by `swarl up --auth` at privileged setup. */
   private async ensureStreams(): Promise<void> {
     if (!this.jsm) throw new Error("endpoint not started");
-    const p = spacePrefix(this.space);
-    await this.jsm.streams.add({
-      name: chatStream(this.space),
-      subjects: [`${p}.chat.>`],
-      retention: RetentionPolicy.Limits,
-      storage: StorageType.File,
-      max_msgs_per_subject: 1000, // capped per-channel backlog (buffer + history)
-      discard: DiscardPolicy.Old,
-    });
-    await this.jsm.streams.add({
-      name: dmStream(this.space),
-      subjects: [`${p}.inst.>`],
-      retention: RetentionPolicy.Limits,
-      storage: StorageType.File,
-    });
-    await this.jsm.streams.add({
-      name: taskStream(this.space),
-      subjects: [`${p}.svc.>`],
-      retention: RetentionPolicy.Workqueue,
-      storage: StorageType.File,
-    });
+    await createSpaceStreams(this.jsm, this.space);
   }
 
   /** Bind this endpoint's durable consumers: DM inbox, chat, and (if a role) the task queue. */

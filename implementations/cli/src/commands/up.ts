@@ -10,6 +10,10 @@ import {
   loadSpaceAuth,
   saveSpaceAuth,
   serverConfig,
+  mintCreds,
+  newIdentity,
+  setupSpaceStreams,
+  type SpaceAuth,
 } from "@swarl/core";
 import { c } from "../ui.js";
 
@@ -35,9 +39,9 @@ export async function up(argv: string[]): Promise<void> {
   // Auth mode (opt-in): start the server in decentralized-JWT mode so agents must present
   // minted creds. Without --auth the server stays open — the default dev path, and the
   // pre-cutover state for the whole identity/ACL feature.
-  const args = values.auth
-    ? await authArgs(storeDir, server, values.space ?? "demo")
-    : ["-js", "-sd", storeDir];
+  const space = values.space ?? "demo";
+  const setup = values.auth ? await authSetup(storeDir, server, space) : undefined;
+  const args = setup ? ["-c", setup.confPath] : ["-js", "-sd", storeDir];
 
   console.log(
     c.dim(
@@ -57,15 +61,30 @@ export async function up(argv: string[]): Promise<void> {
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
   child.on("exit", (code) => process.exit(code ?? 0));
+
+  // Auth mode: streams are space infrastructure that agents are denied STREAM.CREATE for,
+  // so pre-create them here (once, privileged) as soon as the server accepts connections.
+  if (setup) {
+    for (let i = 0; i < 50; i++) {
+      if (await isReachable(server, { creds: setup.creds })) break;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    await setupSpaceStreams({ servers: server, space, creds: setup.creds });
+    console.log(c.dim("Pre-created CHAT/DM/TASK streams for the space."));
+  }
   await new Promise<void>(() => {});
 }
 
-/** Ensure the space's trust material exists, render a server config, and return the
- *  `nats-server -c <config>` args. The account signing key in `.swarl/auth` is what
- *  `swarl mint` and the manager later use to issue per-agent creds. */
-async function authArgs(storeDir: string, server: string, space: string): Promise<string[]> {
+/** Ensure the space's trust material exists, render a server config, and mint a privileged
+ *  setup creds (used to pre-create streams once the server is up). The account signing key
+ *  in `.swarl/auth` is what `swarl mint` and the manager later use to issue per-agent creds. */
+async function authSetup(
+  storeDir: string,
+  server: string,
+  space: string,
+): Promise<{ confPath: string; creds: string }> {
   const dir = authDir(process.cwd());
-  let auth = loadSpaceAuth(dir);
+  let auth: SpaceAuth | undefined = loadSpaceAuth(dir);
   if (!auth) {
     auth = await createSpaceAuth(space);
     saveSpaceAuth(dir, auth);
@@ -74,5 +93,6 @@ async function authArgs(storeDir: string, server: string, space: string): Promis
   const port = Number(new URL(server).port) || 4222;
   const confPath = resolve(dir, "server.conf");
   writeFileSync(confPath, serverConfig(auth, { port, storeDir }));
-  return ["-c", confPath];
+  const creds = await mintCreds(auth, newIdentity(), "manager"); // privileged, ephemeral
+  return { confPath, creds };
 }
