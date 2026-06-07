@@ -36,18 +36,21 @@ export async function mint(argv: string[]): Promise<void> {
     console.error(c.red("no space auth found here — run `swarl up --auth` first"));
     process.exit(1);
   }
-  // For agents, derive the publish allow-list from the agent file if one exists
-  // (publish: ?? channels:); observers/managers ignore it.
+  // For agents, derive the publish allow-list AND role from the agent file if one exists
+  // (publish: ?? channels: for channels; role scopes the TASK-queue consumer to svc_<role>).
+  // observers/managers ignore both.
   let channels: string[] | undefined;
+  let role: string | undefined;
   if (profile === "agent") {
     const f = agentFilePath(process.cwd(), name);
     if (existsSync(f)) {
       const def = loadAgentFile(f);
       channels = def.publish ?? def.channels;
+      role = def.role;
     }
   }
   const identity = newIdentity();
-  const creds = await mintCreds(auth, identity, profile, { channels });
+  const creds = await mintCreds(auth, identity, profile, { channels, role });
   const out = resolve(values.out ?? join(dir, "creds", `${name}.creds`));
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, creds, { mode: 0o600 });
