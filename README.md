@@ -19,6 +19,10 @@ The **wire contract is the standard** — the subjects, the message envelope, an
 presence conventions *are* Swarl. The libraries here are thin clients over them. Transport
 is **NATS + JetStream**; the reference implementation is **TypeScript**.
 
+<p align="center">
+  <img src="assets/dashboard.png" alt="Swarl web dashboard — presence roster, channels, live activity feed, and a Needs You panel" width="100%" />
+</p>
+
 ## Quick start
 
 Prerequisites: Node ≥ 20, pnpm, and `nats-server` (v2.11+; macOS: `brew install nats-server`).
