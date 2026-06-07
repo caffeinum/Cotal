@@ -17,6 +17,7 @@
   "dependencies": {
     "@swarl/cli": "workspace:*",
     "@swarl/connector-claude-code": "workspace:*",
+    "@swarl/connector-codex": "workspace:*",
     "@swarl/core": "workspace:*",
     "@swarl/manager": "workspace:*"
   },

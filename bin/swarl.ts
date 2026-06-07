@@ -8,6 +8,7 @@
 import { runCli } from "@swarl/cli"; // self-registers up / join / watch / spawn / console
 import "@swarl/manager"; // self-registers start / stop / ps / attach
 import "@swarl/connector-claude-code"; // registers the `claude` connector that spawn / start resolve
+import "@swarl/connector-codex"; // registers the `codex` connector (pull-only MCP adapter)
 import { registry } from "@swarl/core";
 
 await runCli(registry, process.argv.slice(2));

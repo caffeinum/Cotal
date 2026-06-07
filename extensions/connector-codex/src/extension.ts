@@ -41,6 +41,13 @@ export const codexConnector: Connector = {
     ];
     if (opts.role) args.push("-c", `mcp_servers.swarl.env.SWARL_ROLE=${toml(opts.role)}`);
     if (opts.servers) args.push("-c", `mcp_servers.swarl.env.SWARL_SERVERS=${toml(opts.servers)}`);
+    // Identity + auth ride in the server's env table too (Codex forwards no process env to MCP
+    // servers): the provisioned id, the minted creds, and the agent file. Without SWARL_CREDS the
+    // endpoint can't authenticate to an auth-by-default mesh, so the agent would never join.
+    if (opts.id) args.push("-c", `mcp_servers.swarl.env.SWARL_ID=${toml(opts.id)}`);
+    if (opts.creds) args.push("-c", `mcp_servers.swarl.env.SWARL_CREDS=${toml(opts.creds)}`);
+    if (opts.configPath)
+      args.push("-c", `mcp_servers.swarl.env.SWARL_AGENT_FILE=${toml(opts.configPath)}`);
     return { command: "codex", args, env };
   },
 };

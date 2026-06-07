@@ -14,6 +14,9 @@ importers:
       '@swarl/connector-claude-code':
         specifier: workspace:*
         version: link:extensions/connector-claude-code
+      '@swarl/connector-codex':
+        specifier: workspace:*
+        version: link:extensions/connector-codex
       '@swarl/core':
         specifier: workspace:*
         version: link:packages/core
