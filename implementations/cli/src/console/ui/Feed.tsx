@@ -3,15 +3,34 @@ import { Box, Text, useFocus, useInput } from "ink";
 import type { FeedEntry } from "../mesh.js";
 import { agentColor, fmtTime, wrapText } from "./theme.js";
 
-type Row = { kind: "head"; entry: FeedEntry } | { kind: "body"; text: string };
+type Row =
+  | { kind: "head"; entry: FeedEntry; entryIndex: number }
+  | { kind: "body"; text: string };
 
-function buildRows(entries: FeedEntry[], bodyWidth: number): Row[] {
+function buildRows(entries: FeedEntry[], bodyWidth: number): { rows: Row[]; starts: number[] } {
   const rows: Row[] = [];
-  for (const e of entries) {
-    rows.push({ kind: "head", entry: e });
+  const starts: number[] = [];
+  entries.forEach((e, idx) => {
+    starts.push(rows.length);
+    rows.push({ kind: "head", entry: e, entryIndex: idx });
     for (const seg of wrapText(e.text, bodyWidth)) rows.push({ kind: "body", text: seg });
-  }
-  return rows;
+  });
+  return { rows, starts };
+}
+
+/** Case-insensitive match across sender, target, and body — drives the `/` filter. */
+function matches(e: FeedEntry, q: string): boolean {
+  const hay = [
+    e.from.name,
+    e.from.role ?? "",
+    e.channel ?? "",
+    e.toService ?? "",
+    ...(e.toNames ?? []),
+    e.text,
+  ]
+    .join(" ")
+    .toLowerCase();
+  return hay.includes(q);
 }
 
 function Target({ entry }: { entry: FeedEntry }) {
@@ -31,10 +50,10 @@ function Target({ entry }: { entry: FeedEntry }) {
   );
 }
 
-function HeadRow({ entry }: { entry: FeedEntry }) {
+function HeadRow({ entry, selected }: { entry: FeedEntry; selected: boolean }) {
   const role = entry.from.role;
   return (
-    <Text wrap="truncate-end">
+    <Text wrap="truncate-end" inverse={selected}>
       <Text dimColor>{fmtTime(entry.ts) + " "}</Text>
       <Text color={agentColor(entry.from.name)}>{entry.from.name}</Text>
       {role && role !== entry.from.name ? <Text dimColor>{"/" + role}</Text> : null}
@@ -46,71 +65,86 @@ function HeadRow({ entry }: { entry: FeedEntry }) {
 }
 
 /**
- * The live message feed — main panel. Coalesced + windowed entries from useMesh, filtered to
- * the active channel (`all` = firehose incl. unicast/anycast). Hand-rolled scroll viewport:
- * follows the tail unless the user scrolls up; Ink has no scroll view, so we slice rows to fit.
+ * The live message feed — main panel. Coalesced + windowed entries from useMesh, filtered to the
+ * active channel (`all` = firehose incl. unicast/anycast) and the `/` query. A selection cursor
+ * (↑/↓, follows the tail) highlights one entry; `Enter` opens its detail. Ink has no scroll view,
+ * so we flatten entries to rows and slice a window that keeps the selected entry visible.
  */
 export function Feed({
   entries,
   activeChannel,
+  query,
   boxWidth,
   boxHeight,
-  helpOpen,
+  blocked,
   onFocus,
+  onOpenDetail,
 }: {
   entries: FeedEntry[];
   activeChannel: string;
+  query: string;
   boxWidth: number;
   boxHeight: number;
-  helpOpen: boolean;
+  blocked: boolean;
   onFocus: (id: "roster" | "feed") => void;
+  onOpenDetail: (entry: FeedEntry) => void;
 }) {
   const { isFocused } = useFocus({ id: "feed" });
   useEffect(() => {
     if (isFocused) onFocus("feed");
   }, [isFocused, onFocus]);
 
-  const filtered =
-    activeChannel === "all"
-      ? entries
-      : entries.filter((e) => e.delivery === "multicast" && e.channel === activeChannel);
+  const q = query.trim().toLowerCase();
+  const filtered = entries.filter((e) => {
+    if (activeChannel !== "all" && !(e.delivery === "multicast" && e.channel === activeChannel)) return false;
+    return q ? matches(e, q) : true;
+  });
 
   const room = Math.max(1, boxHeight - 3); // border (2) + title (1)
-  const rows = buildRows(filtered, Math.max(8, boxWidth - 4 - 3)); // pad/border (4) + indent (3)
-  const maxScroll = Math.max(0, rows.length - room);
-  const clamp = (v: number) => Math.max(0, Math.min(v, maxScroll));
+  const { rows, starts } = buildRows(filtered, Math.max(8, boxWidth - 4 - 3)); // pad/border (4) + indent (3)
 
-  const [scroll, setScroll] = useState(0);
+  const [sel, setSel] = useState(0);
   const prevLen = useRef(0);
-
-  // Stay anchored to the same content as new rows arrive while scrolled up.
+  // Follow the tail: if the cursor was on the last entry, ride new entries down.
   useEffect(() => {
-    const grew = rows.length - prevLen.current;
-    if (scroll > 0 && grew > 0) {
-      setScroll((s) => Math.max(0, Math.min(s + grew, Math.max(0, rows.length - room))));
-    }
-    prevLen.current = rows.length;
-  }, [rows.length, room, scroll]);
-
-  // Snap to the tail when the channel filter changes.
+    setSel((s) => {
+      if (filtered.length === 0) return 0;
+      if (prevLen.current === 0 || s >= prevLen.current - 1) return filtered.length - 1;
+      return Math.min(s, filtered.length - 1);
+    });
+    prevLen.current = filtered.length;
+  }, [filtered.length]);
+  // Snap to the newest when the channel filter or query changes.
   useEffect(() => {
-    setScroll(0);
-  }, [activeChannel]);
+    setSel(filtered.length ? filtered.length - 1 : 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeChannel, q]);
+
+  const selClamped = Math.min(sel, Math.max(0, filtered.length - 1));
 
   useInput(
     (input, key) => {
-      if (key.upArrow) setScroll((s) => clamp(s + 1));
-      else if (key.downArrow) setScroll((s) => clamp(s - 1));
-      else if (key.pageUp) setScroll((s) => clamp(s + (room - 1)));
-      else if (key.pageDown) setScroll((s) => clamp(s - (room - 1)));
-      else if (input === "g" || key.home) setScroll(clamp(maxScroll));
-      else if (input === "G" || key.end) setScroll(0);
+      if (key.upArrow) setSel((s) => Math.max(0, s - 1));
+      else if (key.downArrow) setSel((s) => Math.min(filtered.length - 1, s + 1));
+      else if (key.pageUp) setSel((s) => Math.max(0, s - room));
+      else if (key.pageDown) setSel((s) => Math.min(filtered.length - 1, s + room));
+      else if (input === "g" || key.home) setSel(0);
+      else if (input === "G" || key.end) setSel(filtered.length - 1);
+      else if (key.return && filtered.length) onOpenDetail(filtered[selClamped]);
     },
-    { isActive: isFocused && !helpOpen },
+    { isActive: isFocused && !blocked },
   );
 
-  const end = rows.length - scroll;
-  const visible = rows.slice(Math.max(0, end - room), end);
+  // Viewport: keep the selected entry visible, anchored to the tail by default.
+  const selStart = starts[selClamped] ?? 0;
+  const selEnd = starts[selClamped + 1] ?? rows.length;
+  let end = rows.length;
+  if (selStart < end - room) end = Math.min(rows.length, selStart + room);
+  if (selEnd > end) end = Math.min(rows.length, selEnd);
+  end = Math.max(room, Math.min(end, rows.length));
+  const top = Math.max(0, end - room);
+  const visible = rows.slice(top, end);
+  const below = rows.length - end;
 
   return (
     <Box
@@ -124,16 +158,17 @@ export function Feed({
       <Text wrap="truncate-end">
         <Text bold>feed</Text>
         <Text dimColor>{" · " + activeChannel}</Text>
-        {scroll > 0 ? <Text color="yellow">{"  ↑" + scroll + " more · G/End to follow"}</Text> : null}
+        {q ? <Text color="yellow">{"  /" + query}</Text> : null}
+        {below > 0 ? <Text color="yellow">{"  ↓" + below + " more · G to follow"}</Text> : null}
       </Text>
       {visible.length === 0 ? (
         <Text dimColor>(no messages yet — waiting for peer traffic)</Text>
       ) : (
         visible.map((r, i) =>
           r.kind === "head" ? (
-            <HeadRow key={i} entry={r.entry} />
+            <HeadRow key={top + i} entry={r.entry} selected={isFocused && r.entryIndex === selClamped} />
           ) : (
-            <Text key={i} wrap="truncate-end">
+            <Text key={top + i} wrap="truncate-end">
               {"   " + r.text}
             </Text>
           ),

@@ -12,7 +12,8 @@
     "typecheck": "pnpm -r typecheck",
     "build": "pnpm -r build",
     "cotal": "tsx bin/cotal.ts",
-    "smoke": "tsx packages/core/smoke.ts"
+    "smoke": "tsx packages/core/smoke.ts",
+    "smoke:view": "tsx packages/core/view.smoke.ts"
   },
   "dependencies": {
     "@cotal/cli": "workspace:*",

@@ -1,17 +1,21 @@
 import { useCallback, useEffect, useState } from "react";
 import { Box, useApp, useFocusManager, useInput, useStdout } from "ink";
-import type { CotalEndpoint } from "@cotal/core";
+import type { CotalEndpoint, Presence } from "@cotal/core";
 import { useMesh } from "./mesh.js";
 import { Tabs } from "./ui/Tabs.js";
 import { Roster } from "./ui/Roster.js";
 import { Feed } from "./ui/Feed.js";
 import { StatusBar } from "./ui/StatusBar.js";
 import { Help } from "./ui/Help.js";
+import { Search } from "./ui/Search.js";
+import { Detail, type DetailTarget } from "./ui/Detail.js";
+import type { FeedEntry } from "./mesh.js";
 
 /**
  * The lazygit-style console: channel tabs (top) · roster (left) · live feed (main) · status bar.
  * `useMesh` owns the observer endpoint lifecycle and hands us UI-ready state. Input routing is
- * single-source: this global handler owns 1–9 / ? / q / ←→; each panel's keys are gated on focus.
+ * single-source: this global handler owns ? / / / q / ←→ / 1–9 and the overlays; each panel's
+ * keys (↑↓ select, Enter detail) are gated on focus and on no overlay/search being open.
  */
 export function App({ ep, tapSubject }: { ep: CotalEndpoint; tapSubject?: string }) {
   const mesh = useMesh(ep, { tapSubject });
@@ -22,13 +26,18 @@ export function App({ ep, tapSubject }: { ep: CotalEndpoint; tapSubject?: string
   const [size, setSize] = useState({ cols: stdout.columns || 80, rows: stdout.rows || 24 });
   const [activeChannel, setActiveChannel] = useState("all");
   const [helpOpen, setHelpOpen] = useState(false);
+  const [detail, setDetail] = useState<DetailTarget | null>(null);
+  const [search, setSearch] = useState({ active: false, query: "" });
   const [focusedId, setFocusedId] = useState<"roster" | "feed">("feed");
 
-  // Focus the feed first; re-focus the last panel after the help overlay closes.
+  const overlay = helpOpen || detail !== null;
+  const blocked = overlay || search.active;
+
+  // Focus the feed first; re-focus the last panel after an overlay closes.
   useEffect(() => {
-    if (!helpOpen) focus(focusedId);
+    if (!overlay) focus(focusedId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [helpOpen]);
+  }, [helpOpen, detail]);
 
   // Keep last-seen ages fresh.
   const [, tick] = useState(0);
@@ -50,13 +59,19 @@ export function App({ ep, tapSubject }: { ep: CotalEndpoint; tapSubject?: string
   for (const ch of mesh.channels) counts[ch.channel] = ch.messages;
 
   const onFocus = useCallback((id: "roster" | "feed") => setFocusedId(id), []);
+  const openAgent = useCallback((p: Presence) => setDetail({ kind: "agent", agent: p }), []);
+  const openMessage = useCallback((e: FeedEntry) => setDetail({ kind: "message", entry: e }), []);
 
   useInput((input, key) => {
-    if (helpOpen) {
-      setHelpOpen(false);
+    if (helpOpen) return setHelpOpen(false);
+    if (detail) return setDetail(null);
+    if (search.active) return; // the Search line owns input while open
+    if (input === "?") return setHelpOpen(true);
+    if (input === "/") return setSearch((s) => ({ active: true, query: s.query }));
+    if (key.escape) {
+      if (search.query) setSearch({ active: false, query: "" });
       return;
     }
-    if (input === "?") return setHelpOpen(true);
     if (input === "q") return exit();
     if (key.leftArrow) return focusPrevious();
     if (key.rightArrow) return focusNext();
@@ -66,12 +81,12 @@ export function App({ ep, tapSubject }: { ep: CotalEndpoint; tapSubject?: string
     }
   });
 
-  if (helpOpen) {
-    return <Help focusedId={focusedId} width={size.cols} height={size.rows} />;
-  }
+  if (helpOpen) return <Help focusedId={focusedId} width={size.cols} height={size.rows} />;
+  if (detail) return <Detail target={detail} feed={mesh.feed} width={size.cols} height={size.rows} />;
 
   const narrow = size.cols < 80;
-  const bodyH = Math.max(3, size.rows - 3 /* tabs */ - 1 /* status */);
+  const searchRow = search.active || search.query ? 1 : 0;
+  const bodyH = Math.max(3, size.rows - 3 /* tabs */ - 1 /* status */ - searchRow);
   let roster: { w: number; h: number };
   let feed: { w: number; h: number };
   if (narrow) {
@@ -91,21 +106,35 @@ export function App({ ep, tapSubject }: { ep: CotalEndpoint; tapSubject?: string
         <Roster
           agents={mesh.agents}
           endpoints={mesh.endpoints}
+          query={search.query}
           boxWidth={roster.w}
           boxHeight={roster.h}
           wide={!narrow}
-          helpOpen={helpOpen}
+          blocked={blocked}
           onFocus={onFocus}
+          onOpenDetail={openAgent}
         />
         <Feed
           entries={mesh.feed}
           activeChannel={activeChannel}
+          query={search.query}
           boxWidth={feed.w}
           boxHeight={feed.h}
-          helpOpen={helpOpen}
+          blocked={blocked}
           onFocus={onFocus}
+          onOpenDetail={openMessage}
         />
       </Box>
+      {searchRow ? (
+        <Search
+          query={search.query}
+          active={search.active}
+          width={size.cols}
+          onChange={(q) => setSearch((s) => ({ ...s, query: q }))}
+          onSubmit={() => setSearch((s) => ({ ...s, active: false }))}
+          onCancel={() => setSearch({ active: false, query: "" })}
+        />
+      ) : null}
       <StatusBar
         status={mesh.status}
         rates={mesh.rates}

@@ -13,15 +13,20 @@ export function Help({
   const panel: [string, string][] =
     focusedId === "feed"
       ? [
-          ["↑ / ↓", "scroll one line"],
-          ["PgUp / PgDn", "scroll a page"],
-          ["g / Home", "jump to oldest"],
-          ["G / End", "newest (follow tail)"],
+          ["↑ / ↓", "move selection"],
+          ["PgUp / PgDn", "move a page"],
+          ["g / G", "oldest / newest (follow)"],
+          ["Enter", "open message detail"],
         ]
-      : [["↑ / ↓", "move selection"]];
+      : [
+          ["↑ / ↓", "move selection"],
+          ["Enter", "open agent detail"],
+        ];
   const global: [string, string][] = [
     ["Tab / ← →", "switch panel"],
     ["1 – 9", "jump to channel tab"],
+    ["/", "search / filter"],
+    ["Esc", "clear filter / close"],
     ["?", "toggle this help"],
     ["q / Ctrl-C", "quit"],
   ];
@@ -48,7 +53,7 @@ export function Help({
       flexDirection="column"
     >
       <Text bold color="cyan">
-        cotal console-ink — help
+        cotal console — help
       </Text>
       <Text dimColor>{"context: " + focusedId + " panel"}</Text>
       {section(focusedId + " panel", panel)}

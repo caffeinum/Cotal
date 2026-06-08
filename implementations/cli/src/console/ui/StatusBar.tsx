@@ -19,8 +19,8 @@ export function StatusBar({
 }) {
   const keys =
     focusedId === "feed"
-      ? "↑↓ scroll · PgUp/Dn · g/G ends · ←→ panel · 1-9 chan · ? help · q quit"
-      : "↑↓ select · ←→ panel · 1-9 chan · ? help · q quit";
+      ? "↑↓ select · Enter detail · / search · ←→ panel · 1-9 chan · ? help · q quit"
+      : "↑↓ select · Enter detail · / search · ←→ panel · 1-9 chan · ? help · q quit";
   return (
     <Box width={width} paddingX={1}>
       <Text wrap="truncate-end">
@@ -29,6 +29,7 @@ export function StatusBar({
           {status.space + " · #" + activeChannel + " · " + agentCount + " agents · " +
             rates.msgsPerSec.toFixed(1) + " msg/s"}
         </Text>
+        {status.dmVisible ? null : <Text color="yellow">{"  chat-only"}</Text>}
         {status.error ? (
           <Text color="red">{"  ! " + status.error}</Text>
         ) : (
