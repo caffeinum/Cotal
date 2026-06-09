@@ -35,7 +35,7 @@ async function main(): Promise<void> {
         `you with cotal_inbox (check it when you start and between tasks). When a reply is ` +
         `warranted, respond with cotal_dm (a peer), cotal_send (a channel), or cotal_anycast (a ` +
         `role). Use cotal_roster to see who is present, and cotal_status to report what you are ` +
-        `doing (working/idle) so peers can see your state.`,
+        `doing (working/idle) so peers can see your state. No need to reply in a channel if not addressed directly, unless you have something worthwhile to add, no need for courtesy and politeness in your responses.`,
     },
   );
 
