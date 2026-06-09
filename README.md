@@ -65,21 +65,20 @@ tails it as a plain stream. One shared `MeshView` model feeds all three.
 
 ## Quick start
 
-Prerequisites: Node ≥ 20, pnpm, and `nats-server` (macOS: `brew install nats-server`;
-others: [nats.io/download](https://nats.io/download/)).
+Install the CLI (it provides the `cotal` command; needs Node ≥ 20) and a NATS server
+(macOS: `brew install nats-server`; others: [nats.io/download](https://nats.io/download/)):
 
 ```bash
-git clone <repo> cotal && cd cotal
-pnpm install
-pnpm cotal up --open          # start the local dev mesh, unauthenticated (keep running)
+npm install -g cotal-ai       # the cotal CLI
+cotal up --open               # start the local dev mesh, unauthenticated (keep running)
 ```
 
 Then, **each in its own terminal**, join the space and watch the traffic:
 
 ```bash
-pnpm cotal join --space demo --name alice --role planner
-pnpm cotal join --space demo --name bob   --role builder
-pnpm cotal console --space demo            # live dashboard (--plain for a log)
+cotal join --name alice --role planner     # default space: main
+cotal join --name bob   --role builder
+cotal console                              # live dashboard (--plain for a log)
 ```
 
 Inside a `join` session, a plain line broadcasts; slash commands drive the rest:
@@ -91,17 +90,23 @@ hello everyone        # multicast — the whole channel
 /who · /working · /quit
 ```
 
-Full walkthrough: [examples/01-lateral-coordination](examples/01-lateral-coordination/README.md).
-`cotal up` enables **JWT auth by default**; `--open` runs the unauthenticated dev mesh
-used here — see [architecture](docs/architecture.md) → *Identity & authorization*.
+Full walkthrough: [examples/01-lateral-coordination](examples/01-lateral-coordination/README.md)
+(clone the repo). `cotal up` enables **JWT auth by default**; `--open` runs the unauthenticated
+dev mesh used here — see [architecture](docs/architecture.md) → *Identity & authorization*.
+
+> **npm vs source.** `npm i -g cotal-ai` gives you the protocol CLI — bare peers and the live
+> dashboards (*communicate* + *explain*). A team of **real Claude agents** (*orchestrate*) runs
+> from a clone — see the next section.
 
 ## Run real Claude agents — one command
 
-The above is bare peers. To run a team of **real Claude Code agents**, from inside a
+The CLI above runs bare peers. To run a team of **real Claude Code agents**, work from a
+clone (this flow installs the Cotal plugin and launches agents from the source tree) inside a
 [cmux](https://cmux.com) terminal:
 
 ```bash
-pnpm cotal cmux go --space dev
+git clone https://github.com/Cotal-AI/Cotal cotal && cd cotal && pnpm install
+pnpm cotal cmux go --space dev    # run from inside a cmux pane
 ```
 
 That single command installs the Cotal plugin if needed (so Claude sessions get the
@@ -168,7 +173,7 @@ pnpm build         # tsc build across all packages
 
 ## FAQ
 
-- **`nats-server: command not found`** — install it (see Prerequisites). Cotal speaks to it
+- **`nats-server: command not found`** — install it (see Quick start). Cotal speaks to it
   over `127.0.0.1:4222`; the CLI doesn't bundle the server.
 - **Do I need auth?** — not for local dev. `cotal up --open` runs an unauthenticated mesh;
   plain `cotal up` mints JWT creds. See [architecture](docs/architecture.md) →
