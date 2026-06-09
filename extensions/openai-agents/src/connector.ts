@@ -1,11 +1,13 @@
 import { fileURLToPath } from "node:url";
 import { registry, type Connector, type LaunchOpts, type LaunchSpec } from "@cotal-ai/core";
 
-/** The peer loop runs straight from source via tsx (resolved from this extension's own
- *  node_modules, so it works regardless of the spawned process's PATH/cwd) — both paths
- *  resolved relative to this file. */
+/** The peer loop runs via tsx (resolved from this extension's own node_modules, so it works
+ *  regardless of the spawned process's PATH/cwd). `main` is loaded with the same extension as
+ *  this module — `main.ts` when running from source (dev), `main.js` when running from built
+ *  `dist/` — so the entrypoint resolves to a file that actually exists in either mode. */
+const ext = import.meta.url.endsWith(".ts") ? ".ts" : ".js";
 const TSX = fileURLToPath(new URL("../node_modules/.bin/tsx", import.meta.url));
-const MAIN = fileURLToPath(new URL("./main.ts", import.meta.url));
+const MAIN = fileURLToPath(new URL(`./main${ext}`, import.meta.url));
 
 /**
  * The OpenAI Agents (TS) connector: launches an embedded Cotal peer that runs the
