@@ -46,13 +46,16 @@ export function Help({
     ["?", "toggle this help"],
     ["q / Ctrl-C", "quit"],
   ];
+  // Pad the key column to the longest key (across both lists) + a gap, so a long key like
+  // "Ctrl-d / Ctrl-u" never sits flush against its description.
+  const colW = Math.max(...[...panel, ...global].map(([k]) => k.length)) + 2;
   const section = (title: string, rows: [string, string][]) => (
     <Box marginTop={1} flexDirection="column">
       <Text bold>{title}</Text>
       {rows.map(([k, d], i) => (
         <Text key={i}>
           {"  "}
-          <Text color="yellow">{k.padEnd(14)}</Text>
+          <Text color="yellow">{k.padEnd(colW)}</Text>
           <Text dimColor>{d}</Text>
         </Text>
       ))}
