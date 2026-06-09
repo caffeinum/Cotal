@@ -95,15 +95,16 @@ with `--config`.
 **One command, from inside a cmux pane:**
 
 ```
-cotal cmux --drive --space <s>
+cotal go --space <s>            # alias: cotal cmux --drive
 ```
 
 It does the whole onboarding: installs the cotal plugin if needed (`cotal setup` — so the
 repo's Claude sessions get the `cotal_*` tools), brings up the mesh (`cotal up --open`), opens
 the manager in its own `cotal-manager` tab, and opens a `cotal-<s>` workspace with the live
-console + a ready driving session. Switch to that pane and use `cotal_persona` to mint a
-teammate, `cotal_spawn` to bring it online, `cotal_despawn` to tear it down. Re-running it is
-idempotent.
+console + a ready driving session. Sessions auto-accept Claude's one-time dev-channels prompt
+(an Enter sent to their own cmux surface), so they join the mesh without a keypress. Switch to
+that pane and use `cotal_persona` to mint a teammate, `cotal_spawn` to bring it online,
+`cotal_despawn` to tear it down. Re-running it is idempotent.
 
 Under the hood it's just the existing pieces, so you can also run them by hand:
 `cotal setup` (one-time plugin install) · `cotal up --open` · `cotal cmux --space <s>` (the

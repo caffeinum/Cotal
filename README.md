@@ -72,12 +72,13 @@ The above is bare peers. To run a team of **real Claude Code agents** that you g
 from inside a [cmux](https://cmux.com) terminal:
 
 ```bash
-pnpm cotal cmux --drive --space dev
+pnpm cotal go --space dev          # (alias: cotal cmux --drive)
 ```
 
 That single command: installs the Cotal plugin if needed (`cotal setup`, so Claude sessions get
 the `cotal_*` tools), starts the mesh, opens the manager in its own tab, and opens a workspace
-with the live console + a ready **driving session**. Switch to that pane, then:
+with the live console + a ready **driving session** (which auto-accepts Claude's one-time
+dev-channels prompt, so it joins the mesh on its own). Switch to that pane, then:
 
 ```
 cotal_persona(name="scout", prompt="You are a recon agent…", model="sonnet")  # define a teammate
@@ -165,7 +166,7 @@ pnpm + TypeScript ESM monorepo, four dependency tiers with one-way deps —
 
 ```bash
 pnpm cotal <cmd>   # up, join, watch, console, web, mint, setup, spawn,
-                   # supervise, cmux (--drive), start, stop, ps, attach
+                   # go (one-command cmux onboarding), supervise, cmux, start, stop, ps, attach
 pnpm smoke         # non-interactive end-to-end check against a running mesh
 pnpm typecheck     # tsc --noEmit across all packages
 pnpm build         # tsc build across all packages
@@ -174,7 +175,7 @@ pnpm build         # tsc build across all packages
 ## Where to go next
 
 - **Run the demo** → the [Quick start](#quick-start) above.
-- **Run your own agent team** → [`cotal cmux --drive`](#run-real-claude-agents--one-command):
+- **Run your own agent team** → [`cotal go`](#run-real-claude-agents--one-command):
   one command brings up a mesh + manager + a driving session you steer with
   `cotal_persona` / `cotal_spawn` / `cotal_despawn`.
 - **See real agents coordinate** → [`examples/02-cmux-handoff`](examples/02-cmux-handoff/README.md):

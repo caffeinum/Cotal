@@ -206,8 +206,31 @@ async function runDrive(argv: string[]): Promise<void> {
       surfaces: [{ type: "terminal", command: `bash -lc 'cd ${root} && exec ${tsx} ${cotalBin} ${sub}'` }],
     },
   });
+  // A driving pane that auto-accepts Claude's one-time dev-channels prompt by pressing Enter on
+  // its own cmux surface a few times — so the session joins the mesh with no manual keypress.
+  const enterLoop =
+    '( [ -n "$CMUX_SURFACE_ID" ] && [ -n "$CMUX_BUNDLED_CLI_PATH" ] && ' +
+    'for _ in 1 2 3 4 5; do sleep 1; "$CMUX_BUNDLED_CLI_PATH" send-key --surface "$CMUX_SURFACE_ID" enter 2>/dev/null; done ) &';
+  const leafConfirm = (sub: string) => ({
+    pane: {
+      surfaces: [
+        { type: "terminal", command: `bash -lc 'cd ${root} || exit 1; ${enterLoop} exec ${tsx} ${cotalBin} ${sub}'` },
+      ],
+    },
+  });
   const openWs = (wsName: string, layout: unknown) =>
     execFileSync(tsx, [cmuxCli, "open", wsName, JSON.stringify(layout)], { stdio: "ignore" });
+  const cmuxBin = process.env.CMUX_BUNDLED_CLI_PATH;
+  const workspaceExists = (wsName: string): boolean => {
+    if (!cmuxBin) return false;
+    try {
+      return execFileSync(cmuxBin, ["list-workspaces"], { encoding: "utf8" })
+        .split("\n")
+        .some((l) => l.includes(wsName));
+    } catch {
+      return false;
+    }
+  };
 
   // Must run inside a live cmux surface (cmux authorizes its socket only from a real pane).
   try {
@@ -248,13 +271,17 @@ async function runDrive(argv: string[]): Promise<void> {
     console.log(c.green("✓ opened the manager tab (cotal-manager)"));
   }
 
-  // Work workspace: console on top, a ready driving session below.
-  openWs(`cotal-${space}`, {
-    direction: "vertical",
-    split: 0.4,
-    children: [leaf(`console --space ${space}`), leaf(`spawn ${name} --space ${space}`)],
-  });
-  console.log(c.green(`✓ opened the cotal-${space} workspace (console + ${name})`));
+  // Work workspace: console on top, a ready driving session below (skip if already open).
+  if (workspaceExists(`cotal-${space}`)) {
+    console.log(c.dim(`✓ workspace cotal-${space} already open`));
+  } else {
+    openWs(`cotal-${space}`, {
+      direction: "vertical",
+      split: 0.4,
+      children: [leaf(`console --space ${space}`), leafConfirm(`spawn ${name} --space ${space}`)],
+    });
+    console.log(c.green(`✓ opened the cotal-${space} workspace (console + ${name})`));
+  }
   console.log(
     c.dim(`\nSwitch to the "${name}" pane, then drive: cotal_persona · cotal_spawn · cotal_despawn.`),
   );
@@ -274,10 +301,18 @@ const managerCommands: Command[] = [
   },
   {
     kind: "command",
+    name: "go",
+    group: "Agents",
+    summary:
+      "one-command cmux onboarding — installs the plugin, brings up the mesh, opens the manager + console + a driving session (run from a cmux pane) — [--space <s>] [--name <n>]",
+    run: (argv) => runDrive(argv),
+  },
+  {
+    kind: "command",
     name: "cmux",
     group: "Manager",
     summary:
-      "run a manager that spawns each teammate into its own cmux tab — [--space <s>] [--server <url>]; --drive = one-command onboarding (mesh + manager + console + a driving session)",
+      "run a manager that spawns each teammate into its own cmux tab — [--space <s>] [--server <url>]; --drive = the cotal go onboarding",
     run: (argv) => (argv.includes("--drive") ? runDrive(argv) : runManager(argv, "cmux")),
   },
   {

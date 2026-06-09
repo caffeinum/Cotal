@@ -13,6 +13,12 @@ import * as cmux from "./driver.js";
 /** Grace window for a clean exit before a graceful stop force-closes the tab. */
 const GRACE_MS = 1_500;
 
+/** Background snippet that auto-accepts a one-time confirm prompt by pressing Enter on the
+ *  pane's own cmux surface a few times. Gated on the cmux env vars so it's a no-op off cmux. */
+const ENTER_LOOP =
+  '[ -n "$CMUX_SURFACE_ID" ] && [ -n "$CMUX_BUNDLED_CLI_PATH" ] && ' +
+  '( for _ in 1 2 3 4 5; do sleep 1; "$CMUX_BUNDLED_CLI_PATH" send-key --surface "$CMUX_SURFACE_ID" enter 2>/dev/null; done ) &';
+
 function shellQuote(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`;
 }
@@ -37,7 +43,11 @@ export class CmuxRuntime implements Runtime {
       );
     const envPrefix = Object.entries(spec.env ?? {}).map(([k, v]) => `${k}=${shellQuote(v)}`);
     const cmd = [...envPrefix, spec.command, ...spec.args.map(shellQuote)].join(" ");
-    const script = `#!/usr/bin/env bash\ncd ${shellQuote(cwd)}\nexec ${cmd}\n`;
+    // If the launch shows a one-time confirm (Claude's dev-channels prompt), auto-clear it by
+    // sending Enter to this tab's own surface a few times — so a spawned teammate joins the mesh
+    // without anyone switching to its tab to press Enter. (Same trick as run-agent.sh.)
+    const autoConfirm = spec.confirm ? `${ENTER_LOOP}\n` : "";
+    const script = `#!/usr/bin/env bash\ncd ${shellQuote(cwd)}\n${autoConfirm}exec ${cmd}\n`;
     const scriptPath = join(tmpdir(), `cotal-spawn-${name}.sh`);
     writeFileSync(scriptPath, script, { mode: 0o755 });
     const layout = JSON.stringify({
