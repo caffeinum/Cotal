@@ -72,4 +72,19 @@ const sameScope = (a: InboxItem, b: InboxItem): boolean =>
   assert(ids(fake.items) === "x" && !turn.inFlight, "item stays on the stream; turn idle");
 }
 
+// 4) MAX_INBOX front-eviction guard: if the surfaced prefix is evicted mid-turn (overflow
+//    already acked it), commit must NOT drain the newer front items that took its place
+{
+  const fake = new FakeInbox();
+  fake.items = [item("o", "alice")];
+  const turn = new InboxTurn(fake);
+  assert(turn.start()?.id === "o", "origin = o");
+  // simulate overflow: the front (origin) is force-acked + evicted, a newer message arrives
+  fake.items.shift();
+  fake.items.push(item("new", "bob"));
+  turn.commit();
+  assert(fake.acked.length === 0, "commit after eviction does not mis-ack the newer front");
+  assert(ids(fake.items) === "new" && !turn.inFlight, "newer item left intact; turn idle");
+}
+
 console.log("INBOX-TURN SMOKE OK ✅");

@@ -80,7 +80,7 @@ export class InboxTurn {
    * in (e.g. via steer). No-op until {@link start}.
    */
   extend(match: (item: InboxItem, origin: InboxItem) => boolean): InboxItem[] {
-    if (!this._origin) return [];
+    if (!this._origin || !this.intact()) return [];
     const rest = this.source.peekInbox().slice(this.surfaced);
     const run: InboxItem[] = [];
     for (const item of rest) {
@@ -97,13 +97,27 @@ export class InboxTurn {
    * call on interrupt/crash — use {@link abandon} so the run redelivers.
    */
   commit(): void {
-    if (this.surfaced) this.source.drainInbox(this.surfaced);
+    if (this.surfaced && this.intact()) this.source.drainInbox(this.surfaced);
+    // If the surfaced prefix was force-evicted from the inbox (a MAX_INBOX overflow already
+    // acked it — see MeshAgent.ingest), draining would ack the newer front items in its place,
+    // so skip: the run is already gone from the stream.
     this.reset();
   }
 
   /** End the turn without acking — the surfaced run stays on the stream and redelivers. */
   abandon(): void {
     this.reset();
+  }
+
+  /** Whether the surfaced prefix is still the front of the inbox. A `MAX_INBOX` overflow
+   *  evicts (and acks) from the front, so a long turn on a chatty space can drop the in-flight
+   *  prefix out from under us; this catches that before {@link commit}/{@link extend} acts on a
+   *  stale offset. Eviction is front-first, so it removes the origin before any folded peer —
+   *  hence "origin still at the front" implies the whole prefix survived. */
+  private intact(): boolean {
+    if (!this.surfaced) return true;
+    const front = this.source.peekInbox();
+    return front.length >= this.surfaced && front[0]?.id === this._origin?.id;
   }
 
   private reset(): void {
