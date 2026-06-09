@@ -18,6 +18,7 @@ export function Help({
           ["Ctrl-d / Ctrl-u", "half-page down / up"],
           ["PgUp / PgDn", "page up / down"],
           ["g / G", "oldest / newest"],
+          ["{ } / K J", "previous / next message"],
           ["Enter", "open current message"],
         ]
       : focusedId === "dmpeers" || focusedId === "dmthread"

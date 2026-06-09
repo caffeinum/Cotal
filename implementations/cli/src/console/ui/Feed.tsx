@@ -128,6 +128,7 @@ export function Feed({
   // highlight + Enter→detail) is whichever entry the cursor row falls in.
   const [cur, setCur] = useState(0);
   const prevRows = useRef(0);
+  const topRef = useRef(0);
   // Follow the tail: if the cursor was on the last row, ride new rows down.
   useEffect(() => {
     setCur((c) => {
@@ -163,6 +164,10 @@ export function Feed({
         setCur((c) => Math.min(last, c + (key.ctrl ? half : room)));
       else if (input === "g" || key.home) setCur(0);
       else if (input === "G" || key.end) setCur(last);
+      else if ((input === "{" || input === "K") && starts.length)
+        setCur(curClamped > starts[curEntry] ? starts[curEntry] : starts[Math.max(0, curEntry - 1)]);
+      else if ((input === "}" || input === "J") && starts.length)
+        setCur(starts[Math.min(starts.length - 1, curEntry + 1)]);
       else if (input === "c" && onCompose) onCompose();
       else if (input === "r" && onReply && filtered.length) onReply(filtered[curEntry]);
       else if (key.return && filtered.length) onOpenDetail(filtered[curEntry]);
@@ -170,9 +175,14 @@ export function Feed({
     { isActive: isFocused && !blocked },
   );
 
-  // Viewport: a window of `room` rows that glides the cursor (centered, clamped to the ends).
+  // Viewport: edge-anchored — the window only scrolls when the cursor leaves it (no center-lock),
+  // so reversing direction at an end responds on the first keypress instead of crawling back to center.
   const maxTop = Math.max(0, rows.length - room);
-  const top = Math.min(maxTop, Math.max(0, curClamped - Math.floor(room / 2)));
+  let top = Math.min(topRef.current, maxTop);
+  if (curClamped < top) top = curClamped; // cursor above window → pull up
+  else if (curClamped > top + room - 1) top = curClamped - room + 1; // cursor below window → push down
+  top = Math.max(0, Math.min(top, maxTop));
+  topRef.current = top;
   const end = Math.min(rows.length, top + room);
   const visible = rows.slice(top, end);
   const below = rows.length - end;
