@@ -177,6 +177,9 @@
         border-radius: 10px; background: var(--tile); border: 1px solid var(--ac, var(--line));
         padding: 14px; display: flex; flex-direction: column; gap: 9px;
       }
+      .card.nav { cursor: pointer; transition: border-color .12s, background .12s; }
+      .card.nav:hover { border-color: var(--ac); }
+      .card.nav.sel { border-color: var(--ac); background: var(--tint-amber, var(--tile)); }
       .card .top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
       .card .cat-l { display: flex; align-items: center; gap: 7px; }
       .card .cdot { width: 8px; height: 8px; border-radius: 50%; background: var(--ac); }
@@ -184,7 +187,10 @@
       .card .age { font-size: 10px; color: var(--dim); background: var(--line);
         padding: 1px 6px; border-radius: 4px; }
       .card .title { font-size: 13.5px; font-weight: 600; color: var(--fg); }
+      .card .crole { font-size: 11px; font-weight: 500; color: var(--faint); margin-left: 7px; }
       .card .desc { font-size: 12px; color: var(--dim); }
+      /* Live waiting cards: one-line preview (gist at a glance); full text lives in the click-through detail. */
+      .card.nav .desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .card .btns { display: flex; gap: 8px; }
       .btn {
         font-size: 11.5px; padding: 6px 12px; border-radius: 6px; cursor: pointer;
@@ -245,6 +251,22 @@
       .dm.sub .dot { width: 10px; font-size: 10px; }
 
       .empty { color: var(--faint); padding: 22px 16px; font-size: 12px; }
+
+      /* ── Agent Detail (centre drill-down) ── */
+      .detail { padding: 22px 24px; display: flex; flex-direction: column; gap: 13px; overflow-y: auto; }
+      .detail .d-head { display: flex; align-items: center; gap: 9px; }
+      .detail .d-head .dot { font-size: 13px; }
+      .detail .d-status { font-size: 11px; font-weight: 700; letter-spacing: .5px; color: var(--dim); }
+      .detail.amber .d-status { color: var(--amber); }
+      .detail .d-age { margin-left: auto; font-size: 11px; color: var(--faint); }
+      .detail .d-who { font-size: 20px; font-weight: 700; color: var(--fg); display: flex; align-items: baseline; }
+      .detail .d-who .crole { font-size: 12px; font-weight: 500; color: var(--faint); margin-left: 8px; }
+      .detail .d-id { font-size: 11px; color: var(--faint); font-family: ui-monospace, monospace; margin-top: -7px; }
+      .detail .d-label { font-size: 10.5px; font-weight: 600; letter-spacing: .4px; color: var(--faint); text-transform: uppercase; }
+      .detail .d-block { font-size: 13px; color: var(--fg); line-height: 1.5; padding: 12px 14px; border-radius: 8px;
+        background: var(--tile); border: 1px solid var(--line); white-space: pre-wrap; word-break: break-word; }
+      .detail.amber .d-block { border-color: var(--amber); background: var(--tint-amber); }
+      .detail .d-block.muted { color: var(--dim); }
     </style>
   </head>
   <body>

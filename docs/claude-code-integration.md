@@ -145,10 +145,17 @@ state boundary move it; "what it's doing" rides on channel updates, not presence
 |---|---|
 | `SessionStart` | `idle` (join; also drains the inbox) |
 | `UserPromptSubmit` | `working` (turn starts; drains the inbox) |
+| `PreToolUse` | no state change — records *what* the turn is about to run, so a following permission `Notification` can name it |
 | `Notification` (`permission_prompt` / `elicitation_dialog`) | `waiting` (blocked on a human) |
 | `Stop` | `idle` (turn done) |
 | `StopFailure` | `idle` (turn died on an API error — `Stop` won't fire) |
 | `SessionEnd` | `offline` (graceful leave) |
+
+The `waiting` `activity` says *what* the session is blocked on. For a tool-permission prompt it leads
+with the pending `PreToolUse` — e.g. `Bash: git push --force origin main` — so a one-line card preview
+stays informative (the `waiting` status + the `web` dashboard's Agent Detail "BLOCKED ON" label convey
+the *why*); otherwise (idle-input / elicitation, no tool) it falls back to `Notification.message`. The
+pending tool is cleared on turn start/end so an idle-input wait never inherits a stale command.
 
 Wired in [`hooks.json`](../extensions/connector-claude-code/hooks/hooks.json), relayed over the connector's
 control socket ([`connector-core/src/control.ts`](../extensions/connector-core/src/control.ts)) and mapped to

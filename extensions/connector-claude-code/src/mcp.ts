@@ -25,6 +25,23 @@ import {
   type HookHandle,
 } from "@cotal/connector-core";
 
+/**
+ * Last tool Claude tried to use, captured on PreToolUse. When a permission Notification
+ * fires moments later, this is *what* it's blocked on — so the dashboard shows the actual
+ * command/action awaiting approval, not just "Claude needs your permission".
+ */
+let pendingTool: { name: string; detail: string } | undefined;
+
+/** A short, human-readable preview of a tool call: its most salient input, else compact JSON. */
+function toolDetail(name: unknown, input: unknown): { name: string; detail: string } | undefined {
+  if (typeof name !== "string" || !name) return undefined;
+  const i = (input ?? {}) as Record<string, unknown>;
+  const salient = i.command ?? i.file_path ?? i.path ?? i.url ?? i.pattern ?? i.description;
+  let detail = typeof salient === "string" ? salient : Object.keys(i).length ? JSON.stringify(i) : "";
+  if (detail.length > 300) detail = `${detail.slice(0, 299)}…`;
+  return { name, detail };
+}
+
 /** Claude Code lifecycle events → presence + (on inject-capable events) queued peer messages. */
 const claudeHandle: HookHandle = async (agent, ev) => {
   const event = ev.hook_event_name ?? "";
@@ -36,13 +53,30 @@ const claudeHandle: HookHandle = async (agent, ev) => {
         await agent.setStatus("idle");
         return withContext(formatInjection(agent.drainInbox()));
       case "UserPromptSubmit":
+        pendingTool = undefined; // new turn — the previous block (if any) is resolved
         await agent.setStatus("working");
         return withContext(formatInjection(agent.drainInbox()));
-      case "Notification":
-        await agent.setStatus("waiting");
+      case "PreToolUse":
+        // Remember what Claude is about to do; if it needs permission, the Notification
+        // below turns this into the "blocked on" detail. Auto-approved tools just overwrite it.
+        pendingTool = toolDetail(ev.tool_name, ev.tool_input);
         return {};
+      case "Notification": {
+        // Claude Code's Notification carries the human-readable reason the session is
+        // blocked in `message`. When a tool permission is pending, lead with *what* it's
+        // waiting on (the actual command) so a one-line card preview stays informative — the
+        // `waiting` status + the dashboard's "BLOCKED ON" label already convey the *why*.
+        // Otherwise (idle-input / elicitation, no tool) the message itself is the content.
+        const msg = typeof ev.message === "string" ? ev.message : undefined;
+        const activity = pendingTool
+          ? `${pendingTool.name}${pendingTool.detail ? `: ${pendingTool.detail}` : ""}`
+          : msg;
+        await agent.setStatus("waiting", activity);
+        return {};
+      }
       case "Stop":
       case "StopFailure": // turn died on an API error — Stop won't fire, so reset here too
+        pendingTool = undefined; // turn ended — don't let a stale tool attach to an idle-wait notification
         await agent.setStatus("idle");
         // Now idle: if ambient channel chatter was held while we were busy, ask the channel to
         // wake one turn so its UserPromptSubmit drains+acks the batch (the sole ack site). Stop
