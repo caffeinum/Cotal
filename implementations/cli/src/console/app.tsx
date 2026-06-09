@@ -13,9 +13,16 @@ import { Help } from "./ui/Help.js";
 import { Search } from "./ui/Search.js";
 import { CommandPalette } from "./ui/CommandPalette.js";
 import { Confirm, type ConfirmTarget } from "./ui/Confirm.js";
+import { Prompt } from "./ui/Prompt.js";
 import { Detail, type DetailTarget } from "./ui/Detail.js";
-import { runCommand, type CommandCtx } from "./commands.js";
+import { runCommand, mentionsIn, type CommandCtx } from "./commands.js";
 import type { FeedEntry, FocusId } from "./mesh.js";
+
+/** An in-progress compose: post to a channel, DM a peer, or reply to a feed message. */
+type ComposeTarget =
+  | { kind: "channel"; channel: string; value: string }
+  | { kind: "dm"; toId: string; toName: string; value: string }
+  | { kind: "reply"; entry: FeedEntry; value: string };
 
 /**
  * The lazygit-style console: channel tabs · golden-signal tiles · roster · live feed · status bar,
@@ -50,20 +57,23 @@ export function App({
   const [railOpen, setRailOpen] = useState(false);
   const [palette, setPalette] = useState({ active: false, query: "" });
   const [confirm, setConfirm] = useState<ConfirmTarget | null>(null);
+  const [compose, setCompose] = useState<ComposeTarget | null>(null);
   const [notice, setNotice] = useState<string | undefined>();
 
   const overlay = helpOpen || detail !== null;
-  const blocked = overlay || search.active || palette.active || confirm !== null;
+  const blocked = overlay || search.active || palette.active || confirm !== null || compose !== null;
 
-  // ---- geometry (pure from size / mode / rail / search / palette) -------------
+  // ---- geometry (pure from size / mode / rail / search / palette / compose) ---
   const narrow = size.cols < 80;
-  const searchRow = search.active || search.query ? 1 : 0;
+  const composeRow = compose ? 1 : 0;
+  // The filter row hides while the palette or a compose prompt owns the bottom region.
+  const searchRow = (search.active || search.query) && !palette.active && !compose ? 1 : 0;
   const tilesRow = 1;
   const paletteRows = palette.active ? 7 : 0; // CommandPalette is a fixed 6 suggestions + 1 input
   const noticeRow = notice ? 1 : 0;
   const bodyH = Math.max(
     3,
-    size.rows - 3 /* tabs */ - tilesRow - 1 /* status */ - searchRow - paletteRows - noticeRow,
+    size.rows - 3 /* tabs */ - tilesRow - 1 /* status */ - searchRow - paletteRows - noticeRow - composeRow,
   );
   // The needs-you rail is a side column only on a genuinely wide terminal; otherwise `n` opens it
   // full-screen so it never squeezes the feed unreadably. It never coexists with the DM lens.
@@ -124,6 +134,44 @@ export function App({
   const openAgent = useCallback((p: Presence) => setDetail({ kind: "agent", agent: p }), []);
   const openMessage = useCallback((e: FeedEntry) => setDetail({ kind: "message", entry: e }), []);
   const handleKill = useCallback((p: Presence) => setConfirm({ kind: "kill", name: p.card.name }), []);
+  const feedCompose = useCallback(
+    () => setCompose({ kind: "channel", channel: activeChannel === "all" ? "general" : activeChannel, value: "" }),
+    [activeChannel],
+  );
+  const feedReply = useCallback((e: FeedEntry) => setCompose({ kind: "reply", entry: e, value: "" }), []);
+  const rosterCompose = useCallback(
+    (p: Presence) => setCompose({ kind: "dm", toId: p.card.id, toName: p.card.name, value: "" }),
+    [],
+  );
+
+  const composeLabel = (c: ComposeTarget): string =>
+    c.kind === "channel"
+      ? "→ #" + c.channel
+      : c.kind === "dm"
+        ? "→ @" + c.toName
+        : "↩ " + c.entry.from.name + (c.entry.delivery === "multicast" && c.entry.channel ? " #" + c.entry.channel : "");
+
+  // Send the in-progress compose over the live endpoint.
+  const submitCompose = () => {
+    const c = compose;
+    if (!c) return;
+    setCompose(null);
+    const text = c.value.trim();
+    if (!text) return;
+    const ok = (label: string) => () => setNotice(label);
+    const fail = (e: unknown) => setNotice("send: " + (e as Error).message);
+    if (c.kind === "channel")
+      void ep.multicast(text, { channel: c.channel, mentions: mentionsIn(text) }).then(ok("→ #" + c.channel)).catch(fail);
+    else if (c.kind === "dm") void ep.unicast(c.toId, text).then(ok("→ " + c.toName)).catch(fail);
+    else {
+      const e = c.entry;
+      const send =
+        e.delivery === "multicast" && e.channel
+          ? ep.multicast(text, { channel: e.channel, replyTo: e.id, mentions: mentionsIn(text) })
+          : ep.unicast(e.from.id, text, { replyTo: e.id });
+      void send.then(ok("↩ " + e.from.name)).catch(fail);
+    }
+  };
 
   // Run a typed palette line against the live endpoint.
   const runPaletteLine = (line: string) => {
@@ -187,7 +235,7 @@ export function App({
         if (idx < tabs.length) setActiveChannel(tabs[idx]);
       }
     },
-    { isActive: !palette.active && confirm === null },
+    { isActive: !palette.active && confirm === null && compose === null },
   );
 
   if (helpOpen) return <Help focusedId={focusedId} width={size.cols} height={size.rows} />;
@@ -236,6 +284,7 @@ export function App({
               onFocus={onFocus}
               onOpenDetail={openAgent}
               onKill={canWrite ? handleKill : undefined}
+              onCompose={canWrite ? rosterCompose : undefined}
             />
             <Feed
               entries={mesh.feed}
@@ -246,6 +295,8 @@ export function App({
               blocked={blocked}
               onFocus={onFocus}
               onOpenDetail={openMessage}
+              onCompose={canWrite ? feedCompose : undefined}
+              onReply={canWrite ? feedReply : undefined}
             />
           </Box>
           {railAsColumn ? (
@@ -267,7 +318,16 @@ export function App({
           </Text>
         </Box>
       ) : null}
-      {palette.active ? (
+      {compose ? (
+        <Prompt
+          label={composeLabel(compose)}
+          value={compose.value}
+          width={size.cols}
+          onChange={(v) => setCompose((c) => (c ? { ...c, value: v } : c))}
+          onSubmit={submitCompose}
+          onCancel={() => setCompose(null)}
+        />
+      ) : palette.active ? (
         <CommandPalette
           active={palette.active}
           query={palette.query}

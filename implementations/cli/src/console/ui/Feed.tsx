@@ -96,6 +96,8 @@ export function Feed({
   blocked,
   onFocus,
   onOpenDetail,
+  onCompose,
+  onReply,
 }: {
   entries: FeedEntry[];
   activeChannel: string;
@@ -105,6 +107,8 @@ export function Feed({
   blocked: boolean;
   onFocus: (id: "roster" | "feed") => void;
   onOpenDetail: (entry: FeedEntry) => void;
+  onCompose?: () => void;
+  onReply?: (entry: FeedEntry) => void;
 }) {
   const { isFocused } = useFocus({ id: "feed" });
   useEffect(() => {
@@ -159,6 +163,8 @@ export function Feed({
         setCur((c) => Math.min(last, c + (key.ctrl ? half : room)));
       else if (input === "g" || key.home) setCur(0);
       else if (input === "G" || key.end) setCur(last);
+      else if (input === "c" && onCompose) onCompose();
+      else if (input === "r" && onReply && filtered.length) onReply(filtered[curEntry]);
       else if (key.return && filtered.length) onOpenDetail(filtered[curEntry]);
     },
     { isActive: isFocused && !blocked },

@@ -32,7 +32,7 @@ function idOf(snap: MeshSnapshot, name: string): string | undefined {
 }
 
 /** @-mentions inside a message body → bare names (priority/wake hint). */
-function mentionsIn(text: string): string[] {
+export function mentionsIn(text: string): string[] {
   return [...text.matchAll(/@([A-Za-z0-9_.-]+)/g)].map((m) => m[1]);
 }
 

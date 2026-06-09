@@ -38,6 +38,8 @@ export function Help({
     ["n", "toggle needs-you rail"],
     ["d", "direct-message lens"],
     [":", "command palette (send / call / ask)"],
+    ["c", "compose to channel / DM selected agent"],
+    ["r", "reply to current message"],
     ["D", "delete — kill agent / drop space"],
     ["/", "search / filter"],
     ["Esc / b", "back / cancel (→ spaces)"],
