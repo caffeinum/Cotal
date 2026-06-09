@@ -18,6 +18,7 @@ import {
   type LaunchSpec,
 } from "@cotal/core";
 import { Manager } from "@cotal/manager";
+import "@cotal/cmux"; // registers the cmux runtime this manager spawns through
 import { fileURLToPath } from "node:url";
 
 const RUN_AGENT = fileURLToPath(new URL("../run-agent.sh", import.meta.url));

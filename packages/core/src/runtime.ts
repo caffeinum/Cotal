@@ -1,6 +1,9 @@
-import type { LaunchSpec } from "@cotal/core";
+import type { Extension } from "./registry.js";
+import type { LaunchSpec } from "./connector.js";
 
-export type RuntimeKind = "pty" | "tmux" | "cmux";
+/** Which backend a manager spawns through. Open-ended: `pty`/`tmux` ship with the
+ *  manager, others (e.g. `cmux`) are contributed by a {@link RuntimeProvider}. */
+export type RuntimeKind = string;
 
 /** A live attach onto a running agent's terminal — the stream `cotal attach`
  *  (and, later, the browser console) consumes. PTY frames flow here directly,
@@ -31,14 +34,30 @@ export interface AgentHandle {
    *  it's a hard, immediate kill. */
   stop(opts?: { graceful?: boolean }): void;
   interrupt(): void;
-  /** Open a live attach. Throws on backends that can't stream (e.g. tmux, which
+  /** Open a live attach. Throws on backends that can't stream (e.g. tmux/cmux, which
    *  you attach to natively). */
   attach(): AttachSession;
 }
 
-/** A pluggable agent backend — `pty` (default) owns a real pseudo-terminal;
- *  `tmux` (opt-in) drives a multiplexer pane. Selectable, no silent fallback. */
+/** A pluggable agent backend — `pty` (default) owns a real pseudo-terminal; `tmux`
+ *  drives a multiplexer pane; `cmux` (an integration) opens a tab. */
 export interface Runtime {
   readonly kind: RuntimeKind;
   spawn(name: string, spec: LaunchSpec, cwd: string): AgentHandle;
+}
+
+/**
+ * A bridge that contributes one runtime backend — an {@link Extension} of kind
+ * `"runtime"`. `name` is the backend it provides (e.g. `"cmux"`), the key the
+ * manager resolves by. Providers self-register on import (like {@link Connector}),
+ * so the manager core stays ignorant of which runtimes exist beyond its built-ins.
+ */
+export interface RuntimeProvider extends Extension {
+  readonly kind: "runtime";
+  readonly name: RuntimeKind;
+  /** Whether this backend is reachable right now (e.g. the cmux app is running). */
+  available(): boolean;
+  /** Build a runtime instance. `session` names a per-space multiplexer session
+   *  when the backend uses one (tmux); others may ignore it. */
+  create(opts: { session: string }): Runtime;
 }

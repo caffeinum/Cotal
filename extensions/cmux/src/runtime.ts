@@ -1,13 +1,14 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { LaunchSpec } from "@cotal/core";
-import { cmux } from "@cotal/cmux";
-import type { AgentHandle, Runtime } from "./types.js";
-
-export function cmuxAvailable(): boolean {
-  return cmux.available();
-}
+import {
+  registry,
+  type AgentHandle,
+  type LaunchSpec,
+  type Runtime,
+  type RuntimeProvider,
+} from "@cotal/core";
+import * as cmux from "./driver.js";
 
 /** Grace window for a clean exit before a graceful stop force-closes the tab. */
 const GRACE_MS = 1_500;
@@ -17,16 +18,16 @@ function shellQuote(s: string): string {
 }
 
 /**
- * Opt-in runtime that spawns each agent into its own new cmux tab (workspace), so
- * spawned teammates get room instead of crowding the spawner. cmux can't run a
- * command in a fresh surface directly, so we write the launch as a temp bash
- * script and point the tab's terminal at it — sidestepping nushell↔bash quoting.
- * Opened unfocused so the human stays put; switch to the new tab to watch the
- * worker. Like tmux, you watch it natively, so `attach()` throws — but teardown is
- * real: we keep the tab's workspace + surface ids to drive and close it.
+ * Spawns each agent into its own new cmux tab (workspace), so spawned teammates get
+ * room instead of crowding the spawner. cmux can't run a command in a fresh surface
+ * directly, so we write the launch as a temp bash script and point the tab's terminal
+ * at it — sidestepping nushell↔bash quoting. Opened unfocused so the human stays put;
+ * switch to the new tab to watch the worker. Like tmux, you watch it natively, so
+ * `attach()` throws — but teardown is real: we keep the tab's workspace + surface ids
+ * to drive and close it.
  */
 export class CmuxRuntime implements Runtime {
-  readonly kind = "cmux" as const;
+  readonly kind = "cmux";
 
   spawn(name: string, spec: LaunchSpec, cwd: string): AgentHandle {
     if (!cmux.available())
@@ -70,3 +71,14 @@ export class CmuxRuntime implements Runtime {
     };
   }
 }
+
+/** Self-registering runtime provider — `import "@cotal/cmux"` makes the manager's
+ *  `cmux` runtime available, without the manager depending on this package. */
+export const cmuxRuntimeProvider: RuntimeProvider = {
+  kind: "runtime",
+  name: "cmux",
+  available: () => cmux.available(),
+  create: () => new CmuxRuntime(),
+};
+
+registry.register(cmuxRuntimeProvider);

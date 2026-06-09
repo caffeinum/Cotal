@@ -8,6 +8,8 @@ import {
   type Command,
   type ControlReply,
 } from "@cotal/core";
+import { Manager } from "./manager.js";
+import type { RuntimeMode } from "./runtime/index.js";
 import { attachClient } from "./attach-client.js";
 import { c } from "./ui.js";
 
@@ -25,6 +27,7 @@ function parse(argv: string[]): Values {
       agent: { type: "string" },
       config: { type: "string" },
       creds: { type: "string" },
+      "console-port": { type: "string" },
     },
   });
   return values as Values;
@@ -155,10 +158,52 @@ async function attach(argv: string[]): Promise<void> {
   console.error(c.dim(`\ndetached from ${v.name}`));
 }
 
-/** The manager's control-plane commands — thin NATS request/reply clients that
- *  drive a running manager. Self-registered on import; the `cotal` binary resolves
- *  them from the registry. */
+/** Run a manager daemon in this process (the long-lived supervisor), then block.
+ *  `pty`/`tmux` ship with the manager; `cmux` needs its integration imported by the
+ *  composition root (the `cotal` binary does). Stays alive until SIGINT/SIGTERM. */
+async function runManager(argv: string[], runtime: RuntimeMode): Promise<void> {
+  const v = parse(argv);
+  const space = v.space ?? "demo";
+  const server = v.server ?? DEFAULT_SERVER;
+  if (!(await isReachable(server))) {
+    console.error(c.red(`Can't reach NATS at ${server}. Run: cotal up`));
+    process.exit(1);
+  }
+  const consolePort = v["console-port"] ? Number(v["console-port"]) : undefined;
+  const mgr = new Manager({ space, servers: server, runtime, consolePort });
+  await mgr.start();
+  console.log(
+    c.green("✓ manager up") +
+      c.dim(` (space ${space} · ${mgr.runtimeKind})`) +
+      `\n  console: ${mgr.consoleUrl}` +
+      c.dim("\n  spawn: cotal start --name <n>   ·   stop: cotal stop --name <n>   (Ctrl-C to shut down)"),
+  );
+  const shutdown = () => void mgr.stop().then(() => process.exit(0));
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+  await new Promise<void>(() => {});
+}
+
+/** The manager's control-plane commands — the daemon runners (`supervise`/`cmux`)
+ *  plus thin NATS request/reply clients that drive a running manager. Self-registered
+ *  on import; the `cotal` binary resolves them from the registry. */
 const managerCommands: Command[] = [
+  {
+    kind: "command",
+    name: "supervise",
+    group: "Manager",
+    summary:
+      "run a manager (terminal / pty runtime) — [--space <s>] [--server <url>] [--console-port <n>]",
+    run: (argv) => runManager(argv, "auto"),
+  },
+  {
+    kind: "command",
+    name: "cmux",
+    group: "Manager",
+    summary:
+      "run a manager that spawns each teammate into its own cmux tab — [--space <s>] [--server <url>]",
+    run: (argv) => runManager(argv, "cmux"),
+  },
   {
     kind: "command",
     name: "start",

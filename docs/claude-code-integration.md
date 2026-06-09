@@ -90,6 +90,21 @@ with `--config`.
   it on the mesh. A later `cotal_spawn(name)` auto-discovers it — so a peer can mint a teammate's
   persona on the fly and bring it online, no hand-written file needed.
 
+## Run it for your own project
+
+To grow/shape a team of Claude coders in cmux tabs from your own session:
+
+1. **Install the plugin once** (the generic launch uses `plugin:cotal@cotal-mesh`):
+   `claude plugin marketplace add <cotal-repo>` then `claude plugin install cotal@cotal-mesh --scope local`.
+2. **Start the mesh:** `cotal up --open` (unauthenticated dev mesh; drop `--open` for JWT auth).
+3. **Run a manager** — from inside a cmux pane: `cotal cmux --space <s>` (a tab per teammate), or
+   `cotal supervise --space <s>` for the plain pty/terminal runtime.
+4. **Get a driving session on the mesh:** `cotal spawn me --space <s>` (a foreground Claude with the
+   `cotal_*` tools).
+5. From there, `cotal_persona` to mint a teammate, `cotal_spawn` to bring it online, `cotal_despawn`
+   to tear it down. cmux is opt-in: the `cotal` binary registers it; a build without
+   `import "@cotal/cmux"` simply has no `cmux` runtime.
+
 ## One-link join
 
 A single **join link** carries server + auth + space, so a peer joins by pasting one string

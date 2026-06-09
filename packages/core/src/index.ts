@@ -9,4 +9,5 @@ export * from "./endpoint.js";
 export * from "./view/mesh-view.js";
 export * from "./connector.js";
 export * from "./command.js";
+export * from "./runtime.js";
 export * from "./registry.js";

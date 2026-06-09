@@ -11,6 +11,9 @@ importers:
       '@cotal/cli':
         specifier: workspace:*
         version: link:implementations/cli
+      '@cotal/cmux':
+        specifier: workspace:*
+        version: link:extensions/cmux
       '@cotal/connector-claude-code':
         specifier: workspace:*
         version: link:extensions/connector-claude-code
@@ -52,6 +55,9 @@ importers:
 
   examples/02-cmux-handoff:
     dependencies:
+      '@cotal/cmux':
+        specifier: workspace:*
+        version: link:../../extensions/cmux
       '@cotal/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -97,6 +103,9 @@ importers:
 
   examples/04-self-improving-console:
     dependencies:
+      '@cotal/cmux':
+        specifier: workspace:*
+        version: link:../../extensions/cmux
       '@cotal/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -109,6 +118,10 @@ importers:
         version: 4.22.4
 
   extensions/cmux:
+    dependencies:
+      '@cotal/core':
+        specifier: workspace:*
+        version: link:../../packages/core
     devDependencies:
       tsx:
         specifier: ^4.22.4
@@ -224,9 +237,6 @@ importers:
 
   implementations/manager:
     dependencies:
-      '@cotal/cmux':
-        specifier: workspace:*
-        version: link:../../extensions/cmux
       '@cotal/core':
         specifier: workspace:*
         version: link:../../packages/core

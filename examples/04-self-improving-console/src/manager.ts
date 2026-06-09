@@ -20,6 +20,7 @@ import {
   type LaunchSpec,
 } from "@cotal/core";
 import { Manager } from "@cotal/manager";
+import "@cotal/cmux"; // registers the cmux runtime (default here); harmless under COTAL_RUNTIME=pty
 import { fileURLToPath } from "node:url";
 
 const RUN_AGENT = fileURLToPath(new URL("../run-agent.sh", import.meta.url));

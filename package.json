@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@cotal/cli": "workspace:*",
+    "@cotal/cmux": "workspace:*",
     "@cotal/connector-claude-code": "workspace:*",
     "@cotal/connector-codex": "workspace:*",
     "@cotal/core": "workspace:*",

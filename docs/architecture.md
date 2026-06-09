@@ -182,7 +182,10 @@ and reports status.
 
 **Spawn via a pluggable `Runtime` (no tmux dependency).** Starting / stopping / attaching is
 abstracted behind one interface (`spawn → handle`, `stop`, `status`, `attach`, optional
-`interrupt`) with selectable backends — think *pm2 / docker for agent TUIs*:
+`interrupt`) — think *pm2 / docker for agent TUIs*. `Runtime` is a **core extension contract**
+like `Connector`/`Command`: `pty`/`tmux` ship with the manager, and other backends self-register
+a `RuntimeProvider` on import (the manager resolves them from the registry — it has no compile-time
+dependency on them). Selectable backends:
 - **`pty` (default)** — the manager spawns the real `claude`/Codex (plugin + env) in a
   pseudo-terminal it owns via **`@lydell/node-pty`** (prebuilt binaries for mac/Linux/Windows ×
   x64/arm64 — zero compiler, zero `node-gyp`, ABI-stable). A real native TUI; the human watches
@@ -190,17 +193,24 @@ abstracted behind one interface (`spawn → handle`, `stop`, `status`, `attach`,
   control (group-kill, restart). No external software to install.
 - **`tmux` / `iTerm2` (opt-in)** — for users already living in a multiplexer who want native
   panes / persistence; auto-detect (if already inside tmux, use it).
-- **`cmux` (opt-in)** — each agent gets its own [cmux](https://github.com/) tab via the
-  `@cotal/cmux` driver. Like tmux you watch it natively, so `attach` points you at the tab
-  rather than streaming. Teardown is real: the runtime keeps the tab's workspace + surface ids,
-  so `stop` types `/exit` for a clean leave then closes the tab (graceful) or closes it outright
-  (hard). The manager must run inside a live cmux surface (cmux only authorizes its control
-  socket from a real pane). Drives [`examples/02`](../examples/02-cmux-handoff/README.md).
+- **`cmux` (integration)** — each agent gets its own [cmux](https://github.com/) tab. This is a
+  true plug-in: the `cmux` runtime lives in **`@cotal/cmux`** and self-registers a `RuntimeProvider`
+  on import, so the manager spawns into tabs without depending on the package — a composition root
+  opts in with one `import "@cotal/cmux"` (the `cotal` binary does). Like tmux you watch it
+  natively, so `attach` points you at the tab rather than streaming. Teardown is real: the runtime
+  keeps the tab's workspace + surface ids, so `stop` types `/exit` for a clean leave then closes the
+  tab (graceful) or closes it outright (hard). The manager must run inside a live cmux surface (cmux
+  only authorizes its control socket from a real pane).
 - **`byo` (floor)** — the manager doesn't own the process; a human runs `cotal claude --role …`
   in their own terminal and the manager just tracks it via presence.
 - **`host` (upgrade)** — headless via the Agent SDK / Codex app-server for structured control +
   true mid-turn interrupt; no native TUI (rendered from the event stream), observed via
   `cotal watch`.
+
+**Running one.** `cotal supervise` starts a manager on the default terminal runtime (pty, or tmux
+inside tmux); `cotal cmux` starts one that spawns each teammate into its own cmux tab (run it from a
+cmux pane). The `cotal` binary aliases the Claude-Code connector as the default agent, so
+`cotal_spawn` / `cotal_persona` / `cotal_despawn` work out of the box.
 
 The PTY carries the agent's **terminal I/O only** — its mesh traffic still flows agent↔NATS
 directly through the plugin, so owning the PTY doesn't put the manager on the message hot path.

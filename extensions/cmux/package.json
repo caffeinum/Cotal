@@ -12,6 +12,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.json"
   },
+  "dependencies": {
+    "@cotal/core": "workspace:*"
+  },
   "devDependencies": {
     "tsx": "^4.22.4"
   }
