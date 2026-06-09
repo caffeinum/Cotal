@@ -35,10 +35,12 @@ who delegates to whom — is just how you set it up.
 **1. Start the mesh** (one terminal — stays running):
 
 ```
-pnpm cotal up --open
+pnpm cotal up --open --channels examples/01-lateral-coordination/channels.json
 ```
 
-If a nats-server is already listening on `:4222`, Cotal detects it and reuses it.
+If a nats-server is already listening on `:4222`, Cotal detects it and reuses it. The
+optional `--channels` file seeds the channel registry (per-channel replay policy +
+descriptions); edit it live with `cotal channels set <name> [--replay|--no-replay] [--desc …]`.
 
 **2. Join as a few peers** (one terminal each):
 

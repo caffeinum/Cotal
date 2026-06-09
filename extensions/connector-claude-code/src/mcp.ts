@@ -49,9 +49,13 @@ const claudeHandle: HookHandle = async (agent, ev) => {
     text ? { hookSpecificOutput: { hookEventName: event, additionalContext: text } } : {};
   try {
     switch (event) {
-      case "SessionStart":
+      case "SessionStart": {
         await agent.setStatus("idle");
-        return withContext(formatInjection(agent.drainInbox()));
+        // Boot push: a one-line note per subscribed channel (if the registry has loaded),
+        // plus any messages waiting. Both are advisory context.
+        const parts = [agent.channelBriefing(), formatInjection(agent.drainInbox())].filter(Boolean);
+        return withContext(parts.length ? parts.join("\n\n") : undefined);
+      }
       case "UserPromptSubmit":
         pendingTool = undefined; // new turn — the previous block (if any) is resolved
         await agent.setStatus("working");

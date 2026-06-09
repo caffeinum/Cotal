@@ -184,6 +184,17 @@ export function presenceBucket(space: string): string {
   return `cotal_presence_${token(space)}`;
 }
 
+/** Name of the KV bucket holding the channel registry (config) for a space — sibling of
+ *  the presence bucket. Key = the concrete channel token (`review`, `team.backend`). */
+export function channelBucket(space: string): string {
+  return `cotal_channels_${token(space)}`;
+}
+
+/** Reserved registry key for the space-wide channel defaults. `=` is a valid KV-key
+ *  character (`/^[-/=.\w]+$/`) but one `token()` can never produce (it maps every char
+ *  outside `[A-Za-z0-9_-]` to `_`), so this key can never collide with a real channel. */
+export const CHANNEL_DEFAULTS_KEY = "=defaults";
+
 // ---- JetStream streams (the durable backing for the three delivery modes) ----
 
 /** Stream capturing `chat.>` — multicast backlog + history. */

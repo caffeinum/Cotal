@@ -51,6 +51,32 @@ export interface Presence {
   ts: number;
 }
 
+/**
+ * Channel registry entry — channel-global config, stored in the per-space channels KV
+ * (one entry per channel; the space-wide default lives under {@link CHANNEL_DEFAULTS_KEY}).
+ * Shared across every peer, not a per-subscriber choice. `description`/`instructions` reach
+ * the model, so this is a prompt-injection surface: writes are privileged and both text
+ * fields are length-bounded at the write path (see channels.ts).
+ */
+export interface ChannelConfig {
+  /** Override the space default for history replay-on-join. */
+  replay?: boolean;
+  /** How far back a joiner's backfill reaches — a duration like `"24h"`, `"30m"`, `"7d"`.
+   *  Maps to a native Direct-Get `start_time` (now − window). Unset + `replay` ⇒ the full
+   *  retained window; ignored when replay is off. */
+  replayWindow?: string;
+  /** One-line "what this channel is for". */
+  description?: string;
+  /** Longer "how to use it" — surfaced to joiners as advisory, attributed data. */
+  instructions?: string;
+}
+
+/** Space-wide channel defaults, stored under {@link CHANNEL_DEFAULTS_KEY}. */
+export interface ChannelDefaults {
+  replay?: boolean;
+  replayWindow?: string;
+}
+
 export type Part =
   | { kind: "text"; text: string }
   | { kind: "data"; data: unknown };
@@ -91,6 +117,13 @@ export type PresenceEvent =
   | { type: "join"; presence: Presence }
   | { type: "update"; presence: Presence }
   | { type: "offline"; presence: Presence };
+
+/** Context delivered as the 3rd arg of a "message" event. `historical` marks a message
+ *  replayed from a channel's backlog on join (a "catching up" block) vs a live message —
+ *  so a joiner doesn't act on a resolved 2-hour-old thread as if it were live. */
+export interface MessageMeta {
+  historical: boolean;
+}
 
 /**
  * Delivery control handed to "message" listeners alongside each {@link CotalMessage}.

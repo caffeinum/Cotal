@@ -6,6 +6,7 @@ import { console_ } from "./commands/console.js";
 import { web } from "./commands/web.js";
 import { spawn } from "./commands/spawn.js";
 import { mint } from "./commands/mint.js";
+import { channels } from "./commands/channels.js";
 
 /** The minimal mesh CLI: thin NATS clients (up/join/watch), plus `spawn` — a
  *  foreground agent launch that reuses the connector's launch recipe. Self-registers
@@ -61,6 +62,14 @@ const baseCommands: Command[] = [
     group: "Mesh",
     summary: "mint a creds file for a space (auth mode) — mint <name> --profile <agent|observer> [--out <path>]",
     run: mint,
+  },
+  {
+    kind: "command",
+    name: "channels",
+    group: "Mesh",
+    summary:
+      "inspect/set channel registry — channels <list | set <name> [--replay|--no-replay] [--desc <s>] [--instructions <s>] | default --replay|--no-replay>",
+    run: channels,
   },
 ];
 

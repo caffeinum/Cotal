@@ -40,6 +40,33 @@ model — those don't fit lateral pub/sub.
   only the allow-all **manager** profile holds today — agents/observer/admin are denied, so it's
   manager-served (a dashboard profile is a one-line grant away). Observability only, never an
   agent gate on sending.
+- **Channel registry** (config *about* a channel) lives in a per-space KV bucket
+  (`cotal_channels_<space>`, sibling of presence): per-channel `{ replay?, description?,
+  instructions? }` plus a space-wide default under a reserved key. **Channel-global, not
+  per-subscriber** — the same channel replays (or not) for everyone. Writes are **privileged**
+  (`cotal up --channels <file>` to seed; `cotal channels set` at runtime); everyone reads it via
+  a live KV watch (`endpoint.getChannelConfig` / `channelReplay`, and enriched `listChannels`).
+  `replay` toggles whether a fresh joiner gets history backfilled; `description`/`instructions`
+  reach the model, so the registry is a prompt-injection surface — text is length-bounded at the
+  write path and surfaced to agents as attributed, advisory data (never system-prompt text).
+- **Replay mechanism — tail + backfill.** `deliver_policy` is consumer-wide, so it can't honor
+  per-channel replay; instead the chat durable is a `DeliverPolicy.New` **tail** ("from now on")
+  and history is an explicit **per-channel backfill on join** via JetStream Direct Get (a read
+  verb — no consumer create), gated by the channel's replay policy. A per-channel join watermark
+  (the stream frontier at join) lets the tail ack-drop pre-join messages, so a no-replay channel
+  starts clean and a replay backfill never double-delivers. **How far back** is the registry's
+  `replayWindow` (`"24h"`), realized natively as a Direct-Get `start_time` — not a client-side
+  count. *Why one multi-filter durable and not one consumer per channel (which would let the
+  broker replay natively)? A per-channel consumer is named `chat_<id>_<channel>`, and consumer
+  names can't contain `.`, so that's a single ACL token — and NATS permission wildcards are
+  token-granular, so it can't be scoped to one agent. One fixed-name durable is what keeps the
+  per-agent grant tight AND makes dynamic join just a filter edit (no per-channel grant).*
+- **Dynamic subscription.** A peer joins/leaves channels **mid-session** —
+  `endpoint.joinChannel`/`leaveChannel` mutate the existing chat durable's `filter_subjects` via
+  `consumers.update` (same durable, no teardown; rides the self-scoped create grant). So channel
+  membership is a live view, and join triggers the replay backfill above. On **restart** the
+  durable's filter is **reconciled to the agent's current config** (channels the config gained are
+  backfilled like a join; channels it lost are dropped) — an unchanged config is a pure resume.
 - **Sessions + moderator** (managed groups with admit/remove) — *deferred*, but the design
   leaves room for it.
 

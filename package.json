@@ -14,7 +14,9 @@
     "cotal": "tsx bin/cotal.ts",
     "smoke": "tsx packages/core/smoke.ts",
     "smoke:membership": "tsx packages/core/membership.smoke.ts",
-    "smoke:membership:auth": "tsx packages/core/membership-auth.smoke.ts"
+    "smoke:membership:auth": "tsx packages/core/membership-auth.smoke.ts",
+    "smoke:channels": "tsx packages/core/channels.smoke.ts",
+    "smoke:channels:auth": "tsx packages/core/channels-auth.smoke.ts"
   },
   "dependencies": {
     "@cotal-ai/cli": "workspace:*",

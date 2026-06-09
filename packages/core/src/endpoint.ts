@@ -20,22 +20,34 @@ import {
   type JetStreamClient,
   type JetStreamManager,
   type ConsumerMessages,
+  type ConsumerInfo,
 } from "@nats-io/jetstream";
 import { Kvm, type KV, type KvEntry } from "@nats-io/kv";
 
 import type {
   AgentCard,
+  ChannelConfig,
+  ChannelDefaults,
   ControlReply,
   ControlRequest,
   Delivery,
   EndpointRef,
+  MessageMeta,
   Part,
   Presence,
   PresenceStatus,
   CotalMessage,
 } from "./types.js";
 import {
+  openChannelRegistry,
+  effectiveReplay,
+  effectiveReplayWindowMs,
+  readChannelConfig,
+  readChannelDefaults,
+} from "./channels.js";
+import {
   anycastSubject,
+  CHANNEL_DEFAULTS_KEY,
   chatStream,
   chatDurable,
   chatSubject,
@@ -133,6 +145,15 @@ export class CotalEndpoint extends EventEmitter {
   private js?: JetStreamClient;
   private jsm?: JetStreamManager;
   private kv?: KV;
+  private channelKv?: KV;
+  /** Live local cache of the channel registry (key = channel token), kept by a KV watch. */
+  private readonly channelConfigs = new Map<string, ChannelConfig>();
+  private channelDefaults: ChannelDefaults = {};
+  /** Per-subscription join watermark: the stream frontier captured when a channel was joined.
+   *  The tail ack-drops chat messages with `seq <= watermark` (suppresses pre-join history for
+   *  a lagging joiner + dedups the backfill overlap). Keyed by the subscription pattern (may be
+   *  wildcard), so the drop matches every concrete channel the pattern subsumes. */
+  private readonly joinSeq = new Map<string, number>();
   private readonly subs: Subscription[] = [];
   private readonly streamMsgs: ConsumerMessages[] = [];
   private heartbeatTimer?: ReturnType<typeof setInterval>;
@@ -205,6 +226,14 @@ export class CotalEndpoint extends EventEmitter {
         () => this.sweep(),
         Math.max(500, Math.floor(this.ttlMs / 3)),
       );
+    }
+
+    // Open the channel registry bucket when we either watch it (live cache for the connector's
+    // pull/display) or consume (the join-time replay decision reads it fresh). Auth mode OPENs
+    // the bucket pre-created at `cotal up`; open mode lazily creates it.
+    if (this.doWatch || this.doConsume) {
+      this.channelKv = await openChannelRegistry(this.nc, this.space, { create: !this.creds });
+      if (this.doWatch) await this.startChannelWatch();
     }
 
     if (this.doRegister) {
@@ -424,28 +453,92 @@ export class CotalEndpoint extends EventEmitter {
 
   // ---- channel discovery ---------------------------------------------------
 
-  /** List channels that have messages in the chat stream, with message counts.
-   *  Works even on observer endpoints (no consumers needed). */
-  async listChannels(): Promise<{ channel: string; messages: number }[]> {
+  /** This channel's registry config from the live local cache (undefined if unset). */
+  getChannelConfig(channel: string): ChannelConfig | undefined {
+    return this.channelConfigs.get(channel);
+  }
+
+  /** Effective replay-on-join policy for a channel: per-channel override ?? space default ??
+   *  true. Reads the live cache, so it reflects runtime registry edits. */
+  channelReplay(channel: string): boolean {
+    return effectiveReplay(this.channelConfigs.get(channel), this.channelDefaults);
+  }
+
+  // ---- dynamic subscription (join / leave mid-session) ---------------------
+
+  /** The channels this endpoint is currently subscribed to (live — reflects join/leave). */
+  joinedChannels(): string[] {
+    return [...this.channels];
+  }
+
+  /**
+   * Join a channel mid-session: add it to our chat durable's `filter_subjects` (same durable,
+   * same ack-floor, no teardown — `update` rides the self-scoped create grant), capture the
+   * stream frontier as this channel's join watermark, and backfill its history if replay is on.
+   * Idempotent: re-joining a channel already in our filter is a no-op (no re-backfill). Returns
+   * the number of historical messages backfilled (emitted as `historical` "message" events).
+   */
+  async joinChannel(channel: string): Promise<{ joined: boolean; backfilled: number }> {
+    if (!this.jsm) throw new Error("endpoint not started");
+    if (this.channels.includes(channel)) return { joined: false, backfilled: 0 };
+    const next = collapseFilterSubjects(
+      [...this.channels, channel].map((ch) => chatSubject(this.space, "*", ch)),
+    );
+    // Filter update BEFORE backfill (gap-safe: backfill-first would leave a window where a
+    // message is in neither the tail nor the catch-up block).
+    await this.jsm.consumers.update(chatStream(this.space), chatDurable(this.card.id), {
+      filter_subjects: next,
+    });
+    this.channels.push(channel);
+    const backfilled = await this.backfillJoin([channel]);
+    return { joined: true, backfilled };
+  }
+
+  /** Leave a channel mid-session: drop it from the durable's `filter_subjects`. Refuses to leave
+   *  the *last* channel (an empty filter would match every chat subject — the opposite of
+   *  leaving). Returns whether anything changed. */
+  async leaveChannel(channel: string): Promise<{ left: boolean }> {
+    if (!this.jsm) throw new Error("endpoint not started");
+    const i = this.channels.indexOf(channel);
+    if (i < 0) return { left: false };
+    if (this.channels.length === 1)
+      throw new Error(`cannot leave "${channel}" — it is your only channel (an empty filter would subscribe to all)`);
+    const remaining = this.channels.filter((c) => c !== channel);
+    await this.jsm.consumers.update(chatStream(this.space), chatDurable(this.card.id), {
+      filter_subjects: collapseFilterSubjects(remaining.map((ch) => chatSubject(this.space, "*", ch))),
+    });
+    this.channels.splice(i, 1);
+    this.joinSeq.delete(channel);
+    return { left: true };
+  }
+
+  /** One coherent channel model for dashboards: every channel that has messages OR a registry
+   *  entry (configured-but-empty), each tagged with its {@link ChannelConfig}. Works even on
+   *  observer endpoints (no consumers needed). */
+  async listChannels(): Promise<{ channel: string; messages: number; config?: ChannelConfig }[]> {
     if (!this.nc) throw new Error("endpoint not started");
     const mgr = await jetstreamManager(this.nc);
-    let info;
-    try {
-      info = await mgr.streams.info(chatStream(this.space), { subjects_filter: ">" });
-    } catch {
-      return [];
-    }
-    // Subjects now carry the sender (chat.<sender>.<channel>), so collapse across senders:
-    // sum each channel's counts regardless of who published.
+    // Subjects carry the sender (chat.<sender>.<channel>), so collapse across senders: sum
+    // each channel's counts regardless of who published.
     const counts = new Map<string, number>();
-    if (info.state.subjects) {
-      for (const [subject, count] of Object.entries(info.state.subjects)) {
-        const p = parseSubject(subject);
-        if (p?.kind === "chat") counts.set(p.rest, (counts.get(p.rest) ?? 0) + count);
+    try {
+      const info = await mgr.streams.info(chatStream(this.space), { subjects_filter: ">" });
+      if (info.state.subjects) {
+        for (const [subject, count] of Object.entries(info.state.subjects)) {
+          const p = parseSubject(subject);
+          if (p?.kind === "chat") counts.set(p.rest, (counts.get(p.rest) ?? 0) + count);
+        }
       }
+    } catch {
+      /* stream missing — fall through to registry-only channels */
     }
-    return [...counts]
-      .map(([channel, messages]) => ({ channel, messages }))
+    const channels = new Set<string>([...counts.keys(), ...this.channelConfigs.keys()]);
+    return [...channels]
+      .map((channel) => ({
+        channel,
+        messages: counts.get(channel) ?? 0,
+        config: this.channelConfigs.get(channel),
+      }))
       .sort((a, b) => a.channel.localeCompare(b.channel));
   }
 
@@ -664,19 +757,43 @@ export class CotalEndpoint extends EventEmitter {
     }
     await this.pump(dmStream(this.space), dmDurable(id));
 
-    // Multicast: every message on our channels, at our own pace (replays the retained window).
+    // Multicast: a DeliverPolicy.New *tail* of our channels. History is NOT a durable replay —
+    // it's an explicit, per-channel backfill on join (replay-policy gated, below), the only
+    // shape that can honor per-channel policy given deliver_policy is consumer-wide.
     if (this.channels.length) {
-      await this.jsm.consumers.add(chatStream(this.space), {
-        durable_name: chatDurable(id),
-        // Wildcard channels (team.>) may subsume concrete ones (team.backend);
-        // JetStream rejects overlapping filter_subjects, so collapse first.
-        filter_subjects: collapseFilterSubjects(this.channels.map((ch) => chatSubject(this.space, "*", ch))),
-        ack_policy: AckPolicy.Explicit,
-        ack_wait,
-        deliver_policy: DeliverPolicy.All,
-        inactive_threshold,
-      });
-      await this.pump(chatStream(this.space), chatDurable(id));
+      const durable = chatDurable(id);
+      const want = collapseFilterSubjects(this.channels.map((ch) => chatSubject(this.space, "*", ch)));
+      const info = await this.consumerInfo(chatStream(this.space), durable);
+      if (!info) {
+        // Fresh durable: a New tail (history is the explicit backfill below — the only shape
+        // that honors per-channel policy given deliver_policy is consumer-wide).
+        await this.jsm.consumers.add(chatStream(this.space), {
+          durable_name: durable,
+          filter_subjects: want,
+          ack_policy: AckPolicy.Explicit,
+          ack_wait,
+          deliver_policy: DeliverPolicy.New,
+          inactive_threshold,
+        });
+        await this.pump(chatStream(this.space), durable);
+        await this.backfillJoin(this.channels);
+      } else {
+        // Rebind: reconcile the durable's filter to the CURRENT config (a config that changed
+        // between restarts is honored). Channels the config GAINED are backfilled like a fresh
+        // join; channels it LOST are dropped from the filter. An unchanged config = pure resume,
+        // empty diff, no re-replay.
+        await this.pump(chatStream(this.space), durable);
+        const haveFilters =
+          info.config.filter_subjects ?? (info.config.filter_subject ? [info.config.filter_subject] : []);
+        // Channels the config gained = those not already covered by the durable's filters (a
+        // wildcard already covers its sub-channels). Backfill only those.
+        const gained = this.channels.filter(
+          (c) => !haveFilters.some((f) => subjectMatches(f, chatSubject(this.space, "*", c))),
+        );
+        if (!sameSet(haveFilters, want))
+          await this.jsm.consumers.update(chatStream(this.space), durable, { filter_subjects: want });
+        if (gained.length) await this.backfillJoin(gained);
+      }
     }
 
     // Anycast: a shared work-queue consumer for our role — one instance grabs each task.
@@ -730,12 +847,133 @@ export class CotalEndpoint extends EventEmitter {
           m.ack(); // our own echo — advance past it
           continue;
         }
+        // No-replay + dedup (chat only): drop a message at/below this channel's join watermark
+        // — pre-join history the New tail still carries for a *lagging* joiner (cursor behind the
+        // frontier), and the overlap a replay backfill already delivered. Must ack, or JetStream
+        // redelivers it forever. The drop is here, before the message becomes model context.
+        if (parsed.kind === "chat") {
+          const wm = this.dropWatermark(parsed.rest);
+          if (wm !== undefined && m.seq <= wm) {
+            m.ack();
+            continue;
+          }
+        }
         const delivery: Delivery = { ack: () => m.ack(), nak: () => m.nak() };
-        this.emit("message", msg, delivery);
+        this.emit("message", msg, delivery, { historical: false } satisfies MessageMeta);
       }
     })().catch((e) => {
       if (!this.stopped) this.emit("error", e as Error);
     });
+  }
+
+  /** The highest join watermark among the joined subscriptions that cover `concreteChannel`
+   *  (a wildcard sub like `team.>` covers `team.backend`), or undefined if none — the tail
+   *  drops a chat message with `seq <= ` this. */
+  private dropWatermark(concreteChannel: string): number | undefined {
+    let wm: number | undefined;
+    for (const [pattern, seq] of this.joinSeq)
+      if (subjectMatches(pattern, concreteChannel) && (wm === undefined || seq > wm)) wm = seq;
+    return wm;
+  }
+
+  /** The durable's info (rebind) or null (fresh — 404). Gates create/backfill to the join event
+   *  and exposes the current `filter_subjects` for restart reconciliation. */
+  private async consumerInfo(stream: string, durable: string): Promise<ConsumerInfo | null> {
+    if (!this.jsm) throw new Error("endpoint not started");
+    try {
+      return await this.jsm.consumers.info(stream, durable);
+    } catch {
+      return null; // 404 — fresh durable
+    }
+  }
+
+  /** Current frontier (last sequence) of the chat stream — a channel's join watermark. */
+  private async chatFrontier(): Promise<number> {
+    if (!this.jsm) throw new Error("endpoint not started");
+    return (await this.jsm.streams.info(chatStream(this.space))).state.last_seq;
+  }
+
+  /** For each newly-joined channel: arm its tail-drop watermark at the current frontier, then —
+   *  if replay is on — backfill its history up to that frontier. Returns the total backfilled.
+   *  Reads the policy FRESH from the registry (not the watch cache) — a join is authoritative
+   *  and infrequent, and at startup the async cache may not have caught up yet. */
+  private async backfillJoin(channels: string[]): Promise<number> {
+    let total = 0;
+    for (const ch of channels) {
+      const frontier = await this.chatFrontier();
+      this.joinSeq.set(ch, frontier);
+      const policy = await this.joinPolicyFresh(ch);
+      if (policy.replay) total += await this.backfillChannel(ch, frontier, policy.windowMs);
+    }
+    return total;
+  }
+
+  /** Replay policy + backfill window read straight from the registry bucket (vs the watch cache)
+   *  — the authoritative read for a join decision (a join is infrequent, and at startup the async
+   *  cache may not have caught up). Falls to the built-in default only with no registry open. */
+  private async joinPolicyFresh(channel: string): Promise<{ replay: boolean; windowMs?: number }> {
+    if (!this.channelKv) return { replay: effectiveReplay(undefined, undefined) };
+    const [cfg, defaults] = await Promise.all([
+      readChannelConfig(this.channelKv, channel),
+      readChannelDefaults(this.channelKv),
+    ]);
+    return { replay: effectiveReplay(cfg, defaults), windowMs: effectiveReplayWindowMs(cfg, defaults) };
+  }
+
+  /** Read a channel's retained history up to `upToSeq` via JetStream **Direct Get** (a read
+   *  verb — no consumer create, so it rides a read-only grant) and emit each message as a
+   *  `historical` "message" event. `sinceMs` bounds how far back via a native Direct-Get
+   *  `start_time` (now − window); unset ⇒ the full retained window. New messages (`seq > upToSeq`)
+   *  are skipped — the live tail owns them. Pages the batch API; the ack handle is a no-op. */
+  private async backfillChannel(channel: string, upToSeq: number, sinceMs?: number): Promise<number> {
+    if (!this.jsm) throw new Error("endpoint not started");
+    const subject = chatSubject(this.space, "*", channel);
+    const collected: { msg: CotalMessage; seq: number }[] = [];
+    // First page starts by time when a window is set (native), else from seq 1; after that we
+    // always page by sequence.
+    const startTime = sinceMs === undefined ? undefined : new Date(Date.now() - sinceMs);
+    let startSeq = 1;
+    let first = true;
+    pages: for (;;) {
+      let last = 0;
+      let got = 0;
+      try {
+        const query =
+          first && startTime !== undefined
+            ? { start_time: startTime, next_by_subj: subject, batch: 256 }
+            : { seq: startSeq, next_by_subj: subject, batch: 256 };
+        first = false;
+        const iter = await this.jsm.direct.getBatch(chatStream(this.space), query);
+        for await (const sm of iter) {
+          got++;
+          if (sm.seq > upToSeq) break pages; // crossed the frontier — the tail owns the rest
+          last = sm.seq;
+          let msg: CotalMessage;
+          try {
+            msg = sm.json<CotalMessage>();
+          } catch {
+            continue; // skip undecodable
+          }
+          // Same authenticity guard as the tail; skip our own echoes in history.
+          const parsed = parseSubject(sm.subject);
+          if (!parsed || msg.from?.id !== parsed.sender || msg.from.id === this.card.id) continue;
+          collected.push({ msg, seq: sm.seq });
+        }
+      } catch (e) {
+        // Batch Direct Get raises a 404 ("message not found") when no message matches from
+        // `start` — the normal "no more history" signal (empty channel or last page), not a
+        // fault. Anything else is real.
+        if ((e as { code?: number }).code === 404) break;
+        this.emit("error", e as Error);
+        break;
+      }
+      if (got === 0 || last === 0) break; // drained
+      startSeq = last + 1;
+    }
+    const noop: Delivery = { ack: () => {}, nak: () => {} };
+    for (const { msg } of collected)
+      this.emit("message", msg, noop, { historical: true } satisfies MessageMeta);
+    return collected.length;
   }
 
   private async publishPresence(): Promise<void> {
@@ -755,6 +993,40 @@ export class CotalEndpoint extends EventEmitter {
     void (async () => {
       for await (const e of iter) this.handleKvEntry(e);
     })().catch((e) => this.emit("error", e as Error));
+  }
+
+  /** Watch the channel registry: replay existing keys, then stream updates, into the local
+   *  cache. Best-effort — a registry the endpoint can't read leaves the cache empty (effective
+   *  policy then falls back to the default), never a fault. */
+  private async startChannelWatch(): Promise<void> {
+    if (!this.channelKv) return;
+    const iter = await this.channelKv.watch();
+    void (async () => {
+      for await (const e of iter) this.handleChannelEntry(e);
+    })().catch((e) => this.emit("error", e as Error));
+  }
+
+  private handleChannelEntry(e: KvEntry): void {
+    const gone = e.operation === "DEL" || e.operation === "PURGE";
+    if (e.key === CHANNEL_DEFAULTS_KEY) {
+      if (gone) this.channelDefaults = {};
+      else
+        try {
+          this.channelDefaults = e.json<ChannelDefaults>();
+        } catch {
+          /* keep last good */
+        }
+      return;
+    }
+    if (gone) {
+      this.channelConfigs.delete(e.key);
+      return;
+    }
+    try {
+      this.channelConfigs.set(e.key, e.json<ChannelConfig>());
+    } catch {
+      /* keep last good */
+    }
   }
 
   private handleKvEntry(e: KvEntry): void {
@@ -838,6 +1110,13 @@ export class CotalEndpoint extends EventEmitter {
 function chatDurableToken(durable: string): string | null {
   const prefix = "chat_";
   return durable.startsWith(prefix) ? durable.slice(prefix.length) : null;
+}
+
+/** Set equality over two subject lists (order/duplicate-insensitive). */
+function sameSet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const s = new Set(a);
+  return b.every((x) => s.has(x));
 }
 
 /** Auth subset of connect() options, shared by the endpoint and isReachable. */

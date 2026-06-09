@@ -20,6 +20,7 @@ import {
   taskDurable,
   anycastSubject,
   presenceBucket,
+  channelBucket,
 } from "./subjects.js";
 
 /** Default presence-bucket entry TTL (ms) — matches the endpoint's default liveness window. */
@@ -46,6 +47,10 @@ export async function createSpaceStreams(
     storage: StorageType.File,
     max_msgs_per_subject: 1000, // capped per-channel backlog (buffer + history)
     discard: DiscardPolicy.Old,
+    // Enable the read-only Direct Get API for per-channel history backfill on join (a pure
+    // read verb, no consumer create). CHAT ONLY — never DM/TASK: direct-get bypasses the
+    // consumer-create deny that is DM's confidentiality boundary.
+    allow_direct: true,
   });
   await jsm.streams.add({
     name: dmStream(space),
@@ -124,9 +129,12 @@ export async function setupSpaceStreams(opts: {
   });
   try {
     await createSpaceStreams(await jetstreamManager(nc), opts.space);
-    // The presence KV bucket is a stream too — pre-create it so agents (denied KV
-    // stream-create) can open it. Idempotent.
-    await new Kvm(nc).create(presenceBucket(opts.space), { ttl: PRESENCE_TTL_MS });
+    // The presence + channels KV buckets are streams too — pre-create them so agents (denied
+    // KV stream-create) can open them. Idempotent. Presence is TTL'd (liveness); the channel
+    // registry is durable config, so no TTL.
+    const kvm = new Kvm(nc);
+    await kvm.create(presenceBucket(opts.space), { ttl: PRESENCE_TTL_MS });
+    await kvm.create(channelBucket(opts.space));
   } finally {
     await nc.drain();
   }

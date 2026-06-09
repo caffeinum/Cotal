@@ -26,9 +26,10 @@ function who(i: InboxItem): string {
 }
 
 function fmtItem(i: InboxItem): string {
-  if (i.kind === "dm") return `• DM from ${who(i)}: ${i.text}`;
-  if (i.kind === "anycast") return `• @${i.service} (from ${who(i)}): ${i.text}`;
-  return `• #${i.channel} ${who(i)}: ${i.text}`;
+  const h = i.historical ? " (history)" : ""; // backfilled on join — pre-dates you, not live
+  if (i.kind === "dm") return `• DM from ${who(i)}${h}: ${i.text}`;
+  if (i.kind === "anycast") return `• @${i.service} (from ${who(i)})${h}: ${i.text}`;
+  return `• #${i.channel} ${who(i)}${h}: ${i.text}`;
 }
 
 /** The context block injected into a turn when peer messages are waiting (else undefined). */
