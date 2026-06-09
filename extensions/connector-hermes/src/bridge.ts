@@ -145,7 +145,12 @@ export function startBridgeServer(agent: MeshAgent, socketPath: string): BridgeS
         return;
       case "delivered":
         if (frame.id && frame.id === awaitingId) {
-          agent.drainInbox(1); // ack exactly the surfaced message
+          // Ack exactly the surfaced message — but ONLY if it's still the front. MeshAgent
+          // force-evicts (and acks) from the FRONT at MAX_INBOX, so a 200+ ambient burst during a
+          // long turn can already have evicted our in-flight item; draining the front then would
+          // mis-ack a newer, unsurfaced message (losing it). If the front is no longer ours, the
+          // overflow already acked it — just resync and let pump() surface the new front.
+          if (agent.peekInbox()[0]?.id === awaitingId) agent.drainInbox(1);
           awaitingId = undefined;
           pump();
         }
