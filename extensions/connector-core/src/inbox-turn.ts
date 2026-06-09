@@ -6,16 +6,20 @@ export interface InboxSource {
   peekInbox(): InboxItem[];
   /** Ack + remove the front `limit` messages and return them. */
   drainInbox(limit?: number): InboxItem[];
+  /** Ack + remove the messages with these ids (any position); an absent id is a no-op. */
+  ackInbox(ids: string[]): InboxItem[];
 }
 
 /**
  * Ack-on-surface delivery off a {@link MeshAgent}'s stream-backed inbox.
  *
  * The inbox is the single source of truth — there is no parallel buffer to drift out of
- * sync. A turn *surfaces* a front-contiguous run of messages (so the surfaced set is always
- * a prefix of the inbox, which keeps the ack count exact) and acks them with `drainInbox`
- * only once the turn COMPLETES. A crash or interrupt before {@link commit} leaves the run on
- * the stream, so it redelivers — nothing is acked merely by being read.
+ * sync. A turn *surfaces* messages by id and acks them (via `ackInbox`) only once the turn
+ * COMPLETES; a crash or interrupt before {@link commit} leaves them on the stream, so they
+ * redeliver — nothing is acked merely by being read. Acking by id (rather than by front
+ * position) keeps it correct even when the `MAX_INBOX` overflow force-evicts the in-flight
+ * prefix from the front mid-turn: those ids are already gone, so the ack no-ops them and
+ * never touches the newer messages that took their place.
  *
  * Fits both shapes the embed adapters use:
  *   - a one-message serialize loop: `start()` → run → `commit()`;
@@ -27,14 +31,14 @@ export interface InboxSource {
  * what the loop already surfaced.
  */
 export class InboxTurn {
-  private surfaced = 0;
+  private surfacedIds: string[] = [];
   private _origin?: InboxItem;
 
   constructor(private readonly source: InboxSource) {}
 
   /** True while a turn holds surfaced-but-unacked messages. */
   get inFlight(): boolean {
-    return this.surfaced > 0;
+    return this.surfacedIds.length > 0;
   }
 
   /** The message that opened the current turn (its reply scope), or undefined when idle. */
@@ -42,17 +46,18 @@ export class InboxTurn {
     return this._origin;
   }
 
-  /** How many front messages this turn has surfaced (the exact `commit` ack count). */
+  /** How many messages this turn has surfaced. */
   get count(): number {
-    return this.surfaced;
+    return this.surfacedIds.length;
   }
 
   /**
    * Ack-drop the leading messages matching `skip` (own echoes, ambient chatter) so they
-   * neither block the front nor linger to the inbox cap. Only valid with no turn in flight.
+   * neither block the front nor linger to the inbox cap. Only valid with no turn in flight
+   * (a between-turns, synchronous front trim — no eviction can interleave).
    */
   drop(skip: (item: InboxItem) => boolean): void {
-    if (this.surfaced) return;
+    if (this.surfacedIds.length) return;
     const pending = this.source.peekInbox();
     let n = 0;
     while (n < pending.length && skip(pending[n])) n++;
@@ -65,42 +70,43 @@ export class InboxTurn {
    * current origin). Call {@link drop} first so the front is the message you mean to answer.
    */
   start(): InboxItem | undefined {
-    if (this.surfaced) return this._origin;
+    if (this.surfacedIds.length) return this._origin;
     const front = this.source.peekInbox()[0];
     if (!front) return undefined;
     this._origin = front;
-    this.surfaced = 1;
+    this.surfacedIds = [front.id];
     return front;
   }
 
   /**
    * Fold the front-contiguous run of not-yet-surfaced messages that `match(item, origin)`
-   * into this turn, stopping at the first non-match (so the surfaced set stays a prefix and
-   * the ack count stays exact). Returns the newly surfaced messages for the caller to feed
-   * in (e.g. via steer). No-op until {@link start}.
+   * into this turn, stopping at the first unsurfaced non-match (so a cross-scope message is
+   * left to open its own turn, preserving FIFO + scope isolation). Already-surfaced messages
+   * are skipped, so an overflow that evicts part of the prefix can't desync this. Returns the
+   * newly surfaced messages for the caller to feed in (e.g. via steer). No-op until
+   * {@link start}.
    */
   extend(match: (item: InboxItem, origin: InboxItem) => boolean): InboxItem[] {
-    if (!this._origin || !this.intact()) return [];
-    const rest = this.source.peekInbox().slice(this.surfaced);
+    if (!this._origin) return [];
+    const surfaced = new Set(this.surfacedIds);
     const run: InboxItem[] = [];
-    for (const item of rest) {
-      if (!match(item, this._origin)) break;
+    for (const item of this.source.peekInbox()) {
+      if (surfaced.has(item.id)) continue; // already surfaced (still buffered) — skip
+      if (!match(item, this._origin)) break; // first unsurfaced non-match → stop at the gap
       run.push(item);
+      this.surfacedIds.push(item.id);
     }
-    this.surfaced += run.length;
     return run;
   }
 
   /**
-   * Ack the surfaced run — the sole ack site. Call on a terminal status that should consume
-   * the messages: a clean finish, or a failed/dropped turn (drop, no retry-loop). Do NOT
-   * call on interrupt/crash — use {@link abandon} so the run redelivers.
+   * Ack the surfaced messages by id — the sole ack site. Call on a terminal status that
+   * should consume them: a clean finish, or a failed/dropped turn (drop, no retry-loop). Ids
+   * already evicted by the overflow no-op. Do NOT call on interrupt/crash — use
+   * {@link abandon} so the run redelivers.
    */
   commit(): void {
-    if (this.surfaced && this.intact()) this.source.drainInbox(this.surfaced);
-    // If the surfaced prefix was force-evicted from the inbox (a MAX_INBOX overflow already
-    // acked it — see MeshAgent.ingest), draining would ack the newer front items in its place,
-    // so skip: the run is already gone from the stream.
+    if (this.surfacedIds.length) this.source.ackInbox(this.surfacedIds);
     this.reset();
   }
 
@@ -109,19 +115,8 @@ export class InboxTurn {
     this.reset();
   }
 
-  /** Whether the surfaced prefix is still the front of the inbox. A `MAX_INBOX` overflow
-   *  evicts (and acks) from the front, so a long turn on a chatty space can drop the in-flight
-   *  prefix out from under us; this catches that before {@link commit}/{@link extend} acts on a
-   *  stale offset. Eviction is front-first, so it removes the origin before any folded peer —
-   *  hence "origin still at the front" implies the whole prefix survived. */
-  private intact(): boolean {
-    if (!this.surfaced) return true;
-    const front = this.source.peekInbox();
-    return front.length >= this.surfaced && front[0]?.id === this._origin?.id;
-  }
-
   private reset(): void {
-    this.surfaced = 0;
+    this.surfacedIds = [];
     this._origin = undefined;
   }
 }

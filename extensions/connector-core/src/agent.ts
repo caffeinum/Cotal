@@ -168,6 +168,23 @@ export class MeshAgent extends EventEmitter {
     return taken.map((p) => p.item);
   }
 
+  /** Ack + remove the buffered messages with these ids, wherever they sit in the inbox. An id
+   *  that's no longer buffered — already acked, e.g. force-evicted by the MAX_INBOX overflow
+   *  above — is a harmless no-op. This lets a consumer ack exactly the messages it surfaced,
+   *  immune to the front-eviction that shifts positions out from under {@link drainInbox}. */
+  ackInbox(ids: string[]): InboxItem[] {
+    if (!ids.length) return [];
+    const wanted = new Set(ids);
+    const taken: InboxItem[] = [];
+    this.inbox = this.inbox.filter((p) => {
+      if (!wanted.has(p.item.id)) return true;
+      p.ack();
+      taken.push(p.item);
+      return false;
+    });
+    return taken;
+  }
+
   /** Return pending messages without acking them (they stay on the stream). */
   peekInbox(): InboxItem[] {
     return this.inbox.map((p) => p.item);
