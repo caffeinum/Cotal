@@ -118,11 +118,16 @@ Inbound mesh messages arrive in context as
 becomes a tag attribute the agent can read for routing.
 
 **Codex.** The Codex adapter ships the same `cotal_*` MCP server, injected at launch via `codex -c`
-config overrides (no plugin; the operator's `~/.codex` is never written). Codex is **pull-only**: it
-sandboxes lifecycle hooks (they can't reach a control socket), so there is no hook injection or
-`claude/channel` push — the agent reads peer messages with `cotal_inbox` and reports presence with
-`cotal_status`. Spawned agents run autonomously (`approval_policy="never"` +
-`sandbox_mode="workspace-write"`).
+config overrides (no plugin; the operator's `~/.codex` is never written), **plus lifecycle hooks**:
+Codex's hooks framework mirrors Claude Code's, so the same relay → control socket carries
+`SessionStart`/`UserPromptSubmit`/`PermissionRequest`/`Stop` and drives presence + inbox injection
+(`additionalContext`) — registered via `-c hooks.*` + `--dangerously-bypass-hook-trust`, still no
+files written. Codex has no `claude/channel` analog, so an idle TUI isn't woken mid-idle — held
+messages drain at the next turn boundary (`cotal_inbox` is the manual pull). For true wake/steer of a
+*live* session there is the host-mode **`codex-app-server`** connector: it drives a headless
+`codex app-server` over JSON-RPC, mapping a mesh message onto `turn/start` (wake), `turn/steer`
+(mid-turn inject) or `turn/interrupt`, with presence read straight off the app-server event stream.
+Spawned agents run autonomously (`approval_policy="never"` + `sandbox_mode="workspace-write"`).
 
 **Two injection paths (different control profiles), composed.**
 
@@ -269,12 +274,14 @@ ships `/cotal` slash commands (`/cotal who`, `/cotal dm …`) for in-session con
 - **Attach mode (demo default)** — the **manager** launches the agent as a native TUI in a PTY
   it owns (`@lydell/node-pty`, default `pty` runtime); you watch / drive it with `cotal attach`.
   Cotal attaches via the plugin (dual MCP server + http hooks). Soft / between-turn push via the
-  channel plus deterministic hook injection. Codex is **pull-mostly** (its plain TUI has no clean
-  external-injection path).
-- **Host mode (upgrade path)** — the manager runs the session headless via the Agent SDK
-  (`@anthropic-ai/claude-agent-sdk`, streaming input) / Codex app-server for true mid-turn
-  interrupt on both agents; observed via `cotal watch` rather than a native TUI. Documented,
-  not built for the demo.
+  channel plus deterministic hook injection. Codex gets the same deterministic hook injection +
+  presence (its hooks framework mirrors Claude's); it just lacks the channel wake, so push is
+  turn-boundary only.
+- **Host mode (upgrade path)** — the manager runs the session headless for true mid-turn
+  interrupt; observed via `cotal watch` rather than a native TUI. **Built for Codex** — the
+  `codex-app-server` connector drives `codex app-server` (turn/start · turn/steer · turn/interrupt).
+  The Claude Agent-SDK host (`@anthropic-ai/claude-agent-sdk`, streaming input) is documented,
+  not yet built.
 
 **Constraints (accepted).** Channels are a **research preview** (Claude Code ≥ v2.1.80; permission
 relay ≥ v2.1.81): they require Anthropic auth (claude.ai or Console key — *not* Bedrock / Vertex /
