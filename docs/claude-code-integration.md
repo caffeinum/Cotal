@@ -92,18 +92,25 @@ with `--config`.
 
 ## Run it for your own project
 
-To grow/shape a team of Claude coders in cmux tabs from your own session:
+**One command, from inside a cmux pane:**
 
-1. **Install the plugin once** (the generic launch uses `plugin:cotal@cotal-mesh`):
-   `claude plugin marketplace add <cotal-repo>` then `claude plugin install cotal@cotal-mesh --scope local`.
-2. **Start the mesh:** `cotal up --open` (unauthenticated dev mesh; drop `--open` for JWT auth).
-3. **Run a manager** — from inside a cmux pane: `cotal cmux --space <s>` (a tab per teammate), or
-   `cotal supervise --space <s>` for the plain pty/terminal runtime.
-4. **Get a driving session on the mesh:** `cotal spawn me --space <s>` (a foreground Claude with the
-   `cotal_*` tools).
-5. From there, `cotal_persona` to mint a teammate, `cotal_spawn` to bring it online, `cotal_despawn`
-   to tear it down. cmux is opt-in: the `cotal` binary registers it; a build without
-   `import "@cotal/cmux"` simply has no `cmux` runtime.
+```
+cotal cmux --drive --space <s>
+```
+
+It does the whole onboarding: installs the cotal plugin if needed (`cotal setup` — so the
+repo's Claude sessions get the `cotal_*` tools), brings up the mesh (`cotal up --open`), opens
+the manager in its own `cotal-manager` tab, and opens a `cotal-<s>` workspace with the live
+console + a ready driving session. Switch to that pane and use `cotal_persona` to mint a
+teammate, `cotal_spawn` to bring it online, `cotal_despawn` to tear it down. Re-running it is
+idempotent.
+
+Under the hood it's just the existing pieces, so you can also run them by hand:
+`cotal setup` (one-time plugin install) · `cotal up --open` · `cotal cmux --space <s>` (the
+manager daemon; `cotal supervise` for the plain pty runtime) · `cotal spawn <name> --space <s>`
+(a foreground Claude on the mesh; a bare name with no agent file launches a personaless session).
+cmux is opt-in: the `cotal` binary registers it; a build without `import "@cotal/cmux"` has no
+`cmux` runtime. To ship to others instead, the plugin path is the same `cotal setup` install.
 
 ## One-link join
 

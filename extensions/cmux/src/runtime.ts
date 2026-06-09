@@ -43,9 +43,9 @@ export class CmuxRuntime implements Runtime {
     const layout = JSON.stringify({
       pane: { surfaces: [{ type: "terminal", command: `bash ${scriptPath}` }] },
     });
-    // Keep the new tab's ids so we can drive (send keys) and close it later.
+    // Keep the new tab's workspace ref so we can drive (send keys to its terminal)
+    // and close it later. cmux targets the tab's single terminal surface by workspace.
     const workspace = cmux.openWorkspace(`cotal-${name}`, layout, { focus: false });
-    const surface = cmux.firstSurface(workspace);
 
     return {
       name,
@@ -57,13 +57,17 @@ export class CmuxRuntime implements Runtime {
           return;
         }
         // Graceful: type `/exit` so the Claude session shuts down cleanly (its
-        // SessionEnd hook leaves the mesh), then close the now-idle tab.
-        cmux.send("/exit", { surface });
-        cmux.sendKey("enter", { surface });
+        // SessionEnd hook leaves the mesh), then close the now-idle tab regardless.
+        try {
+          cmux.send("/exit", { workspace });
+          cmux.sendKey("enter", { workspace });
+        } catch {
+          /* keystroke delivery failed — still ensure the tab is gone below */
+        }
         setTimeout(() => cmux.closeWorkspace(workspace), GRACE_MS);
       },
       interrupt: () => {
-        cmux.sendKey("ctrl+c", { surface });
+        cmux.sendKey("ctrl+c", { workspace });
       },
       attach: () => {
         throw new Error(`cmux runtime: switch to the "cotal-${name}" cmux tab to watch it`);

@@ -1,5 +1,7 @@
 import { parseArgs } from "node:util";
 import { readFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { join } from "node:path";
 import {
   CotalEndpoint,
   isReachable,
@@ -9,7 +11,7 @@ import {
   type ControlReply,
 } from "@cotal/core";
 import { Manager } from "./manager.js";
-import type { RuntimeMode } from "./runtime/index.js";
+import { findWorkspaceRoot, type RuntimeMode } from "./runtime/index.js";
 import { attachClient } from "./attach-client.js";
 import { c } from "./ui.js";
 
@@ -28,6 +30,7 @@ function parse(argv: string[]): Values {
       config: { type: "string" },
       creds: { type: "string" },
       "console-port": { type: "string" },
+      drive: { type: "boolean" },
     },
   });
   return values as Values;
@@ -184,6 +187,79 @@ async function runManager(argv: string[], runtime: RuntimeMode): Promise<void> {
   await new Promise<void>(() => {});
 }
 
+/** One-command cmux onboarding (the built-in, generalized `launch.sh --drive`): from a
+ *  cmux pane, install the plugin, bring up the mesh, open the manager in its own tab, and
+ *  open a workspace with the console + a ready driving session. Orchestrates, then exits. */
+async function runDrive(argv: string[]): Promise<void> {
+  const v = parse(argv);
+  const space = v.space ?? "demo";
+  const name = v.name ?? "me";
+  const server = v.server ?? DEFAULT_SERVER;
+  const root = findWorkspaceRoot();
+  const tsx = join(root, "node_modules", ".bin", "tsx");
+  const cmuxCli = join(root, "extensions", "cmux", "src", "cli.ts");
+  const cotalBin = join(root, "bin", "cotal.ts");
+  // A cmux terminal leaf running a cotal subcommand (panes open in the login shell, which
+  // may be nushell — wrap in `bash -lc` like launch.sh; `exec` so pgrep sees the real cmd).
+  const leaf = (sub: string) => ({
+    pane: {
+      surfaces: [{ type: "terminal", command: `bash -lc 'cd ${root} && exec ${tsx} ${cotalBin} ${sub}'` }],
+    },
+  });
+  const openWs = (wsName: string, layout: unknown) =>
+    execFileSync(tsx, [cmuxCli, "open", wsName, JSON.stringify(layout)], { stdio: "ignore" });
+
+  // Must run inside a live cmux surface (cmux authorizes its socket only from a real pane).
+  try {
+    execFileSync(tsx, [cmuxCli, "check"], { stdio: "ignore" });
+  } catch {
+    console.error(c.red("✗ can't reach cmux — run `cotal cmux --drive` from inside a cmux terminal."));
+    process.exit(1);
+  }
+
+  // Plugin (idempotent) so the spawned Claude sessions have the cotal_* tools.
+  execFileSync(tsx, [cotalBin, "setup"], { cwd: root, stdio: "inherit" });
+
+  // Mesh: start it in the background if it isn't already up (cotal up blocks in the foreground).
+  if (!(await isReachable(server))) {
+    console.log(c.dim("Starting the mesh (cotal up --open)…"));
+    spawn(tsx, [cotalBin, "up", "--open"], { cwd: root, detached: true, stdio: "ignore" }).unref();
+    for (let i = 0; i < 40 && !(await isReachable(server)); i++)
+      await new Promise((r) => setTimeout(r, 250));
+    if (!(await isReachable(server))) {
+      console.error(c.red("✗ mesh did not come up — try `cotal up --open` manually."));
+      process.exit(1);
+    }
+  }
+  console.log(c.green(`✓ mesh up at ${server}`));
+
+  // Manager in its own tab (skip if one is already running for this space).
+  let mgrRunning = false;
+  try {
+    execFileSync("pgrep", ["-f", `cotal.ts cmux --space ${space}`], { stdio: "ignore" });
+    mgrRunning = true;
+  } catch {
+    /* none running */
+  }
+  if (mgrRunning) {
+    console.log(c.dim(`✓ manager already running for space "${space}"`));
+  } else {
+    openWs("cotal-manager", leaf(`cmux --space ${space}`));
+    console.log(c.green("✓ opened the manager tab (cotal-manager)"));
+  }
+
+  // Work workspace: console on top, a ready driving session below.
+  openWs(`cotal-${space}`, {
+    direction: "vertical",
+    split: 0.4,
+    children: [leaf(`console --space ${space}`), leaf(`spawn ${name} --space ${space}`)],
+  });
+  console.log(c.green(`✓ opened the cotal-${space} workspace (console + ${name})`));
+  console.log(
+    c.dim(`\nSwitch to the "${name}" pane, then drive: cotal_persona · cotal_spawn · cotal_despawn.`),
+  );
+}
+
 /** The manager's control-plane commands — the daemon runners (`supervise`/`cmux`)
  *  plus thin NATS request/reply clients that drive a running manager. Self-registered
  *  on import; the `cotal` binary resolves them from the registry. */
@@ -201,8 +277,8 @@ const managerCommands: Command[] = [
     name: "cmux",
     group: "Manager",
     summary:
-      "run a manager that spawns each teammate into its own cmux tab — [--space <s>] [--server <url>]",
-    run: (argv) => runManager(argv, "cmux"),
+      "run a manager that spawns each teammate into its own cmux tab — [--space <s>] [--server <url>]; --drive = one-command onboarding (mesh + manager + console + a driving session)",
+    run: (argv) => (argv.includes("--drive") ? runDrive(argv) : runManager(argv, "cmux")),
   },
   {
     kind: "command",

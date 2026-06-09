@@ -1,5 +1,5 @@
 import { spawn as spawnProcess } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { parseArgs } from "node:util";
 import {
@@ -54,13 +54,25 @@ export async function spawn(argv: string[]): Promise<void> {
     process.exit(1);
   }
 
+  // Resolve an agent file if one exists; a bare name with no file launches a
+  // personaless session (identity only), so `cotal spawn me` works with no setup.
   const path = agentFilePath(process.cwd(), ref);
+  const isExplicitPath = Boolean(values.config) || ref.includes("/") || ref.endsWith(".md");
   let def: AgentDef;
-  try {
-    def = loadAgentFile(path);
-  } catch (e) {
-    console.error(`✗ ${(e as Error).message}`);
+  let configPath: string | undefined;
+  if (existsSync(path)) {
+    try {
+      def = loadAgentFile(path);
+    } catch (e) {
+      console.error(`✗ ${(e as Error).message}`);
+      process.exit(1);
+    }
+    configPath = path;
+  } else if (isExplicitPath) {
+    console.error(`✗ agent file not found: ${path}`);
     process.exit(1);
+  } else {
+    def = { name: ref };
   }
 
   // --name / --role override the file (name defaults from the file's frontmatter).
@@ -110,7 +122,7 @@ export async function spawn(argv: string[]): Promise<void> {
     id,
     creds: credsPath,
     servers: server,
-    configPath: path,
+    configPath,
   });
 
   console.error(

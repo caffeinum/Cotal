@@ -6,6 +6,7 @@ import { console_ } from "./commands/console.js";
 import { web } from "./commands/web.js";
 import { spawn } from "./commands/spawn.js";
 import { mint } from "./commands/mint.js";
+import { setup } from "./commands/setup.js";
 
 /** The minimal mesh CLI: thin NATS clients (up/join/watch), plus `spawn` — a
  *  foreground agent launch that reuses the connector's launch recipe. Self-registers
@@ -46,6 +47,13 @@ const baseCommands: Command[] = [
     group: "Mesh",
     summary: "browser observability dashboard — presence, channels, live feed — --space <s> [--port <n>] [--no-open]",
     run: web,
+  },
+  {
+    kind: "command",
+    name: "setup",
+    group: "Agents",
+    summary: "install the cotal plugin into Claude Code so this repo's sessions get the cotal tools (idempotent)",
+    run: setup,
   },
   {
     kind: "command",

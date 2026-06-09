@@ -54,17 +54,10 @@ export function openWorkspace(name: string, layout: string, opts: { focus?: bool
     "--layout",
     layout,
   ]);
-  const id = UUID.exec(out)?.[0];
+  // cmux prints a UUID under `--id-format uuids`, but write ops like new-workspace
+  // confirm with `OK workspace:<n>` (a short ref) — accept either.
+  const id = UUID.exec(out)?.[0] ?? /workspace:\d+/.exec(out)?.[0];
   if (!id) throw new Error(`cmux new-workspace: couldn't read the new workspace id from "${out}"`);
-  return id;
-}
-
-/** The UUID of the first terminal surface in a workspace — what `send`/`sendKey`
- *  target to drive that tab's session. Throws if the workspace has no surface. */
-export function firstSurface(workspace: string): string {
-  const out = cmux(["--id-format", "uuids", "list-pane-surfaces", "--workspace", workspace]);
-  const id = UUID.exec(out)?.[0];
-  if (!id) throw new Error(`cmux: no surface found in workspace ${workspace}`);
   return id;
 }
 
