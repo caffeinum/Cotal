@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import {
   normalizeMentions,
+  subjectMatches,
   CotalEndpoint,
   type ControlReply,
   type Delivery,
@@ -283,6 +284,22 @@ export class MeshAgent extends EventEmitter {
   /** Channels we're currently subscribed to (live — reflects join/leave). */
   joinedChannels(): string[] {
     return this.ep.joinedChannels();
+  }
+
+  /** Discoverable channel list: every channel with traffic or a registry entry, tagged with
+   *  its one-line description, replay policy, and whether WE are subscribed (self only — never
+   *  other peers' membership). The companion to cotal_join. */
+  async listChannels(): Promise<
+    { channel: string; description?: string; replay: boolean; joined: boolean; messages: number }[]
+  > {
+    const mine = this.ep.joinedChannels();
+    return (await this.ep.listChannels()).map((c) => ({
+      channel: c.channel,
+      description: c.config?.description,
+      replay: this.ep.channelReplay(c.channel),
+      joined: mine.some((p) => subjectMatches(p, c.channel)),
+      messages: c.messages,
+    }));
   }
 
   /** Join a channel mid-session (backfills history if replay is on; idempotent). */

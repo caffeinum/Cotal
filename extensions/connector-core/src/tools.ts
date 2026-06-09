@@ -64,8 +64,8 @@ export function channelMeta(i: InboxItem): Record<string, string> {
   return m;
 }
 
-/** Register the Cotal tool surface (roster, inbox, send, dm, anycast, status, channel_info,
- *  join, leave, spawn) on a server. */
+/** Register the Cotal tool surface (roster, inbox, send, dm, anycast, status, channels,
+ *  channel_info, join, leave, spawn) on a server. */
 export function registerCotalTools(server: McpServer, agent: MeshAgent, config: AgentConfig): void {
   server.registerTool(
     "cotal_roster",
@@ -214,6 +214,25 @@ export function registerCotalTools(server: McpServer, agent: MeshAgent, config: 
     async ({ channel }) => {
       if (!agent.connected) return text(`Not connected to the mesh yet (${config.servers}).`);
       return text(renderChannelInfo(channel, agent.channelInfo(channel)));
+    },
+  );
+
+  server.registerTool(
+    "cotal_channels",
+    {
+      title: "Cotal: list channels",
+      description:
+        "Discover the channels in your space — name, one-line description, whether you're subscribed, and replay policy. Use this to find a channel to cotal_join. Shows only your own subscription, never other peers' membership.",
+    },
+    async () => {
+      if (!agent.connected) return text(`Not connected to the mesh yet (${config.servers}).`);
+      const list = await agent.listChannels();
+      if (!list.length) return text(`No channels in "${config.space}" yet.`);
+      const lines = list.map((c) => {
+        const desc = c.description ? ` — ${c.description}` : "";
+        return `${c.joined ? "●" : "○"} #${c.channel}${desc} (${c.joined ? "subscribed" : "not subscribed"}, replay ${c.replay ? "on" : "off"})`;
+      });
+      return text(`Channels in "${config.space}":\n${lines.join("\n")}`);
     },
   );
 

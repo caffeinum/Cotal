@@ -45,7 +45,10 @@ export async function up(argv: string[]): Promise<void> {
   const space = values.space ?? "demo";
   const seedFile = loadChannelsFile(values.channels);
   const setup = useAuth ? await authSetup(storeDir, server, space) : undefined;
-  const args = setup ? ["-c", setup.confPath] : ["-js", "-sd", storeDir];
+  // Auth mode's port comes from the generated config; open mode must pass it explicitly, else
+  // nats-server ignores --server's port and binds the default 4222.
+  const port = Number(new URL(server).port) || 4222;
+  const args = setup ? ["-c", setup.confPath] : ["-js", "-sd", storeDir, "-p", String(port)];
 
   console.log(
     c.dim(

@@ -56,7 +56,11 @@ await sleep(400);
 assert.deepEqual(jr, { joined: true, backfilled: 1 }, "dynamic join: consumers.update + Direct-Get backfill under scoped creds");
 const lr = await agent.leaveChannel("incident");
 assert.deepEqual(lr, { left: true }, "dynamic leave: consumers.update under scoped creds");
-assert.deepEqual(errors, [], `still no permission errors after join/leave: ${errors.join("; ")}`);
+
+// discovery: listChannels (streams.info + registry) under scoped creds
+const list = await agent.listChannels();
+assert.ok(list.some((c) => c.channel === "log" && c.config?.replay === true), "listChannels reads stream + registry under scoped creds");
+assert.deepEqual(errors, [], `still no permission errors after join/leave/list: ${errors.join("; ")}`);
 
 console.log("AUTH GRANT CHECKS PASSED");
 await agent.stop();

@@ -116,8 +116,10 @@ export async function seedChannelRegistry(opts: {
       : {}),
   });
   try {
-    // Auth mode OPENs the pre-created bucket; open mode creates it lazily.
-    const kv = await openChannelRegistry(nc, opts.space, { create: !opts.creds });
+    // The seed path is privileged (manager creds or open) so it may CREATE the bucket — this
+    // makes `cotal channels` work on a space whose bucket wasn't pre-created (e.g. one set up
+    // before this feature). Idempotent when `cotal up` already created it.
+    const kv = await openChannelRegistry(nc, opts.space, { create: true });
     if (opts.file.defaults) await writeChannelDefaults(kv, opts.file.defaults);
     for (const [channel, cfg] of Object.entries(opts.file.channels ?? {}))
       await writeChannelConfig(kv, channel, cfg);
@@ -141,7 +143,7 @@ export async function readChannelRegistry(opts: {
       : {}),
   });
   try {
-    const kv = await openChannelRegistry(nc, opts.space, { create: !opts.creds });
+    const kv = await openChannelRegistry(nc, opts.space, { create: true });
     const channels: Record<string, ChannelConfig> = {};
     let defaults: ChannelDefaults | undefined;
     for await (const key of await kv.keys()) {
