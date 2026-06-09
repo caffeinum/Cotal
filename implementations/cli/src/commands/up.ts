@@ -5,6 +5,7 @@ import { parseArgs } from "node:util";
 import {
   isReachable,
   DEFAULT_SERVER,
+  DEFAULT_SPACE,
   authDir,
   createSpaceAuth,
   loadSpaceAuth,
@@ -39,7 +40,7 @@ export async function up(argv: string[]): Promise<void> {
   // Secure by default: start the server in decentralized-JWT mode so agents must present
   // minted creds. `--open` runs the unauthenticated dev mesh instead.
   const useAuth = !values.open;
-  const space = values.space ?? "demo";
+  const space = values.space ?? DEFAULT_SPACE;
   const setup = useAuth ? await authSetup(storeDir, server, space) : undefined;
   const args = setup ? ["-c", setup.confPath] : ["-js", "-sd", storeDir];
 

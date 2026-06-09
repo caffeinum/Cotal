@@ -1,6 +1,12 @@
 import { parseArgs } from "node:util";
 import { readFileSync } from "node:fs";
-import { CotalEndpoint, isReachable, DEFAULT_SERVER, type PresenceStatus } from "@cotal/core";
+import {
+  CotalEndpoint,
+  isReachable,
+  DEFAULT_SERVER,
+  DEFAULT_SPACE,
+  type PresenceStatus,
+} from "@cotal/core";
 import { c } from "../ui.js";
 
 /**
@@ -72,7 +78,7 @@ export async function demo(argv: string[]): Promise<void> {
       creds: { type: "string" },
     },
   });
-  const space = values.space ?? "demo";
+  const space = values.space ?? DEFAULT_SPACE;
   const server = values.server ?? DEFAULT_SERVER;
   const interval = values.interval ? Number(values.interval) : 1200;
   const creds = values.creds ? readFileSync(values.creds, "utf8") : undefined;

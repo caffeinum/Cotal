@@ -8,6 +8,7 @@ import {
   CotalEndpoint,
   isReachable,
   DEFAULT_SERVER,
+  DEFAULT_SPACE,
   deliveryOf,
   parseSubject,
   spaceWildcard,
@@ -40,7 +41,7 @@ export async function web(argv: string[]): Promise<void> {
       creds: { type: "string" },
     },
   });
-  const space = values.space ?? "demo";
+  const space = values.space ?? DEFAULT_SPACE;
   const server = values.server ?? DEFAULT_SERVER;
   const port = values.port ? Number(values.port) : 7799;
   // The dashboard is always an admin god-view (no read-only viewer mode) so it can show DMs
