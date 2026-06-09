@@ -1,4 +1,4 @@
-import { MeshAgent, configFromEnv } from "@cotal-ai/connector-core";
+import { MeshAgent, InboxTurn, configFromEnv } from "@cotal-ai/connector-core";
 import type { InboxItem } from "@cotal-ai/connector-core";
 import {
   AuthStorage,
@@ -54,18 +54,18 @@ function buildTools(mesh: MeshAgent) {
   return [cotal_roster, cotal_status];
 }
 
-/** Directed = a DM, an anycast to our role, or a channel message that names us. Pure
- *  ambient channel chatter (and our own echoes) is ignored — same gate as openai-agents. */
-function isDirected(mesh: MeshAgent, item: InboxItem): boolean {
+/** Actionable = a DM, an anycast to our role, or a channel message that names us — and not
+ *  our own echo. Pure ambient channel chatter is dropped (acked, never answered). */
+function actionable(mesh: MeshAgent, item: InboxItem): boolean {
   if (item.fromId === mesh.id) return false;
   return item.kind !== "channel" || item.mentionsMe;
 }
 
-/** The audience a reply for this message goes back to. A channel message is answered ON
- *  that channel (sender-independent — everyone there already saw it); a DM/anycast is
- *  answered privately to its sender. Two messages with the same scope can safely share one
- *  turn + one reply; mixing scopes cannot (a DM folded into a channel turn would broadcast
- *  private content), so different-scope messages get their own scope-isolated turn. */
+/** The audience a reply goes back to. A channel message is answered ON that channel
+ *  (sender-independent — everyone there already saw it); a DM/anycast is answered privately
+ *  to its sender. Two messages with the same scope can share one turn + reply; mixing scopes
+ *  cannot (a DM folded into a channel turn would broadcast private content), so different-
+ *  scope messages get their own scope-isolated turn. */
 function scopeKey(item: InboxItem): string {
   return item.kind === "channel" && item.channel ? `channel:${item.channel}` : `dm:${item.fromId}`;
 }
@@ -91,15 +91,18 @@ function turnReplyText(messages: readonly unknown[]): string | undefined {
 /**
  * Embed a pi coding-agent session in-process and drive it from mesh traffic. This is the
  * native-embed pattern (cf. docs/agent-frameworks.md): MeshAgent owns the NATS connection,
- * presence, and a stream-backed inbox and emits `"incoming"`; that event drives pi's loop
- * directly — `prompt()` wakes an idle session into a turn, `steer()` interjects into a live
- * one (true mid-turn drive, pi's distinctive capability), and presence is read straight off
- * the session's event stream. The loop owns reply routing, so the model never mis-routes.
+ * presence, and a stream-backed inbox; pi's loop is driven straight off that inbox via an
+ * {@link InboxTurn} — `prompt()` wakes an idle session on the front message, `steer()`
+ * interjects into a live one (true mid-turn drive, pi's distinctive capability), and presence
+ * is read off the session's event stream. The loop owns reply routing, so the model never
+ * mis-routes.
  *
- * Each turn is owned by a single reply scope (see scopeKey). A directed message that arrives
- * mid-turn is steered into the running turn only when it shares that scope; a different-scope
- * message is queued and answered in its own turn, so a private DM is never folded into a
- * channel broadcast (and vice-versa).
+ * Delivery is ack-on-surface: the inbox is the single source of truth (no parallel buffer);
+ * a turn surfaces a front-contiguous run and `commit()`s (drainInbox-acks) it only once the
+ * turn completes, so a crash/interrupt redelivers. Each turn is owned by one reply scope —
+ * a mid-turn message is steered in only when it shares that scope; a different-scope message
+ * stays on the stream and becomes the next turn's origin — so a private DM is never folded
+ * into a channel broadcast.
  */
 export async function runPiPeer(): Promise<void> {
   const mesh = new MeshAgent(configFromEnv());
@@ -114,14 +117,8 @@ export async function runPiPeer(): Promise<void> {
     customTools: buildTools(mesh),
   });
 
-  // `origin` owns the in-flight turn's reply scope (null = idle). `streaming` gates steer() —
-  // same-scope messages that land after prompt() but before the agent is actually streaming
-  // are buffered in `preStream` and flushed on agent_start. `pending` holds different-scope
-  // messages, drained one turn at a time once the current turn ends.
-  let origin: InboxItem | null = null;
-  let streaming = false;
-  const preStream: string[] = [];
-  const pending: InboxItem[] = [];
+  const turn = new InboxTurn(mesh);
+  let streaming = false; // gates steer(): only valid once the agent is actually streaming
 
   const setStatus = (status: "idle" | "working", activity?: string): void => {
     void mesh.setStatus(status, activity).catch(() => {});
@@ -135,37 +132,43 @@ export async function runPiPeer(): Promise<void> {
     else void mesh.dm(to.fromId, text).catch(log);
   }
 
-  function startTurn(item: InboxItem): void {
-    origin = item;
-    streaming = false;
-    preStream.length = 0;
-    void session.prompt(framed(item)).catch(onTurnError); // wake into a fresh turn
-  }
-
-  /** A turn ended (cleanly or via error): clear its state and pick up the next scope. */
-  function endTurn(): void {
-    origin = null;
-    streaming = false;
-    preStream.length = 0;
-    if (pending.length) startTurn(pending.shift()!);
-    else setStatus("idle");
-  }
-
-  function onTurnError(e: unknown): void {
-    log(e);
-    endTurn();
-  }
-
-  mesh.on("incoming", (item: InboxItem) => {
-    if (!isDirected(mesh, item)) return;
-    if (origin === null) {
-      startTurn(item);
-    } else if (scopeKey(item) === scopeKey(origin)) {
-      if (streaming) void session.steer(framed(item)).catch(onTurnError); // interject mid-turn
-      else preStream.push(framed(item)); // not streaming yet — flush on agent_start
-    } else {
-      pending.push(item); // different scope — own turn, own reply
+  /** Start the next turn on the front actionable message, dropping leading non-actionable
+   *  (own echoes, ambient chatter) first. No-op while a turn is in flight. */
+  function pump(): void {
+    if (turn.inFlight) return;
+    turn.drop((i) => !actionable(mesh, i));
+    const origin = turn.start();
+    if (!origin) {
+      setStatus("idle");
+      return;
     }
+    streaming = false;
+    void session.prompt(framed(origin)).catch(onStartError); // wake into a fresh turn
+  }
+
+  /** Fold any front-contiguous, same-scope actionable messages into the live turn (mid-turn
+   *  steer). A cross-scope or ambient message breaks contiguity and waits for its own turn. */
+  function foldSameScope(): void {
+    if (!turn.origin || !streaming) return;
+    for (const item of turn.extend((i, o) => actionable(mesh, i) && scopeKey(i) === scopeKey(o))) {
+      void session.steer(framed(item)).catch(log);
+    }
+  }
+
+  function onStartError(e: unknown): void {
+    log(e);
+    if (streaming) return; // already running → agent_end will complete the turn
+    turn.commit(); // pre-flight failure (e.g. no model/key): drop, no retry-loop
+    setStatus("idle");
+    pump();
+  }
+
+  mesh.on("incoming", () => {
+    if (turn.inFlight) foldSameScope();
+    else pump();
+  });
+  mesh.on("wake", () => {
+    if (!turn.inFlight) pump();
   });
 
   session.subscribe((event: AgentSessionEvent) => {
@@ -173,7 +176,7 @@ export async function runPiPeer(): Promise<void> {
       case "agent_start":
         streaming = true;
         setStatus("working", "thinking");
-        for (const text of preStream.splice(0)) void session.steer(text).catch(onTurnError);
+        foldSameScope(); // flush same-scope peers that landed before streaming began
         break;
       case "tool_execution_start":
         setStatus("working", `running ${event.toolName}`);
@@ -183,18 +186,26 @@ export async function runPiPeer(): Promise<void> {
         break;
       case "agent_end": {
         if (event.willRetry) break; // transient failure; a retry turn follows
-        const to = origin;
+        const to = turn.origin;
         const reply = turnReplyText(event.messages);
-        endTurn();
+        turn.commit(); // ack the surfaced run — clean or failed both consume (no retry-loop)
+        streaming = false;
         if (to && reply) deliver(to, reply);
+        pump(); // next scope
         break;
       }
     }
   });
 
+  // Drain anything already buffered before the listeners were attached.
+  pump();
+
   async function shutdown(): Promise<void> {
     try {
-      if (origin !== null) await session.abort(); // interrupt any in-flight turn
+      if (turn.inFlight) {
+        turn.abandon(); // leave the in-flight run on the stream → redeliver, no peer dropped
+        await session.abort();
+      }
       session.dispose();
       await mesh.stop();
     } finally {

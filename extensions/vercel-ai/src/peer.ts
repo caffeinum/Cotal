@@ -1,22 +1,23 @@
 import { generateText, tool, stepCountIs } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
-import { MeshAgent, configFromEnv } from "@cotal-ai/connector-core";
+import { MeshAgent, InboxTurn, configFromEnv } from "@cotal-ai/connector-core";
 import type { InboxItem } from "@cotal-ai/connector-core";
 
 const MODEL = process.env.OPENAI_MODEL ?? "gpt-4.1";
 
-/** Whole-word, case-insensitive mention check (so a short name like "ai" doesn't match "available"). */
-function mentions(text: string, name: string): boolean {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`\\b${escaped}\\b`, "i").test(text);
+/** Actionable = a DM, an anycast to our role, or a channel message that names us — and not
+ *  our own echo. Pure ambient channel chatter is dropped (acked, never answered). */
+function actionable(mesh: MeshAgent, item: InboxItem): boolean {
+  if (item.fromId === mesh.id) return false;
+  return item.kind !== "channel" || item.mentionsMe;
 }
 
 export async function runVercelAgentPeer(): Promise<void> {
   const mesh = new MeshAgent(configFromEnv());
   mesh.start();
 
-  // Read-only/awareness tools. Replies are delivered by the loop (see processNext)
+  // Read-only/awareness tools. Replies are delivered by the loop (see handle)
   // on the correct delivery mode, so the model can't mis-route or duplicate them.
   const tools = {
     cotal_roster: tool({
@@ -43,24 +44,23 @@ export async function runVercelAgentPeer(): Promise<void> {
     }),
   };
 
-  // Serialized worker: one item at a time, never concurrent.
-  const queue: InboxItem[] = [];
+  // Drive straight off the MeshAgent inbox (the single source of truth), one turn at a time.
+  // Delivery is ack-on-surface: the surfaced message is drainInbox-acked only once its turn
+  // completes (commit in `finally`, covering clean and failed), so a crash mid-run redelivers.
+  const turn = new InboxTurn(mesh);
   let running = false;
 
-  async function processNext(): Promise<void> {
-    if (running || queue.length === 0) return;
-    running = true;
-    const item = queue.shift()!;
+  async function handle(origin: InboxItem): Promise<void> {
     try {
-      await mesh.setStatus("working", `responding to ${item.fromName}`);
+      await mesh.setStatus("working", `responding to ${origin.fromName}`);
 
-      const context = `from ${item.fromName} via ${item.kind}`;
+      const context = `from ${origin.fromName} via ${origin.kind}`;
       const prompt = [
         "You are a peer on a Cotal mesh — a shared pub/sub space where AI agents coordinate as lateral equals.",
         "Reply with the answer itself as plain text; it is delivered automatically back to whoever messaged you. Be concise.",
         "",
         `[${context}]`,
-        item.text,
+        origin.text,
       ].join("\n");
 
       const result = await generateText({
@@ -72,33 +72,40 @@ export async function runVercelAgentPeer(): Promise<void> {
 
       const reply = result.text.trim();
       if (reply) {
-        if (item.kind === "channel") {
-          await mesh.send(reply, item.channel);
+        if (origin.kind === "channel") {
+          await mesh.send(reply, origin.channel);
         } else {
-          await mesh.dm(item.fromId, reply);
+          await mesh.dm(origin.fromId, reply);
         }
       }
     } catch (e) {
       process.stderr.write(`[vercel-ai] error handling item: ${(e as Error).message}\n`);
     } finally {
+      turn.commit(); // ack on completion — clean or failed both consume (no retry-loop)
       await mesh.setStatus("idle");
       running = false;
-      void processNext();
+      pump();
     }
   }
 
-  mesh.on("incoming", (item: InboxItem) => {
-    // Skip our own echoes.
-    if (item.fromId === mesh.id) return;
-    // Channel messages: only respond when we're explicitly mentioned.
-    if (item.kind === "channel" && !mentions(item.text, mesh.config.name)) return;
-    queue.push(item);
-    void processNext();
-  });
+  /** Start the next turn on the front actionable message, ack-dropping leading
+   *  non-actionable (own echoes, ambient chatter) first. No-op while a turn runs. */
+  function pump(): void {
+    if (running) return;
+    turn.drop((i) => !actionable(mesh, i));
+    const origin = turn.start();
+    if (!origin) return;
+    running = true;
+    void handle(origin);
+  }
 
+  mesh.on("incoming", () => pump());
+  mesh.on("wake", () => pump());
   mesh.on("error", (e: Error) => {
     process.stderr.write(`[vercel-ai] mesh error: ${e.message}\n`);
   });
+  // Drain anything buffered before the listeners were attached.
+  pump();
 
   // Keep the process alive.
   const shutdown = () => {

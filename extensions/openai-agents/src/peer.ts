@@ -1,14 +1,15 @@
 import { Agent, run, tool } from "@openai/agents";
 import { z } from "zod";
-import { MeshAgent, configFromEnv } from "@cotal-ai/connector-core";
+import { MeshAgent, InboxTurn, configFromEnv } from "@cotal-ai/connector-core";
 import type { InboxItem } from "@cotal-ai/connector-core";
 
 const DEFAULT_MODEL = "gpt-4o-mini";
 
-/** Whole-word, case-insensitive mention check (so a short name like "ai" doesn't match "available"). */
-function mentions(text: string, name: string): boolean {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`\\b${escaped}\\b`, "i").test(text);
+/** Actionable = a DM, an anycast to our role, or a channel message that names us — and not
+ *  our own echo. Pure ambient channel chatter is dropped (acked, never answered). */
+function actionable(mesh: MeshAgent, item: InboxItem): boolean {
+  if (item.fromId === mesh.id) return false;
+  return item.kind !== "channel" || item.mentionsMe;
 }
 
 /**
@@ -63,46 +64,52 @@ export async function runOpenAIAgentPeer(): Promise<void> {
     tools: buildTools(mesh),
   });
 
-  // Serialised queue: one item handled at a time.
-  const queue: InboxItem[] = [];
+  // Drive straight off the MeshAgent inbox (the single source of truth), one turn at a time.
+  // Delivery is ack-on-surface: the surfaced message is drainInbox-acked only once its turn
+  // completes (commit in `finally`, covering clean and failed), so a crash mid-run redelivers.
+  const turn = new InboxTurn(mesh);
   let running = false;
 
-  async function processNext(): Promise<void> {
-    if (running || queue.length === 0) return;
-    running = true;
-    const item = queue.shift()!;
+  async function handle(origin: InboxItem): Promise<void> {
     try {
-      await mesh.setStatus("working", `handling ${item.kind} from ${item.fromName}`);
-      const prefix = `from ${item.fromName} via ${item.kind}: `;
-      const result = await run(agent, prefix + item.text);
+      await mesh.setStatus("working", `handling ${origin.kind} from ${origin.fromName}`);
+      const result = await run(agent, `from ${origin.fromName} via ${origin.kind}: ${origin.text}`);
       const output =
         typeof result.finalOutput === "string"
           ? result.finalOutput
           : JSON.stringify(result.finalOutput);
       if (output) {
-        if (item.kind === "channel") {
-          await mesh.send(output, item.channel);
+        if (origin.kind === "channel") {
+          await mesh.send(output, origin.channel);
         } else {
-          await mesh.dm(item.fromId, output);
+          await mesh.dm(origin.fromId, output);
         }
       }
     } catch (e) {
       process.stderr.write(`[openai-peer] error handling item: ${(e as Error).message}\n`);
     } finally {
+      turn.commit(); // ack on completion — clean or failed both consume (no retry-loop)
       await mesh.setStatus("idle");
       running = false;
-      void processNext();
+      pump();
     }
   }
 
-  mesh.on("incoming", (item: InboxItem) => {
-    // Drop our own echoes.
-    if (item.fromId === mesh.id) return;
-    // For channel messages, only respond when mentioned by name.
-    if (item.kind === "channel" && !mentions(item.text, mesh.config.name)) return;
-    queue.push(item);
-    void processNext();
-  });
+  /** Start the next turn on the front actionable message, ack-dropping leading
+   *  non-actionable (own echoes, ambient chatter) first. No-op while a turn runs. */
+  function pump(): void {
+    if (running) return;
+    turn.drop((i) => !actionable(mesh, i));
+    const origin = turn.start();
+    if (!origin) return;
+    running = true;
+    void handle(origin);
+  }
+
+  mesh.on("incoming", () => pump());
+  mesh.on("wake", () => pump());
+  // Drain anything buffered before the listeners were attached.
+  pump();
 
   function shutdown() {
     mesh.stop().then(() => process.exit(0)).catch(() => process.exit(1));

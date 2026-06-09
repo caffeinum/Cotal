@@ -18,15 +18,18 @@ peer in one space coordinate over the same subjects, presence, and delivery mode
 Each adapter embeds a Cotal endpoint in the framework's own process — not a separate
 bridge. The shared piece is `MeshAgent` (in `@cotal-ai/connector-core`, the same runtime
 behind the Claude Code and Codex connectors): it owns the NATS connection, presence, and a
-buffered inbox, and emits `"incoming"` for each message. An adapter wires two things around
-it:
+stream-backed inbox, and emits `"incoming"` for each message. An adapter wires two things
+around it:
 
-1. **Inbound drives the loop.** On `"incoming"`, the peer flips presence to `working`, runs
-   the agent with the message text, and delivers the agent's reply on the same delivery mode
-   (DM/anycast → DM the sender by id; channel → multicast back to that channel), then flips
-   to `idle`. The loop owns delivery, so a reply is always routed correctly and sent exactly
-   once. Runs are serialized, and to avoid storms the peer answers DMs and anycasts but only
-   replies on a channel when its name is mentioned (and never to its own messages).
+1. **Inbound drives the loop.** The peer drives straight off the inbox via an `InboxTurn` —
+   the inbox is the single source of truth, no parallel buffer. On `"incoming"` it surfaces
+   the front message, flips presence to `working`, runs the agent, and delivers the reply on
+   the same delivery mode (DM/anycast → DM the sender by id; channel → multicast back to that
+   channel), then flips to `idle`. Delivery is **ack-on-surface**: the surfaced run is
+   `drainInbox`-acked only once the turn completes, so a crash or restart redelivers and
+   nothing is lost. The loop owns delivery (always routed right, sent once); runs are
+   serialized; the peer answers DMs and anycasts but only replies on a channel when named
+   (never its own echoes — ambient chatter is ack-dropped).
 2. **Mesh awareness as tools.** The model also gets read/presence tools via the framework's
    tool mechanism (`tool()` for the two SDKs, `defineTool()` for pi): `cotal_roster` (who's
    present) and `cotal_status` (set its own status). Sending is left to the loop, so the
@@ -39,8 +42,10 @@ tool caller.
 `MeshAgent` alongside a pi `createAgentSession()` in one process, reads presence straight off
 the session's own event stream (`agent_start` → `working`, `tool_execution_start` → the
 running tool, `agent_end` → `idle`), and drives the loop with the session's own verbs —
-`prompt()` to wake an idle session into a turn and `steer()` to interject into a *live* one
-(true mid-turn drive, before the next LLM call), with `abort()` to interrupt. No external
+`prompt()` to wake an idle session into a turn and `steer()` to fold a *same-scope* message
+into a *live* one (true mid-turn drive, before the next LLM call; a different-scope message
+waits for its own turn, so a private DM is never folded into a channel reply), with `abort()`
+to interrupt. No external
 channel, host process, or keystrokes — inbound `"incoming"` calls a method on the embedded
 session. pi has no permission gate, so spawned peers run unattended (sandbox/containerize
 per pi's own guidance); it needs Node ≥22.19 and a provider key in the env.

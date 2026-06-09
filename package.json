@@ -13,6 +13,7 @@
     "build": "pnpm -r build",
     "cotal": "tsx bin/cotal.ts",
     "smoke": "tsx packages/core/smoke.ts",
+    "smoke:inbox": "tsx extensions/connector-core/inbox-turn.smoke.ts",
     "smoke:membership": "tsx packages/core/membership.smoke.ts",
     "smoke:membership:auth": "tsx packages/core/membership-auth.smoke.ts"
   },
