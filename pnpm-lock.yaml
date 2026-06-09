@@ -17,6 +17,9 @@ importers:
       '@cotal-ai/connector-codex':
         specifier: workspace:*
         version: link:extensions/connector-codex
+      '@cotal-ai/connector-hermes':
+        specifier: workspace:*
+        version: link:extensions/connector-hermes
       '@cotal-ai/core':
         specifier: workspace:*
         version: link:packages/core
@@ -144,6 +147,19 @@ importers:
       zod:
         specifier: ^4.4.3
         version: 4.4.3
+    devDependencies:
+      '@cotal-ai/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+
+  extensions/connector-hermes:
+    dependencies:
+      '@cotal-ai/connector-core':
+        specifier: workspace:*
+        version: link:../connector-core
+      tsx:
+        specifier: ^4.22.4
+        version: 4.22.4
     devDependencies:
       '@cotal-ai/core':
         specifier: workspace:*

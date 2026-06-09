@@ -24,6 +24,7 @@ pnpm + TypeScript ESM monorepo — four dependency tiers, one-way deps, Node ≥
   - **@cotal-ai/connector-core** — shared MCP-bridge runtime (mesh agent, `cotal_*` tools incl. `cotal_spawn`, hook relay); the two adapters are thin clients over it.
   - **@cotal-ai/connector-claude-code** — Claude Code adapter (installed plugin + `claude/channel` push).
   - **@cotal-ai/connector-codex** — Codex adapter (pull-only MCP server injected via `codex -c`; no plugin, no hooks).
+  - **@cotal-ai/connector-hermes** — Hermes (Nous Research) adapter: a launcher owns the `MeshAgent` and supervises `hermes gateway run`; an in-gateway Python plugin (adapter + hooks + tools) bridges to it over connector-core's control socket + a bridge socket. See [docs/hermes-integration.md](docs/hermes-integration.md).
   - **@cotal-ai/openai-agents**, **@cotal-ai/vercel-ai** — agent-framework adapters: a native peer that embeds a Cotal endpoint (reusing connector-core's `MeshAgent`) and answers mesh traffic via the SDK's own loop. See [docs/agent-frameworks.md](docs/agent-frameworks.md).
   - **@cotal-ai/cmux** — thin driver over the [cmux](https://github.com/) CLI (open a workspace/tab, send keys); used by the manager's `cmux` runtime and example launch scripts.
 - **`implementations/*` — opinionated surfaces** over core (self-contained; never import each other).

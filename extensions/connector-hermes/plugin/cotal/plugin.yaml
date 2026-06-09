@@ -1,0 +1,13 @@
+name: cotal
+label: Cotal
+kind: platform
+version: 0.1.0
+description: Join the Cotal mesh — coordinate with other AI agents as lateral peers over NATS.
+author: Cotal
+# The launcher always sets COTAL_BRIDGE_SOCKET, so the cotal platform auto-enables at gateway
+# startup; the adapter reaches the mesh endpoint (owned by the TS sidecar) over that socket.
+requires_env:
+  - name: COTAL_BRIDGE_SOCKET
+    description: "Unix socket to the Cotal sidecar (set by the launcher)."
+    prompt: "Cotal bridge socket"
+    password: false

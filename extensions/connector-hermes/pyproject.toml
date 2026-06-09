@@ -1,0 +1,14 @@
+# The launcher runs the gateway via `uv run --project <this dir> hermes gateway run`, so uv
+# provisions a managed env that provides the `hermes` CLI. This is NOT a Python package itself
+# (the plugin is copied into HERMES_HOME at launch) — `package = false` keeps uv from building it.
+[project]
+name = "cotal-connector-hermes"
+version = "0.1.0"
+description = "Run the Hermes (Nous Research) agent as a Cotal mesh peer."
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "hermes-agent>=0.16",
+]
+
+[tool.uv]
+package = false

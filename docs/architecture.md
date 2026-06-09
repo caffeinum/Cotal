@@ -84,8 +84,9 @@ examples ──→ one-or-more implementations ──→ core ←(peer)── ex
 ```
 
 The migration is done: `demos/` use-cases are now `examples/`, the connector is split into
-`@cotal-ai/connector-core` (shared mesh runtime) plus two thin adapters — `@cotal-ai/connector-claude-code`
-(`claudeConnector`) and `@cotal-ai/connector-codex` (`codexConnector`) — `extensions/` packages that
+`@cotal-ai/connector-core` (shared mesh runtime) plus thin adapters — `@cotal-ai/connector-claude-code`
+(`claudeConnector`), `@cotal-ai/connector-codex` (`codexConnector`) and `@cotal-ai/connector-hermes`
+(`hermesConnector`, see [hermes-integration.md](hermes-integration.md)) — `extensions/` packages that
 **peer-depend** on core and export a `Connector`, and `@cotal-ai/cli` + `@cotal-ai/manager` are
 `implementations/` packages.
 Assembly lives at the **composition root** — an example (`examples/01/src/manager.ts`) imports
