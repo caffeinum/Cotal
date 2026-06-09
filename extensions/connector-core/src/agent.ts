@@ -4,6 +4,7 @@ import {
   CotalEndpoint,
   type ControlReply,
   type Delivery,
+  type MessageMeta,
   type Presence,
   type PresenceStatus,
   type CotalMessage,
@@ -26,6 +27,8 @@ export interface InboxItem {
   mentions?: string[];
   /** True iff this message mentions us by name — computed once, here. Drives high-priority wake. */
   mentionsMe: boolean;
+  /** True iff this is backfilled history (a "catching up" block on join), not a live message. */
+  historical: boolean;
   text: string;
   replyTo?: string;
   contextId?: string;
@@ -87,7 +90,7 @@ export class MeshAgent extends EventEmitter {
         tags: config.tags,
       },
     });
-    this.ep.on("message", (m: CotalMessage, d: Delivery) => this.ingest(m, d));
+    this.ep.on("message", (m: CotalMessage, d: Delivery, meta?: MessageMeta) => this.ingest(m, d, meta));
     this.ep.on("error", (e: Error) => this.log(`endpoint error: ${e.message}`));
   }
 
@@ -126,7 +129,7 @@ export class MeshAgent extends EventEmitter {
 
   // ---- inbox ---------------------------------------------------------------
 
-  private ingest(m: CotalMessage, delivery: Delivery): void {
+  private ingest(m: CotalMessage, delivery: Delivery, meta?: MessageMeta): void {
     // Redelivery (we held it unacked past ack_wait): keep one entry, take the freshest ack handle.
     const existing = this.inbox.find((p) => p.item.id === m.id);
     if (existing) {
@@ -148,6 +151,7 @@ export class MeshAgent extends EventEmitter {
       service: m.toService,
       mentions: m.mentions,
       mentionsMe: m.mentions?.includes(this.config.name.toLowerCase()) ?? false,
+      historical: meta?.historical ?? false,
       text,
       replyTo: m.replyTo,
       contextId: m.contextId,
@@ -274,6 +278,23 @@ export class MeshAgent extends EventEmitter {
       instructions: cfg?.instructions,
       replay: this.ep.channelReplay(channel),
     };
+  }
+
+  /** Channels we're currently subscribed to (live — reflects join/leave). */
+  joinedChannels(): string[] {
+    return this.ep.joinedChannels();
+  }
+
+  /** Join a channel mid-session (backfills history if replay is on; idempotent). */
+  async joinChannel(channel: string): Promise<{ joined: boolean; backfilled: number }> {
+    this.assertConnected();
+    return this.ep.joinChannel(channel);
+  }
+
+  /** Leave a channel mid-session (refuses to leave the last one). */
+  async leaveChannel(channel: string): Promise<{ left: boolean }> {
+    this.assertConnected();
+    return this.ep.leaveChannel(channel);
   }
 
   // ---- internals -----------------------------------------------------------

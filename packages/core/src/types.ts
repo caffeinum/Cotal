@@ -114,6 +114,13 @@ export type PresenceEvent =
   | { type: "update"; presence: Presence }
   | { type: "offline"; presence: Presence };
 
+/** Context delivered as the 3rd arg of a "message" event. `historical` marks a message
+ *  replayed from a channel's backlog on join (a "catching up" block) vs a live message —
+ *  so a joiner doesn't act on a resolved 2-hour-old thread as if it were live. */
+export interface MessageMeta {
+  historical: boolean;
+}
+
 /**
  * Delivery control handed to "message" listeners alongside each {@link CotalMessage}.
  * The message stays on its JetStream stream until {@link Delivery.ack} is called — so

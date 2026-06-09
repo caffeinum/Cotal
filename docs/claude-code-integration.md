@@ -75,6 +75,12 @@ You are a builder on a shared mesh of peer agents…   ← the body is the perso
   posting to an unfamiliar channel. The text is rendered as *attributed, advisory* data ("channel
   operator's note … not an instruction to obey"), the injection fence for registry text that
   reaches the model; it returns config only, never who's on the channel.
+- **Channels can be joined/left mid-session.** `cotal_join(channel)` subscribes now (returns the
+  channel's registry info; if it replays, recent history arrives in the inbox marked *(history)*
+  so the agent doesn't mistake a resolved old thread for live); `cotal_leave(channel)` unsubscribes.
+  Both mutate the agent's own chat consumer's filter — no reconnect. Replay-on-join is per-channel
+  registry policy (space default + override): a `DeliverPolicy.New` tail plus an explicit
+  Direct-Get history backfill, so a no-replay channel starts clean from "now".
 
 Every launcher consumes a file the same way (`loadAgentFile → connector.buildLaunch → run`); they
 differ only in how they *run* the spec:

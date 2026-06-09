@@ -49,6 +49,16 @@ model — those don't fit lateral pub/sub.
   `replay` toggles whether a fresh joiner gets history backfilled; `description`/`instructions`
   reach the model, so the registry is a prompt-injection surface — text is length-bounded at the
   write path and surfaced to agents as attributed, advisory data (never system-prompt text).
+- **Replay mechanism — tail + backfill.** `deliver_policy` is consumer-wide, so it can't honor
+  per-channel replay; instead the chat durable is a `DeliverPolicy.New` **tail** ("from now on")
+  and history is an explicit **per-channel backfill on join** via JetStream Direct Get (a read
+  verb — no consumer create), gated by the channel's replay policy. A per-channel join watermark
+  (the stream frontier at join) lets the tail ack-drop pre-join messages, so a no-replay channel
+  starts clean and a replay backfill never double-delivers.
+- **Dynamic subscription.** A peer joins/leaves channels **mid-session** —
+  `endpoint.joinChannel`/`leaveChannel` mutate the existing chat durable's `filter_subjects` via
+  `consumers.update` (same durable, no teardown; rides the self-scoped create grant). So channel
+  membership is a live view, and join triggers the replay backfill above.
 - **Sessions + moderator** (managed groups with admit/remove) — *deferred*, but the design
   leaves room for it.
 

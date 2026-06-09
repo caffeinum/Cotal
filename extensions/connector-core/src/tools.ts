@@ -22,9 +22,10 @@ export function fmtFrom(i: InboxItem): string {
 }
 
 function fmtItem(i: InboxItem): string {
-  if (i.kind === "dm") return `[DM from ${fmtFrom(i)}] ${i.text}`;
-  if (i.kind === "anycast") return `[@${i.service} from ${fmtFrom(i)}] ${i.text}`;
-  return `[#${i.channel}${i.mentionsMe ? " @you" : ""} ${fmtFrom(i)}] ${i.text}`;
+  const h = i.historical ? "(history) " : ""; // backfilled on join — pre-dates you, not live
+  if (i.kind === "dm") return `[DM from ${fmtFrom(i)}] ${h}${i.text}`;
+  if (i.kind === "anycast") return `[@${i.service} from ${fmtFrom(i)}] ${h}${i.text}`;
+  return `[#${i.channel}${i.mentionsMe ? " @you" : ""} ${fmtFrom(i)}] ${h}${i.text}`;
 }
 
 const text = (t: string) => ({ content: [{ type: "text" as const, text: t }] });
@@ -64,7 +65,7 @@ export function channelMeta(i: InboxItem): Record<string, string> {
 }
 
 /** Register the Cotal tool surface (roster, inbox, send, dm, anycast, status, channel_info,
- *  spawn) on a server. */
+ *  join, leave, spawn) on a server. */
 export function registerCotalTools(server: McpServer, agent: MeshAgent, config: AgentConfig): void {
   server.registerTool(
     "cotal_roster",
@@ -213,6 +214,52 @@ export function registerCotalTools(server: McpServer, agent: MeshAgent, config: 
     async ({ channel }) => {
       if (!agent.connected) return text(`Not connected to the mesh yet (${config.servers}).`);
       return text(renderChannelInfo(channel, agent.channelInfo(channel)));
+    },
+  );
+
+  server.registerTool(
+    "cotal_join",
+    {
+      title: "Cotal: join a channel",
+      description:
+        "Subscribe to a channel mid-session. Returns its registry info; if the channel replays, recent history is delivered to your inbox marked as catch-up (it pre-dates your join — don't treat it as live). Idempotent.",
+      inputSchema: {
+        channel: z.string().describe("The channel to join (e.g. incident)."),
+      },
+    },
+    async ({ channel }) => {
+      try {
+        const r = await agent.joinChannel(channel);
+        if (!r.joined) return text(`Already on #${channel}.`);
+        const info = renderChannelInfo(channel, agent.channelInfo(channel));
+        const caught =
+          r.backfilled > 0
+            ? `\nBackfilled ${r.backfilled} earlier message${r.backfilled === 1 ? "" : "s"} into your inbox (marked "history" — they pre-date your join; read with cotal_inbox).`
+            : "";
+        return text(`Joined #${channel}.\n${info}${caught}`);
+      } catch (e) {
+        return fail(`Couldn't join #${channel}: ${(e as Error).message}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    "cotal_leave",
+    {
+      title: "Cotal: leave a channel",
+      description:
+        "Unsubscribe from a channel mid-session — you stop receiving its messages. You can't leave your only channel.",
+      inputSchema: {
+        channel: z.string().describe("The channel to leave."),
+      },
+    },
+    async ({ channel }) => {
+      try {
+        const r = await agent.leaveChannel(channel);
+        return text(r.left ? `Left #${channel}.` : `You weren't on #${channel}.`);
+      } catch (e) {
+        return fail(`Couldn't leave #${channel}: ${(e as Error).message}`);
+      }
     },
   );
 
