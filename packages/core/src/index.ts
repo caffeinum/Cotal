@@ -6,6 +6,7 @@ export * from "./provision.js";
 export * from "./streams.js";
 export * from "./agent-file.js";
 export * from "./endpoint.js";
+export * from "./spaces.js";
 export * from "./view/mesh-view.js";
 export * from "./connector.js";
 export * from "./command.js";
