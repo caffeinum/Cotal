@@ -31,6 +31,15 @@ model — those don't fit lateral pub/sub.
 - **Hierarchical channels** (NATS-subject style): a channel name is dotted — publish to a
   concrete `team.backend`, subscribe to a subtree with `team.>` (or one level with `team.*`).
   Flat names (`general`) still work. Publishing is always concrete; only subscriptions wildcard.
+- **Channel membership** (who's on a channel) is **server-known, not self-reported**: a peer
+  joins a channel by creating a chat-stream durable consumer, so `consumers.list` *is* the
+  membership — unforgeable, no presence field to lie in. `endpoint.channelMembers(channel)`
+  reads that broker truth and joins it with presence for liveness: a durable whose peer is gone
+  but lingering (reconnect grace) shows as a stale member (`live:false`), not a phantom
+  listener. Privileged read: `consumers.list` needs `$JS.API.CONSUMER.LIST.CHAT_<space>`, which
+  only the allow-all **manager** profile holds today — agents/observer/admin are denied, so it's
+  manager-served (a dashboard profile is a one-line grant away). Observability only, never an
+  agent gate on sending.
 - **Sessions + moderator** (managed groups with admit/remove) — *deferred*, but the design
   leaves room for it.
 

@@ -12,7 +12,9 @@
     "typecheck": "pnpm -r typecheck",
     "build": "pnpm -r build",
     "cotal": "tsx bin/cotal.ts",
-    "smoke": "tsx packages/core/smoke.ts"
+    "smoke": "tsx packages/core/smoke.ts",
+    "smoke:membership": "tsx packages/core/membership.smoke.ts",
+    "smoke:membership:auth": "tsx packages/core/membership-auth.smoke.ts"
   },
   "dependencies": {
     "@cotal-ai/cli": "workspace:*",

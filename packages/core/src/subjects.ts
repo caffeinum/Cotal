@@ -74,8 +74,10 @@ export function isConcreteChannel(channel: string): boolean {
   return !channel.split(".").some((s) => s.trim() === "*" || s.trim() === ">");
 }
 
-/** Does NATS subject `pattern` (with `*`/`>`) match `subject`? */
-function subjectMatches(pattern: string, subject: string): boolean {
+/** Does NATS subject `pattern` (with `*`/`>`) match `subject`? Also reused for channel-level
+ *  matching ("is a member on `team.>` a member of `team.backend`?") — channels are dotted
+ *  token strings, same rules. */
+export function subjectMatches(pattern: string, subject: string): boolean {
   const p = pattern.split(".");
   const s = subject.split(".");
   for (let i = 0; i < p.length; i++) {

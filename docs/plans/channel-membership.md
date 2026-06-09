@@ -52,10 +52,14 @@ persistent/audit surface (see follow-ups).
 
 ## Served dashboard-only
 
-The membership view is served **only from the privileged read surfaces**
-(`watch` / `console` / `manager`), which already subscribe `chat.>` and can list consumers
-(`provision.ts:183-199`). **No new agent grant.** `cotal_roster` stays presence-only
-("who exists / who's alive" — what an agent legitimately needs for addressing and
+The membership view is a **privileged read**. `consumers.list` rides
+`$JS.API.CONSUMER.LIST.CHAT_<space>`, which — verified against `provision.ts` and by the
+auth-mode test — **only the allow-all `manager` profile holds today**. The `observer`/`admin`
+profiles grant `CONSUMER.INFO`/`CREATE`/`MSG.NEXT` on CHAT (`provision.ts:187-214`) but **not**
+`CONSUMER.LIST`, so `watch`/`console` running as observer/admin are currently *denied* — the
+view is **manager-served** until we add that one-line `LIST` grant to those profiles (deferred:
+"no new grant for Demo 1"). **No new agent grant either** — `cotal_roster` stays presence-only
+("who exists / who's alive", what an agent legitimately needs for addressing and
 mention-validation).
 
 This is least-privilege *and* correct interaction design: the only thing an agent could do
@@ -87,12 +91,12 @@ are visible to everyone with stream-read on the space.
   - Recover the id by stripping `chat_` and matching forward against `token(p.card.id)` over
     the live roster (don't reverse the lossy durable name). A consumer with no roster match
     is a ghost/foreign id — display the id prefix, never drop it.
-  - **Coordinate with the channel-registry plan** (`channel-registry.md`): if per-channel
-    replay control lands, each endpoint's durable splits into `chat_<id>` (replay) +
-    `chatnew_<id>` (no-replay). The parser must then **union both prefixes per id** —
-    `channels = filter_subjects(chat_<id>) ∪ filter_subjects(chatnew_<id>)` — so a no-replay
-    subscriber stays visible. Membership is indifferent to *how* a peer receives; the two
-    must land together.
+  - **Coordinate with the channel-registry plan** (`channel-registry.md`): the converged
+    dynamic-subscription design (pending ratification) keeps **one** `chat_<id>` durable and
+    mutates its `filter_subjects` on join/leave (`consumers.update`), with replay handled
+    out-of-band by a direct-get backfill. So the parser needs **no change** — it reads the
+    current `filter_subjects`, so join/leave track live for free. (The earlier durable-split
+    `chat_<id>` + `chatnew_<id>` idea is dropped.)
   - `consumers.list` is a JSAPI round-trip (the presence-only view was free); cache / refresh
     on a sane interval, don't poll it per render frame.
 - Surfaces (`watch` / `console` / `manager`) — join the consumer list with the roster and

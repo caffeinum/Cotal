@@ -96,15 +96,35 @@ const aliceInB = b.getRoster().find((p) => p.card.name === "alice");
 console.log("bob received:", got);
 console.log("alice status seen by b:", aliceInB?.status);
 
+// Channel membership = broker truth (chat-stream consumers) ∩ presence liveness.
+// Pre-leave, #general has alice, bob, carol — all live. The no-arg form maps every channel.
+const preLeave = await a.channelMembers("general");
+const allChannels = await a.channelMembers();
+console.log("#general members (pre-leave):", preLeave.map((m) => `${m.name}=${m.live ? "live" : "stale"}`));
+console.log("channels → member count:", [...allChannels].map(([ch, ms]) => `${ch}:${ms.length}`));
+
 await b.stop();
 await wait(500);
 const bobInA = a.getRoster().find((p) => p.card.name === "bob");
 console.log("bob status seen by a after stop:", bobInA?.status);
 
+// Bob's chat durable lingers past his leave (reconnect grace), but presence flipped offline:
+// he stays visible as a STALE member (live:false), distinct from still-live alice.
+const afterLeave = await a.channelMembers("general");
+const bobMember = afterLeave.find((m) => m.name === "bob");
+const aliceMember = afterLeave.find((m) => m.name === "alice");
+console.log("#general members (post-leave):", afterLeave.map((m) => `${m.name}=${m.live ? "live" : "stale"}`));
+
 const mentionsNormalized = JSON.stringify(sent.mentions) === JSON.stringify(["bob", "carol"]);
 const emptyOmitted = omitted.mentions === undefined;
 const bobSawMention = bobSawMentions?.includes("bob") === true;
 console.log("mention wire:", { sent: sent.mentions, omitted: omitted.mentions, bobSaw: bobSawMentions });
+
+const membershipLive =
+  preLeave.some((m) => m.name === "alice" && m.live) &&
+  preLeave.some((m) => m.name === "bob" && m.live);
+const membershipMap = (allChannels.get("general") ?? []).some((m) => m.name === "alice");
+const membershipStale = bobMember?.live === false && aliceMember?.live === true;
 
 const ok =
   got.some((g) => g.startsWith("#general")) &&
@@ -114,6 +134,9 @@ const ok =
   mentionsNormalized &&
   emptyOmitted &&
   bobSawMention &&
+  membershipLive &&
+  membershipMap &&
+  membershipStale &&
   aliceInB?.status === "working" &&
   bobInA?.status === "offline";
 

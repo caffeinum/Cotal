@@ -49,8 +49,10 @@ import {
   presenceBucket,
   spacePrefix,
   spaceWildcard,
+  subjectMatches,
   taskStream,
   taskDurable,
+  token,
   unicastSubject,
 } from "./subjects.js";
 
@@ -88,6 +90,16 @@ export interface EndpointOptions {
   ackWaitMs?: number;
   /** Retire this instance's durable consumers after it's been gone this long (ms). */
   inactiveThresholdMs?: number;
+}
+
+/** A peer subscribed to a channel — broker truth (a chat-stream consumer) joined with
+ *  presence for liveness. `live: false` is a stale ghost: the durable lingers (reconnect
+ *  grace) but presence says the peer is gone/offline. */
+export interface ChannelMember {
+  id: string;
+  name: string;
+  role?: string;
+  live: boolean;
 }
 
 /**
@@ -437,6 +449,81 @@ export class CotalEndpoint extends EventEmitter {
       .sort((a, b) => a.channel.localeCompare(b.channel));
   }
 
+  /**
+   * Who is subscribed to a channel — **broker truth, not self-report**. In Cotal a peer
+   * joins a channel by creating a chat-stream durable consumer (`chat_<id>`,
+   * `filter_subjects` = its channels), so `consumers.list(CHAT)` already records the real
+   * membership; we join it with presence so a lingering durable for a gone peer shows as a
+   * stale ghost (`live: false`) rather than a phantom listener.
+   *
+   * `channelMembers("review")` → that channel's members; `channelMembers()` → every channel
+   * mapped to its members. A member on a wildcard (`team.>`) counts for every concrete
+   * channel it subsumes (`team.backend`) — membership is the *effective subscription*.
+   *
+   * Privileged read: `consumers.list` needs `$JS.API.CONSUMER.LIST.<chat stream>`, which only
+   * the allow-all manager profile holds today (agents, observer, and admin are all denied), so
+   * this is not an agent-facing capability — serving it from a dashboard profile is a one-line
+   * ACL grant away.
+   */
+  async channelMembers(channel: string): Promise<ChannelMember[]>;
+  async channelMembers(): Promise<Map<string, ChannelMember[]>>;
+  async channelMembers(
+    channel?: string,
+  ): Promise<ChannelMember[] | Map<string, ChannelMember[]>> {
+    const mgr = await this.manager();
+    // Group channel patterns by each consumer's durable id-token (chat_<id> → token(id)).
+    // One peer has one chat consumer, so this is a straight per-peer collection; join/leave
+    // just mutates that consumer's filter_subjects, which the next call re-reads live.
+    const byTok = new Map<string, Set<string>>();
+    for await (const ci of mgr.consumers.list(chatStream(this.space))) {
+      const tok = chatDurableToken(ci.config.durable_name ?? ci.name);
+      if (tok === null) continue;
+      // The server may report a single filter as `filter_subject` or `filter_subjects` — both
+      // are the same datum; read whichever is present. Filters are already collapsed (the
+      // effective subscription), so parse the channel straight out of each.
+      const filters =
+        ci.config.filter_subjects ?? (ci.config.filter_subject ? [ci.config.filter_subject] : []);
+      const set = byTok.get(tok) ?? new Set<string>();
+      for (const f of filters) {
+        const p = parseSubject(f);
+        if (p?.kind === "chat") set.add(p.rest);
+      }
+      byTok.set(tok, set);
+    }
+
+    // Join with presence for liveness. token() is lossy, so match forward: index the roster
+    // by token(id). A durable with no roster match is a ghost/foreign id — keep its token,
+    // never drop it.
+    const byToken = new Map<string, Presence>();
+    for (const p of this.roster.values()) byToken.set(token(p.card.id), p);
+    const memberFor = (tok: string): ChannelMember => {
+      const p = byToken.get(tok);
+      return p
+        ? { id: p.card.id, name: p.card.name, role: p.card.role, live: p.status !== "offline" }
+        : { id: tok, name: tok, live: false };
+    };
+    const byName = (a: ChannelMember, b: ChannelMember) => a.name.localeCompare(b.name);
+
+    if (channel !== undefined) {
+      const out: ChannelMember[] = [];
+      for (const [tok, patterns] of byTok)
+        if ([...patterns].some((pat) => subjectMatches(pat, channel))) out.push(memberFor(tok));
+      return out.sort(byName);
+    }
+
+    const map = new Map<string, ChannelMember[]>();
+    for (const [tok, patterns] of byTok) {
+      const m = memberFor(tok);
+      for (const pat of patterns) {
+        const arr = map.get(pat);
+        if (arr) arr.push(m);
+        else map.set(pat, [m]);
+      }
+    }
+    for (const arr of map.values()) arr.sort(byName);
+    return map;
+  }
+
   /** Fetch recent messages from a channel's JetStream backlog. */
   async channelHistory(
     channel: string,
@@ -743,6 +830,14 @@ export class CotalEndpoint extends EventEmitter {
     }
     if (changed) this.emit("roster", this.getRoster());
   }
+}
+
+/** The id token of a chat-stream durable, or null if it isn't one — the inverse of
+ *  `chatDurable` (`chat_<token(id)>`). token() is lossy, so this returns the token, not the
+ *  original id; callers match it forward against `token(card.id)`. */
+function chatDurableToken(durable: string): string | null {
+  const prefix = "chat_";
+  return durable.startsWith(prefix) ? durable.slice(prefix.length) : null;
 }
 
 /** Auth subset of connect() options, shared by the endpoint and isReachable. */
