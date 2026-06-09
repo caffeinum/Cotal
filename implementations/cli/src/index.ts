@@ -3,6 +3,7 @@ import { up } from "./commands/up.js";
 import { join } from "./commands/join.js";
 import { watch } from "./commands/watch.js";
 import { console_ } from "./commands/console.js";
+import { demo } from "./commands/demo.js";
 import { web } from "./commands/web.js";
 import { spawn } from "./commands/spawn.js";
 import { mint } from "./commands/mint.js";
@@ -40,6 +41,13 @@ const baseCommands: Command[] = [
     group: "Mesh",
     summary: "live protocol view for a space — lazygit-style TUI, or a line stream on --plain — --space <s> [--plain]",
     run: console_,
+  },
+  {
+    kind: "command",
+    name: "demo",
+    group: "Mesh",
+    summary: "replay a scripted multi-agent trace (all message types) to exercise the console/web — --space <s> [--interval <ms>] [--once]",
+    run: demo,
   },
   {
     kind: "command",

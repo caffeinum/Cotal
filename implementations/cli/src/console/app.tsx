@@ -1,23 +1,40 @@
 import { useCallback, useEffect, useState } from "react";
-import { Box, useApp, useFocusManager, useInput, useStdout } from "ink";
+import { Box, Text, useApp, useFocusManager, useInput, useStdout } from "ink";
 import type { CotalEndpoint, Presence } from "@cotal/core";
 import { useMesh } from "./mesh.js";
 import { Tabs } from "./ui/Tabs.js";
+import { Tiles } from "./ui/Tiles.js";
 import { Roster } from "./ui/Roster.js";
 import { Feed } from "./ui/Feed.js";
+import { NeedsYou } from "./ui/NeedsYou.js";
+import { Dm } from "./ui/Dm.js";
 import { StatusBar } from "./ui/StatusBar.js";
 import { Help } from "./ui/Help.js";
 import { Search } from "./ui/Search.js";
+import { CommandPalette } from "./ui/CommandPalette.js";
+import { Confirm, type ConfirmTarget } from "./ui/Confirm.js";
 import { Detail, type DetailTarget } from "./ui/Detail.js";
-import type { FeedEntry } from "./mesh.js";
+import { runCommand, type CommandCtx } from "./commands.js";
+import type { FeedEntry, FocusId } from "./mesh.js";
 
 /**
- * The lazygit-style console: channel tabs (top) · roster (left) · live feed (main) · status bar.
- * `useMesh` owns the observer endpoint lifecycle and hands us UI-ready state. Input routing is
- * single-source: this global handler owns ? / / / q / ←→ / 1–9 and the overlays; each panel's
- * keys (↑↓ select, Enter detail) are gated on focus and on no overlay/search being open.
+ * The lazygit-style console: channel tabs · golden-signal tiles · roster · live feed · status bar,
+ * plus the NEEDS-YOU rail (`n`), the DM lens (`d`), the `:` operator command palette, and `D` to
+ * kill a selected agent. `useMesh` owns the observer endpoint; panels lay out `mesh` and (when
+ * `canWrite`) the palette/`D` publish + control over the same endpoint. Input is single-source:
+ * this global handler owns the keys/overlays; panels' keys are gated on focus and `blocked`.
  */
-export function App({ ep, tapSubject }: { ep: CotalEndpoint; tapSubject?: string }) {
+export function App({
+  ep,
+  tapSubject,
+  onBack,
+  canWrite,
+}: {
+  ep: CotalEndpoint;
+  tapSubject?: string;
+  onBack?: () => void;
+  canWrite?: boolean;
+}) {
   const mesh = useMesh(ep, { tapSubject });
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -28,16 +45,54 @@ export function App({ ep, tapSubject }: { ep: CotalEndpoint; tapSubject?: string
   const [helpOpen, setHelpOpen] = useState(false);
   const [detail, setDetail] = useState<DetailTarget | null>(null);
   const [search, setSearch] = useState({ active: false, query: "" });
-  const [focusedId, setFocusedId] = useState<"roster" | "feed">("feed");
+  const [focusedId, setFocusedId] = useState<FocusId>("feed");
+  const [mode, setMode] = useState<"normal" | "dm">("normal");
+  const [railOpen, setRailOpen] = useState(false);
+  const [palette, setPalette] = useState({ active: false, query: "" });
+  const [confirm, setConfirm] = useState<ConfirmTarget | null>(null);
+  const [notice, setNotice] = useState<string | undefined>();
 
   const overlay = helpOpen || detail !== null;
-  const blocked = overlay || search.active;
+  const blocked = overlay || search.active || palette.active || confirm !== null;
 
-  // Focus the feed first; re-focus the last panel after an overlay closes.
+  // ---- geometry (pure from size / mode / rail / search / palette) -------------
+  const narrow = size.cols < 80;
+  const searchRow = search.active || search.query ? 1 : 0;
+  const tilesRow = 1;
+  const paletteRows = palette.active ? 7 : 0; // CommandPalette is a fixed 6 suggestions + 1 input
+  const noticeRow = notice ? 1 : 0;
+  const bodyH = Math.max(
+    3,
+    size.rows - 3 /* tabs */ - tilesRow - 1 /* status */ - searchRow - paletteRows - noticeRow,
+  );
+  // The needs-you rail is a side column only on a genuinely wide terminal; otherwise `n` opens it
+  // full-screen so it never squeezes the feed unreadably. It never coexists with the DM lens.
+  const railAsColumn = railOpen && !narrow && size.cols >= 100 && mode !== "dm";
+  const railOverlay = railOpen && mode !== "dm" && !railAsColumn;
+  const railW = railAsColumn ? Math.min(34, Math.max(24, Math.floor(size.cols * 0.28))) : 0;
+  const bodyW = size.cols - railW;
+  let roster: { w: number; h: number };
+  let feed: { w: number; h: number };
+  if (narrow) {
+    const rH = Math.min(8, Math.max(3, Math.floor(bodyH * 0.35)));
+    roster = { w: bodyW, h: rH };
+    feed = { w: bodyW, h: bodyH - rH };
+  } else {
+    const rW = Math.min(36, Math.max(24, Math.floor(bodyW * 0.3)));
+    roster = { w: rW, h: bodyH };
+    feed = { w: bodyW - rW, h: bodyH };
+  }
+  const normalFocus: FocusId =
+    focusedId === "roster" ? "roster" : focusedId === "needsyou" && railAsColumn ? "needsyou" : "feed";
+
+  // Focus the right pane after an overlay closes, or when switching into/out of a view.
   useEffect(() => {
-    if (!overlay) focus(focusedId);
+    if (overlay || confirm) return;
+    if (railOverlay) focus("needsyou");
+    else if (mode === "dm") focus("dmpeers");
+    else focus(normalFocus);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [helpOpen, detail]);
+  }, [helpOpen, detail, mode, railOpen, confirm]);
 
   // Keep last-seen ages fresh.
   const [, tick] = useState(0);
@@ -45,6 +100,13 @@ export function App({ ep, tapSubject }: { ep: CotalEndpoint; tapSubject?: string
     const t = setInterval(() => tick((n) => n + 1), 1000);
     return () => clearInterval(t);
   }, []);
+
+  // Auto-clear the transient action notice.
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(undefined), 3000);
+    return () => clearTimeout(t);
+  }, [notice]);
 
   useEffect(() => {
     const onResize = () => setSize({ cols: stdout.columns || 80, rows: stdout.rows || 24 });
@@ -58,74 +120,165 @@ export function App({ ep, tapSubject }: { ep: CotalEndpoint; tapSubject?: string
   const counts: Record<string, number> = {};
   for (const ch of mesh.channels) counts[ch.channel] = ch.messages;
 
-  const onFocus = useCallback((id: "roster" | "feed") => setFocusedId(id), []);
+  const onFocus = useCallback((id: FocusId) => setFocusedId(id), []);
   const openAgent = useCallback((p: Presence) => setDetail({ kind: "agent", agent: p }), []);
   const openMessage = useCallback((e: FeedEntry) => setDetail({ kind: "message", entry: e }), []);
+  const handleKill = useCallback((p: Presence) => setConfirm({ kind: "kill", name: p.card.name }), []);
 
-  useInput((input, key) => {
-    if (helpOpen) return setHelpOpen(false);
-    if (detail) return setDetail(null);
-    if (search.active) return; // the Search line owns input while open
-    if (input === "?") return setHelpOpen(true);
-    if (input === "/") return setSearch((s) => ({ active: true, query: s.query }));
-    if (key.escape) {
-      if (search.query) setSearch({ active: false, query: "" });
-      return;
+  // Run a typed palette line against the live endpoint.
+  const runPaletteLine = (line: string) => {
+    setPalette({ active: false, query: "" });
+    const ctx: CommandCtx = {
+      ep,
+      snapshot: mesh,
+      activeChannel,
+      setMode,
+      setActiveChannel,
+      toggleRail: () => setRailOpen((v) => !v),
+      openHelp: () => setHelpOpen(true),
+      back: onBack,
+      exit,
+      notify: setNotice,
+    };
+    runCommand(line, ctx, !!canWrite);
+  };
+
+  // Confirmed destructive action (kill only; space-delete is handled in the picker).
+  const onConfirmed = () => {
+    const c = confirm;
+    setConfirm(null);
+    if (c?.kind === "kill") {
+      void ep
+        .requestControl("manager", { op: "stop", args: { name: c.name } })
+        .then((r) => setNotice(r.ok ? `stopped ${c.name}` : `stop: ${r.error ?? "failed"}`))
+        .catch((e) => setNotice("stop: " + (e as Error).message));
     }
-    if (input === "q") return exit();
-    if (key.leftArrow) return focusPrevious();
-    if (key.rightArrow) return focusNext();
-    if (input >= "1" && input <= "9") {
-      const idx = Number(input) - 1;
-      if (idx < tabs.length) setActiveChannel(tabs[idx]);
-    }
-  });
+  };
+
+  useInput(
+    (input, key) => {
+      if (helpOpen) return setHelpOpen(false);
+      if (detail) return setDetail(null);
+      if (search.active) return; // the Search line owns input while open
+      if (input === "?") return setHelpOpen(true);
+      if (input === "/") return setSearch((s) => ({ active: true, query: s.query }));
+      if (input === ":") return setPalette({ active: true, query: "" });
+      if (key.escape) {
+        // lazygit-style "back": pop one level per press, then return to the space overview.
+        if (mode === "dm") return setMode("normal");
+        if (railOverlay) return setRailOpen(false);
+        if (search.query) return setSearch({ active: false, query: "" });
+        if (onBack) return onBack();
+        return;
+      }
+      if (input === "q") return exit();
+      if (onBack && input === "b" && mode === "normal") return onBack(); // quick back to the overview
+      if (input === "d" && !key.ctrl) return setMode((m) => (m === "dm" ? "normal" : "dm")); // Ctrl-d = scroll
+      if (input === "n") return setRailOpen((v) => !v);
+      if (key.leftArrow || input === "h") return focusPrevious();
+      if (key.rightArrow || input === "l") return focusNext();
+      if (input === "[" || input === "]") {
+        const cur = Math.max(0, tabs.indexOf(activeChannel));
+        const next = input === "]" ? Math.min(tabs.length - 1, cur + 1) : Math.max(0, cur - 1);
+        return setActiveChannel(tabs[next]);
+      }
+      if (input >= "1" && input <= "9") {
+        const idx = Number(input) - 1;
+        if (idx < tabs.length) setActiveChannel(tabs[idx]);
+      }
+    },
+    { isActive: !palette.active && confirm === null },
+  );
 
   if (helpOpen) return <Help focusedId={focusedId} width={size.cols} height={size.rows} />;
   if (detail) return <Detail target={detail} feed={mesh.feed} width={size.cols} height={size.rows} />;
-
-  const narrow = size.cols < 80;
-  const searchRow = search.active || search.query ? 1 : 0;
-  const bodyH = Math.max(3, size.rows - 3 /* tabs */ - 1 /* status */ - searchRow);
-  let roster: { w: number; h: number };
-  let feed: { w: number; h: number };
-  if (narrow) {
-    const rH = Math.min(8, Math.max(3, Math.floor(bodyH * 0.35)));
-    roster = { w: size.cols, h: rH };
-    feed = { w: size.cols, h: bodyH - rH };
-  } else {
-    const rW = Math.min(36, Math.max(24, Math.floor(size.cols * 0.3)));
-    roster = { w: rW, h: bodyH };
-    feed = { w: size.cols - rW, h: bodyH };
-  }
+  if (confirm)
+    return (
+      <Confirm target={confirm} width={size.cols} height={size.rows} onConfirm={onConfirmed} onCancel={() => setConfirm(null)} />
+    );
+  if (railOverlay)
+    return (
+      <NeedsYou
+        waiting={mesh.signals.waiting}
+        boxWidth={size.cols}
+        boxHeight={size.rows}
+        blocked={blocked}
+        onFocus={onFocus}
+        onOpenDetail={openAgent}
+      />
+    );
 
   return (
     <Box flexDirection="column" width={size.cols} height={size.rows}>
       <Tabs tabs={tabs} active={activeChannel} counts={counts} width={size.cols} />
-      <Box flexDirection={narrow ? "column" : "row"} height={bodyH}>
-        <Roster
-          agents={mesh.agents}
-          endpoints={mesh.endpoints}
-          query={search.query}
-          boxWidth={roster.w}
-          boxHeight={roster.h}
-          wide={!narrow}
+      <Tiles counts={mesh.signals.counts} oldestWaitingTs={mesh.signals.oldestWaitingTs} width={size.cols} />
+      {mode === "dm" ? (
+        <Dm
+          dms={mesh.signals.dms}
+          dmVisible={mesh.status.dmVisible}
+          width={size.cols}
+          height={bodyH}
+          narrow={narrow}
           blocked={blocked}
           onFocus={onFocus}
-          onOpenDetail={openAgent}
         />
-        <Feed
-          entries={mesh.feed}
-          activeChannel={activeChannel}
-          query={search.query}
-          boxWidth={feed.w}
-          boxHeight={feed.h}
-          blocked={blocked}
-          onFocus={onFocus}
-          onOpenDetail={openMessage}
+      ) : (
+        <Box flexDirection={narrow ? "column" : "row"} height={bodyH}>
+          <Box flexDirection={narrow ? "column" : "row"} width={bodyW} height={bodyH}>
+            <Roster
+              agents={mesh.agents}
+              endpoints={mesh.endpoints}
+              query={search.query}
+              boxWidth={roster.w}
+              boxHeight={roster.h}
+              wide={!narrow}
+              blocked={blocked}
+              onFocus={onFocus}
+              onOpenDetail={openAgent}
+              onKill={canWrite ? handleKill : undefined}
+            />
+            <Feed
+              entries={mesh.feed}
+              activeChannel={activeChannel}
+              query={search.query}
+              boxWidth={feed.w}
+              boxHeight={feed.h}
+              blocked={blocked}
+              onFocus={onFocus}
+              onOpenDetail={openMessage}
+            />
+          </Box>
+          {railAsColumn ? (
+            <NeedsYou
+              waiting={mesh.signals.waiting}
+              boxWidth={railW}
+              boxHeight={bodyH}
+              blocked={blocked}
+              onFocus={onFocus}
+              onOpenDetail={openAgent}
+            />
+          ) : null}
+        </Box>
+      )}
+      {notice ? (
+        <Box width={size.cols} paddingX={1}>
+          <Text color="cyan" wrap="truncate-end">
+            {notice}
+          </Text>
+        </Box>
+      ) : null}
+      {palette.active ? (
+        <CommandPalette
+          active={palette.active}
+          query={palette.query}
+          snapshot={mesh}
+          canWrite={!!canWrite}
+          width={size.cols}
+          onChange={(q) => setPalette((p) => ({ ...p, query: q }))}
+          onRun={runPaletteLine}
+          onCancel={() => setPalette({ active: false, query: "" })}
         />
-      </Box>
-      {searchRow ? (
+      ) : searchRow ? (
         <Search
           query={search.query}
           active={search.active}
@@ -140,7 +293,10 @@ export function App({ ep, tapSubject }: { ep: CotalEndpoint; tapSubject?: string
         rates={mesh.rates}
         activeChannel={activeChannel}
         agentCount={mesh.agents.length}
-        focusedId={focusedId}
+        mode={mode}
+        railOpen={railOpen}
+        canBack={!!onBack}
+        canWrite={!!canWrite}
         width={size.cols}
       />
     </Box>

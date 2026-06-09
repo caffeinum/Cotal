@@ -6,8 +6,18 @@ import { agentColor, STATUS, ago } from "./theme.js";
 function RosterRow({ p, selected, wide }: { p: Presence; selected: boolean; wide: boolean }) {
   const isAgent = p.card.kind === "agent";
   const s = STATUS[p.status];
+  // Selected: one uniform cyan bar (like the tabs); unselected: the normal colored row.
+  if (selected) {
+    const kind = wide ? (isAgent ? "  " + s.word : "  endpoint") : "";
+    const act = p.activity ? "  " + p.activity : "";
+    return (
+      <Text inverse bold color="cyan" wrap="truncate-end">
+        {(isAgent ? s.dot : "⚙") + " " + p.card.name + kind + act + "  " + ago(p.ts)}
+      </Text>
+    );
+  }
   return (
-    <Text wrap="truncate-end" inverse={selected}>
+    <Text wrap="truncate-end">
       <Text color={isAgent ? s.color : "gray"}>{isAgent ? s.dot : "⚙"} </Text>
       <Text color={isAgent ? agentColor(p.card.name) : undefined} dimColor={!isAgent}>
         {p.card.name}
@@ -41,6 +51,7 @@ export function Roster({
   blocked,
   onFocus,
   onOpenDetail,
+  onKill,
 }: {
   agents: Presence[];
   endpoints: Presence[];
@@ -51,6 +62,7 @@ export function Roster({
   blocked: boolean;
   onFocus: (id: "roster" | "feed") => void;
   onOpenDetail: (p: Presence) => void;
+  onKill?: (p: Presence) => void;
 }) {
   const { isFocused } = useFocus({ id: "roster" });
   useEffect(() => {
@@ -64,9 +76,11 @@ export function Roster({
   const selClamped = Math.min(sel, Math.max(0, list.length - 1));
 
   useInput(
-    (_input, key) => {
-      if (key.upArrow) setSel((v) => Math.max(0, v - 1));
-      else if (key.downArrow) setSel((v) => Math.min(list.length - 1, v + 1));
+    (input, key) => {
+      if (key.upArrow || input === "k") setSel((v) => Math.max(0, v - 1));
+      else if (key.downArrow || input === "j") setSel((v) => Math.min(list.length - 1, v + 1));
+      else if (input === "D" && onKill && list[selClamped]?.card.kind === "agent")
+        onKill(list[selClamped]);
       else if (key.return && list.length) onOpenDetail(list[selClamped]);
     },
     { isActive: isFocused && !blocked },

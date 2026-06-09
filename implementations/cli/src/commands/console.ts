@@ -1,18 +1,26 @@
 import { parseArgs } from "node:util";
 import { readFileSync, writeSync } from "node:fs";
+import { userInfo } from "node:os";
 import { createElement } from "react";
 import { render } from "ink";
-import { CotalEndpoint, isReachable, DEFAULT_SERVER, chatWildcard } from "@cotal/core";
+import {
+  isReachable,
+  DEFAULT_SERVER,
+  chatWildcard,
+  authDir,
+  loadSpaceAuth,
+  mintCreds,
+  newIdentity,
+} from "@cotal/core";
 import { c } from "../ui.js";
 import { runLog } from "../render.js";
-import { App } from "../console/app.js";
+import { Root, makeObserver } from "../console/root.js";
 
 /**
- * `cotal console` — the live protocol view for a space. A real terminal gets the lazygit-style
- * Ink TUI (roster · channel tabs · live feed · detail · search); a pipe or `--plain` gets the
- * passive line stream. Both render over the SAME read-only observer (no new NATS connection):
- * the Ink app's `useMesh` hook owns the endpoint lifecycle (start → tap → stop), so this command
- * just builds the unstarted observer and renders. See docs/protocol-view.md.
+ * `cotal console` — the live protocol view. A real terminal gets the lazygit-style Ink TUI; a pipe
+ * or `--plain` gets the passive line stream. With no `--space` on an open mesh it opens an admin
+ * overview of every space first (pick one to drill in, `b` to come back); `--space X` goes straight
+ * in. Renders over a read-only observer whose lifecycle `useMesh` owns. See docs/protocol-view.md.
  */
 export async function console_(argv: string[]): Promise<void> {
   const { values } = parseArgs({
@@ -25,33 +33,49 @@ export async function console_(argv: string[]): Promise<void> {
       creds: { type: "string" },
     },
   });
-  const space = values.space ?? "demo";
   const server = values.server ?? DEFAULT_SERVER;
-  const creds = values.creds ? readFileSync(values.creds, "utf8") : undefined;
+  let creds = values.creds ? readFileSync(values.creds, "utf8") : undefined;
+  let space = values.space;
+
+  // Auth mode (.cotal/auth present): self-mint an observer cred for the local space so the console
+  // works without --creds (like `cotal web`). An authed server hosts exactly one space, so there's
+  // no overview — we enter it directly. Open mode (no auth): connect bare; with no --space, the TTY
+  // shows the space overview.
+  if (!creds) {
+    const auth = loadSpaceAuth(authDir(process.cwd()));
+    if (auth) {
+      if (space && space !== auth.space) {
+        console.error(
+          c.red(`Auth here is for space "${auth.space}", not "${space}". Use --space ${auth.space} (or pass --creds).`),
+        );
+        process.exit(1);
+      }
+      space = auth.space;
+      creds = await mintCreds(auth, newIdentity(), "observer");
+    }
+  }
+
   if (!(await isReachable(server, { creds }))) {
     console.error(c.red(`Can't reach NATS at ${server}. Run: pnpm cotal up`));
     process.exit(1);
   }
 
-  // Observer: never registers presence, never consumes an inbox — invisible to peers.
-  const ep = new CotalEndpoint({
-    space,
-    servers: server,
-    creds,
-    channels: [],
-    consume: false,
-    registerPresence: false,
-    watchPresence: true,
-    card: { name: "console", kind: "endpoint" },
-  });
-  ep.on("error", () => {});
+  // Operator identity for sent messages (still off the roster). Open mode or an explicit --creds can
+  // write; the self-minted observer cred (auth default) is read-only, so the palette/`D` are inert.
+  const operator = (() => {
+    try {
+      return userInfo().username || "operator";
+    } catch {
+      return "operator";
+    }
+  })();
+  const canWrite = !creds || !!values.creds;
 
-  // Under auth the tap must narrow to chat.> (DMs/anycast stay confidential); open mode taps all.
-  const tapSubject = creds ? chatWildcard(space) : undefined;
-
-  // No TTY (piped/headless) or --plain → the passive line stream; Ink needs a real terminal.
+  // No TTY (piped/headless) or --plain → the passive line stream; Ink needs a real terminal, and a
+  // stream can't host the picker, so it falls back to the default space.
   if (values.plain || process.stdout.isTTY !== true) {
-    await runLog(ep, space, tapSubject);
+    const s = space ?? "demo";
+    await runLog(makeObserver(s, server, creds, operator), s, creds ? chatWildcard(s) : undefined);
     return;
   }
 
@@ -83,7 +107,7 @@ export async function console_(argv: string[]): Promise<void> {
     process.exit(0);
   });
 
-  const { waitUntilExit } = render(createElement(App, { ep, tapSubject }), {
+  const { waitUntilExit } = render(createElement(Root, { server, creds, space, canWrite, name: operator }), {
     exitOnCtrlC: true,
     maxFps: 30,
     incrementalRendering: true,

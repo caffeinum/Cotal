@@ -1,4 +1,5 @@
 import { Box, Text } from "ink";
+import type { FocusId } from "../mesh.js";
 
 /** Context-sensitive `?` overlay: the focused panel's keys first, then the global ones. */
 export function Help({
@@ -6,27 +7,40 @@ export function Help({
   width,
   height,
 }: {
-  focusedId: "roster" | "feed";
+  focusedId: FocusId;
   width: number;
   height: number;
 }) {
   const panel: [string, string][] =
     focusedId === "feed"
       ? [
-          ["↑ / ↓", "move selection"],
-          ["PgUp / PgDn", "move a page"],
-          ["g / G", "oldest / newest (follow)"],
-          ["Enter", "open message detail"],
+          ["↑↓ / j k", "scroll a line"],
+          ["Ctrl-d / Ctrl-u", "half-page down / up"],
+          ["PgUp / PgDn", "page up / down"],
+          ["g / G", "oldest / newest"],
+          ["Enter", "open current message"],
         ]
-      : [
-          ["↑ / ↓", "move selection"],
-          ["Enter", "open agent detail"],
-        ];
+      : focusedId === "dmpeers" || focusedId === "dmthread"
+        ? [
+            ["↑↓ / j k", "peer / conversation · scroll"],
+            ["← → / Tab", "switch peer list ↔ thread"],
+            ["Esc", "leave DM lens"],
+          ]
+        : [
+            ["↑↓ / j k", "move selection"],
+            ["Enter", "open agent detail"],
+            ["D", "kill agent (confirm)"],
+          ];
   const global: [string, string][] = [
-    ["Tab / ← →", "switch panel"],
+    ["Tab / ← → / h l", "switch panel"],
+    ["[ / ]", "prev / next channel"],
     ["1 – 9", "jump to channel tab"],
+    ["n", "toggle needs-you rail"],
+    ["d", "direct-message lens"],
+    [":", "command palette (send / call / ask)"],
+    ["D", "delete — kill agent / drop space"],
     ["/", "search / filter"],
-    ["Esc", "clear filter / close"],
+    ["Esc / b", "back / cancel (→ spaces)"],
     ["?", "toggle this help"],
     ["q / Ctrl-C", "quit"],
   ];

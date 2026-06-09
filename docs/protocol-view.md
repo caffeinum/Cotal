@@ -22,6 +22,17 @@ re-implements the wire semantics. The wire is the source of truth; these are ren
 is an alias of `console --plain`. The web dashboard is a **god-view** (self-mints an admin cred
 so it sees DMs + anycast); the terminal console sees what its creds allow (`dmVisible`).
 
+**Admin overview.** `cotal console` with **no `--space`** on an open mesh opens a space picker first —
+every space on the server (enumerated from its `CHAT_*` streams + presence buckets via
+`listSpaces()`) with agents / channels / message counts. Pick one to drop into its console; `b`
+returns to the overview. `--space X` skips the picker. Under auth a server hosts a single space, so
+the console just enters it directly (no overview).
+
+**Generate traffic to test them:** `cotal demo --space demo` spins up a handful of mock agents
+that loop a scripted trace hitting every message type (multicast across channels + mentions,
+peer DMs, a coalesced burst, an unclaimed anycast) and every presence state — run it next to
+`cotal console` / `cotal web`.
+
 ## The shared model — `MeshView` (`@cotal/core`)
 
 One class consumes the observer and emits a normalized, render-agnostic model. No ANSI, no
@@ -91,15 +102,31 @@ into per-peer conversations — only pairs that actually talked, never the n² c
 | roster (status, activity, age) | `agents` / `endpoints` | ✓ panel | ✓ presence lines | ✓ sidebar |
 | all-activity feed | `feed` | ✓ feed panel | ✓ log | ✓ Monitor view |
 | channels + counts | `channels` | ✓ tabs (1–9) | — | ✓ sidebar + Channel view |
-| golden-signal counts | `signals.counts` | (later) | — | ✓ tiles |
-| needs-you / blocked | `signals.waiting` | (later) | — | ✓ NEEDS-YOU rail |
-| direct-message lens | `signals.dms` | (later) | — | ✓ DM view |
+| golden-signal counts | `signals.counts` | ✓ tiles strip | — | ✓ tiles |
+| needs-you / blocked | `signals.waiting` | ✓ rail (`n`) | — | ✓ NEEDS-YOU rail |
+| direct-message lens | `signals.dms` | ✓ lens (`d`) | — | ✓ DM view |
 | message / agent **detail** | `feed` / `agents` | ✓ select → detail | — | ✓ row / thread |
 | **search / filter** | client | ✓ `/` | (grep) | ✓ mode chips |
 | msgs/s, connected, dmVisible | `rates` / `status` | ✓ status bar | — | ✓ conn pill |
 
-"(later)" = the model exposes it; the TUI can grow the panel cheaply but it's out of the current
-scope (the TUI scope is roster · tabs · feed · **detail** · **search**).
+Both interactive surfaces now render every model field. The console adds the signals as a one-row
+tiles strip (always on), a NEEDS-YOU rail toggled with `n` (a side column when the terminal is wide,
+else a full-screen overlay), and a DM lens toggled with `d` (peer roll-up + thread; shows
+"DMs hidden" under chat-only creds). The stream is line-oriented, so the signals stay out of it.
+
+## Future — not yet on the wire
+
+The web's `?demo` scene also mocks features that **no protocol message backs yet** — they render
+only as the static Penpot reference, never from live data, and are deliberately *not* implemented on
+either live surface. They live here as design intent until the wire grows to support them:
+
+| flourish | what it would need |
+|---|---|
+| intent badges ("about to act") | a new intent message kind / field on the wire |
+| approval requests (approve / deny) | a request message kind + a response path (interactive) |
+| task-failed alerts | a failure signal — a manager lifecycle event or a presence status |
+| unclaimed-anycast / status roll-up | mostly derivable from existing traffic; a `MeshView` signal |
+| per-conversation unread | per-viewer client state, not really protocol |
 
 ## Principles
 

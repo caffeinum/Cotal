@@ -50,13 +50,30 @@ function Target({ entry }: { entry: FeedEntry }) {
   );
 }
 
+/** Plain (no-color) target string for the selected row's uniform highlight. */
+function targetText(e: FeedEntry): string {
+  if (e.delivery === "multicast") return "#" + (e.channel ?? "?");
+  if (e.delivery === "anycast") return "@" + (e.toService ?? "?");
+  const names = (e.toNames ?? []).join(", ");
+  return names + (e.count && e.count > 1 ? " (" + e.count + "×)" : "");
+}
+
 function HeadRow({ entry, selected }: { entry: FeedEntry; selected: boolean }) {
-  const role = entry.from.role;
+  const role = entry.from.role && entry.from.role !== entry.from.name ? "/" + entry.from.role : "";
+  // Selected: one uniform cyan bar (like the tabs) — no per-segment colors to invert into a
+  // multi-color mess. Unselected: the normal colored composition.
+  if (selected) {
+    return (
+      <Text inverse bold color="cyan" wrap="truncate-end">
+        {fmtTime(entry.ts) + " " + entry.from.name + role + " → " + targetText(entry) + ":"}
+      </Text>
+    );
+  }
   return (
-    <Text wrap="truncate-end" inverse={selected}>
+    <Text wrap="truncate-end">
       <Text dimColor>{fmtTime(entry.ts) + " "}</Text>
       <Text color={agentColor(entry.from.name)}>{entry.from.name}</Text>
-      {role && role !== entry.from.name ? <Text dimColor>{"/" + role}</Text> : null}
+      {role ? <Text dimColor>{role}</Text> : null}
       <Text dimColor> → </Text>
       <Target entry={entry} />
       <Text dimColor>:</Text>
@@ -66,9 +83,9 @@ function HeadRow({ entry, selected }: { entry: FeedEntry; selected: boolean }) {
 
 /**
  * The live message feed — main panel. Coalesced + windowed entries from useMesh, filtered to the
- * active channel (`all` = firehose incl. unicast/anycast) and the `/` query. A selection cursor
- * (↑/↓, follows the tail) highlights one entry; `Enter` opens its detail. Ink has no scroll view,
- * so we flatten entries to rows and slice a window that keeps the selected entry visible.
+ * active channel (`all` = firehose incl. unicast/anycast) and the `/` query. Ink has no scroll view,
+ * so we flatten entries to rows and scroll a row cursor line-by-line (follows the tail); the message
+ * the cursor sits in is highlighted, and `Enter` opens its detail.
  */
 export function Feed({
   entries,
@@ -103,46 +120,54 @@ export function Feed({
   const room = Math.max(1, boxHeight - 3); // border (2) + title (1)
   const { rows, starts } = buildRows(filtered, Math.max(8, boxWidth - 4 - 3)); // pad/border (4) + indent (3)
 
-  const [sel, setSel] = useState(0);
-  const prevLen = useRef(0);
-  // Follow the tail: if the cursor was on the last entry, ride new entries down.
+  // The cursor is a ROW, not an entry — scrolling is line-granular. The "current message" (for the
+  // highlight + Enter→detail) is whichever entry the cursor row falls in.
+  const [cur, setCur] = useState(0);
+  const prevRows = useRef(0);
+  // Follow the tail: if the cursor was on the last row, ride new rows down.
   useEffect(() => {
-    setSel((s) => {
-      if (filtered.length === 0) return 0;
-      if (prevLen.current === 0 || s >= prevLen.current - 1) return filtered.length - 1;
-      return Math.min(s, filtered.length - 1);
+    setCur((c) => {
+      if (rows.length === 0) return 0;
+      if (prevRows.current === 0 || c >= prevRows.current - 1) return rows.length - 1;
+      return Math.min(c, rows.length - 1);
     });
-    prevLen.current = filtered.length;
-  }, [filtered.length]);
-  // Snap to the newest when the channel filter or query changes.
+    prevRows.current = rows.length;
+  }, [rows.length]);
+  // Jump to the newest when the channel filter or query changes.
   useEffect(() => {
-    setSel(filtered.length ? filtered.length - 1 : 0);
+    setCur(rows.length ? rows.length - 1 : 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeChannel, q]);
 
-  const selClamped = Math.min(sel, Math.max(0, filtered.length - 1));
+  const curClamped = Math.min(cur, Math.max(0, rows.length - 1));
+  // The entry whose row-range contains the cursor (largest start ≤ cur).
+  let curEntry = 0;
+  for (let i = 0; i < starts.length; i++) {
+    if (starts[i] <= curClamped) curEntry = i;
+    else break;
+  }
 
   useInput(
     (input, key) => {
-      if (key.upArrow) setSel((s) => Math.max(0, s - 1));
-      else if (key.downArrow) setSel((s) => Math.min(filtered.length - 1, s + 1));
-      else if (key.pageUp) setSel((s) => Math.max(0, s - room));
-      else if (key.pageDown) setSel((s) => Math.min(filtered.length - 1, s + room));
-      else if (input === "g" || key.home) setSel(0);
-      else if (input === "G" || key.end) setSel(filtered.length - 1);
-      else if (key.return && filtered.length) onOpenDetail(filtered[selClamped]);
+      const half = Math.max(1, Math.floor(room / 2));
+      const last = Math.max(0, rows.length - 1);
+      if (key.upArrow || input === "k") setCur((c) => Math.max(0, c - 1));
+      else if (key.downArrow || input === "j") setCur((c) => Math.min(last, c + 1));
+      else if (key.pageUp || (key.ctrl && input === "u"))
+        setCur((c) => Math.max(0, c - (key.ctrl ? half : room)));
+      else if (key.pageDown || (key.ctrl && input === "d"))
+        setCur((c) => Math.min(last, c + (key.ctrl ? half : room)));
+      else if (input === "g" || key.home) setCur(0);
+      else if (input === "G" || key.end) setCur(last);
+      else if (key.return && filtered.length) onOpenDetail(filtered[curEntry]);
     },
     { isActive: isFocused && !blocked },
   );
 
-  // Viewport: keep the selected entry visible, anchored to the tail by default.
-  const selStart = starts[selClamped] ?? 0;
-  const selEnd = starts[selClamped + 1] ?? rows.length;
-  let end = rows.length;
-  if (selStart < end - room) end = Math.min(rows.length, selStart + room);
-  if (selEnd > end) end = Math.min(rows.length, selEnd);
-  end = Math.max(room, Math.min(end, rows.length));
-  const top = Math.max(0, end - room);
+  // Viewport: a window of `room` rows that glides the cursor (centered, clamped to the ends).
+  const maxTop = Math.max(0, rows.length - room);
+  const top = Math.min(maxTop, Math.max(0, curClamped - Math.floor(room / 2)));
+  const end = Math.min(rows.length, top + room);
   const visible = rows.slice(top, end);
   const below = rows.length - end;
 
@@ -166,7 +191,7 @@ export function Feed({
       ) : (
         visible.map((r, i) =>
           r.kind === "head" ? (
-            <HeadRow key={top + i} entry={r.entry} selected={isFocused && r.entryIndex === selClamped} />
+            <HeadRow key={top + i} entry={r.entry} selected={isFocused && r.entryIndex === curEntry} />
           ) : (
             <Text key={top + i} wrap="truncate-end">
               {"   " + r.text}

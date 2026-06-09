@@ -7,20 +7,31 @@ export function StatusBar({
   rates,
   activeChannel,
   agentCount,
-  focusedId,
+  mode,
+  railOpen,
+  canBack,
+  canWrite,
   width,
 }: {
   status: MeshState["status"];
   rates: MeshState["rates"];
   activeChannel: string;
   agentCount: number;
-  focusedId: "roster" | "feed";
+  mode: "normal" | "dm";
+  railOpen: boolean;
+  canBack?: boolean;
+  canWrite?: boolean;
   width: number;
 }) {
   const keys =
-    focusedId === "feed"
-      ? "↑↓ select · Enter detail · / search · ←→ panel · 1-9 chan · ? help · q quit"
-      : "↑↓ select · Enter detail · / search · ←→ panel · 1-9 chan · ? help · q quit";
+    mode === "dm"
+      ? "j/k scroll · ←→ pane · esc back · / search · ? help · q quit"
+      : (canBack ? "esc back · " : "") +
+        ": cmd · j/k select · Enter detail · " +
+        (railOpen ? "n hide-rail" : "n needs-you") +
+        " · d DMs" +
+        (canWrite ? " · D kill" : "") +
+        " · / search · [ ] chan · ? help · q quit";
   return (
     <Box width={width} paddingX={1}>
       <Text wrap="truncate-end">
@@ -30,6 +41,7 @@ export function StatusBar({
             rates.msgsPerSec.toFixed(1) + " msg/s"}
         </Text>
         {status.dmVisible ? null : <Text color="yellow">{"  chat-only"}</Text>}
+        {canWrite ? null : <Text color="yellow">{"  read-only"}</Text>}
         {status.error ? (
           <Text color="red">{"  ! " + status.error}</Text>
         ) : (

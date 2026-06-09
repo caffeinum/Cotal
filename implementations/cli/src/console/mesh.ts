@@ -12,6 +12,9 @@ import { MeshView } from "@cotal/core";
 export type { FeedEntry, MeshViewOptions, FeedDelivery } from "@cotal/core";
 export type MeshState = MeshSnapshot;
 
+/** Focusable panes across the console (normal panels + the DM lens). */
+export type FocusId = "roster" | "feed" | "needsyou" | "dmpeers" | "dmthread";
+
 export function useMesh(ep: CotalEndpoint, opts?: MeshViewOptions): MeshSnapshot {
   const viewRef = useRef<MeshView | null>(null);
   if (!viewRef.current) viewRef.current = new MeshView(ep, opts ?? {});
