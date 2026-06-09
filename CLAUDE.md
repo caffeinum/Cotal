@@ -3,7 +3,7 @@ Keep your answers short and to the point.
 # Cotal
 > Write the name as **Cotal**, not "COTAL" (the directory is all-caps, the name isn't).
 
-A standard wire interface for software — especially AI agents — to coordinate in real
+A standard wire interface for software, especially AI agents, to coordinate in real
 time as **lateral peers in a shared pub/sub space**, not as nodes in an orchestrator
 tree. The wire contract (subjects, message schemas, presence/discovery conventions)
 *is* the standard; libraries are thin clients over it. Transport is **NATS + JetStream**;
@@ -81,3 +81,4 @@ MCP SDK, A2A/SLIM conventions, etc.) before replying or writing code — verify 
 - Core primitives: endpoint, agent node, space, channel, direct message, presence, history.
 - Delivery modes (SLIM-inspired): multicast / unicast / anycast.
 - Never use fallbacks in the code, rather throw if something isn't supported in the current environment or configuration.
+- Always try to use native features of NATS/JetStream first, rather than re-implementing them.
