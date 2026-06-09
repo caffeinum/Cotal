@@ -34,10 +34,11 @@ function parse(argv: string[]): Values {
     },
   });
   // These commands are flags-only — reject stray positionals instead of silently ignoring
-  // them (e.g. `cotal cmux up` / `cotal cmux go`, which used to start a default-space manager).
+  // them (e.g. `cotal cmux up`, which used to start a default-space manager). (`cotal cmux go`
+  // is now a real sub-verb, intercepted before this runs.)
   if (positionals.length) {
     const x = positionals[0];
-    const hint = x === "up" ? " — did you mean `cotal up`?" : x === "go" ? " — did you mean `cotal go`?" : "";
+    const hint = x === "up" ? " — did you mean `cotal up`?" : x === "go" ? " — did you mean `cotal cmux go`?" : "";
     console.error(c.red(`✗ unexpected argument: ${x}${hint}`));
     process.exit(1);
   }
@@ -244,7 +245,7 @@ async function runDrive(argv: string[]): Promise<void> {
   try {
     execFileSync(tsx, [cmuxCli, "check"], { stdio: "ignore" });
   } catch {
-    console.error(c.red("✗ can't reach cmux — run `cotal cmux --drive` from inside a cmux terminal."));
+    console.error(c.red("✗ can't reach cmux — run `cotal cmux go` from inside a cmux terminal."));
     process.exit(1);
   }
 
@@ -314,19 +315,12 @@ const managerCommands: Command[] = [
   },
   {
     kind: "command",
-    name: "go",
-    group: "Agents",
-    summary:
-      "one-command cmux onboarding — installs the plugin, brings up the mesh, opens the manager + console + a driving session (run from a cmux pane) — [--space <s>] [--name <n>]",
-    run: (argv) => runDrive(argv),
-  },
-  {
-    kind: "command",
     name: "cmux",
     group: "Manager",
     summary:
-      "run a manager that spawns each teammate into its own cmux tab — [--space <s>] [--server <url>]; --drive = the cotal go onboarding",
-    run: (argv) => (argv.includes("--drive") ? runDrive(argv) : runManager(argv, "cmux")),
+      "run a manager that spawns each teammate into its own cmux tab — [--space <s>] [--server <url>]; " +
+      "`cotal cmux go` = one-command onboarding (plugin + mesh + manager + console/driving session)",
+    run: (argv) => (argv[0] === "go" ? runDrive(argv.slice(1)) : runManager(argv, "cmux")),
   },
   {
     kind: "command",

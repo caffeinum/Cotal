@@ -23,7 +23,7 @@ function read(cmd: string, args: string[]): string {
 /**
  * One-time onboarding: make the repo's Claude sessions cotal-aware by installing the
  * cotal plugin (the `cotal_*` tools + presence hooks). Idempotent — safe to re-run.
- * `cotal cmux --drive` runs this for you; you can also run it standalone.
+ * `cotal cmux go` runs this for you; you can also run it standalone.
  */
 export async function setup(): Promise<void> {
   const root = repoRoot();

@@ -95,7 +95,7 @@ with `--config`.
 **One command, from inside a cmux pane:**
 
 ```
-cotal go --space <s>            # alias: cotal cmux --drive
+cotal cmux go --space <s>
 ```
 
 It does the whole onboarding: installs the cotal plugin if needed (`cotal setup` — so the

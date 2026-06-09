@@ -211,7 +211,7 @@ dependency on them). Selectable backends:
 inside tmux); `cotal cmux` starts one that spawns each teammate into its own cmux tab (run it from a
 cmux pane). The `cotal` binary aliases the Claude-Code connector as the default agent, so
 `cotal_spawn` / `cotal_persona` / `cotal_despawn` work out of the box. For one-command onboarding,
-`cotal cmux --drive` installs the plugin (`cotal setup`), brings up the mesh, and opens the manager
+`cotal cmux go` installs the plugin (`cotal setup`), brings up the mesh, and opens the manager
 + console + a driving session in cmux.
 
 The PTY carries the agent's **terminal I/O only** — its mesh traffic still flows agent↔NATS
