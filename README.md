@@ -38,7 +38,9 @@ is **NATS + JetStream**; the reference implementation is **TypeScript**.
 ## Quick start
 
 Prerequisites: Node ≥ 20, pnpm, and `nats-server` — macOS: `brew install nats-server`;
-other platforms: [nats.io/download](https://nats.io/download/).
+other platforms: [nats.io/download](https://nats.io/download/). For the **real-agent** flow
+below you also need [Claude Code](https://claude.com/claude-code) (`claude` on your PATH) and,
+for the tab runtime, the [cmux](https://cmux.com) app (`brew install --cask cmux`).
 
 ```bash
 git clone <repo> cotal && cd cotal
@@ -63,6 +65,30 @@ unauthenticated dev mesh used here. See [docs/architecture.md](docs/architecture
 
 Other surfaces: `pnpm cotal watch --space demo` tails everything on the mesh;
 `pnpm cotal web --space demo` opens a browser dashboard ([docs](docs/web.md)).
+
+## Run real Claude agents — one command
+
+The above is bare peers. To run a team of **real Claude Code agents** that you grow and steer,
+from inside a [cmux](https://cmux.com) terminal:
+
+```bash
+pnpm cotal cmux --drive --space dev
+```
+
+That single command: installs the Cotal plugin if needed (`cotal setup`, so Claude sessions get
+the `cotal_*` tools), starts the mesh, opens the manager in its own tab, and opens a workspace
+with the live console + a ready **driving session**. Switch to that pane, then:
+
+```
+cotal_persona(name="scout", prompt="You are a recon agent…", model="sonnet")  # define a teammate
+cotal_spawn(name="scout")        # bring it online in its own cmux tab, wearing that persona
+cotal_despawn(name="scout")      # tear it down — it leaves the mesh and the tab closes
+```
+
+Re-running `--drive` is idempotent. No cmux? Use the plain terminal runtime instead:
+`pnpm cotal up --open` · `pnpm cotal supervise --space dev` · `pnpm cotal spawn me --space dev`
+(watch agents with `pnpm cotal attach --name <n>`). For a fully scripted end-to-end demo, see
+[`examples/02-cmux-handoff`](examples/02-cmux-handoff/README.md).
 
 ## Try the three delivery modes
 
@@ -121,13 +147,16 @@ pnpm + TypeScript ESM monorepo, four dependency tiers with one-way deps —
   types, and the extension registry.
 - **`extensions/*`** — **pluggable adapters** that peer-depend on core and self-register
   through its registry: `connector-core` (shared MCP-bridge runtime, incl. the
-  `cotal_spawn` tool), `connector-claude-code` and `connector-codex` (thin agent adapters
-  over it), `openai-agents` and `vercel-ai` (agent-framework peers), and `cmux` (a thin
-  driver over the cmux CLI).
+  `cotal_spawn` / `cotal_despawn` / `cotal_persona` tools), `connector-claude-code` and
+  `connector-codex` (thin agent adapters over it), `openai-agents` and `vercel-ai`
+  (agent-framework peers), and `cmux` (the cmux integration — a driver over the cmux CLI
+  **plus a self-registering `cmux` runtime**, so the manager spawns into tabs without
+  depending on it).
 - **`implementations/*`** — **opinionated surfaces** over core. The CLI lives in
-  `@cotal/cli` (`up` / `join` / `watch` / `console` / `web` / `spawn`); the agent
-  supervisor in `@cotal/manager` (`start` / `stop` / `ps` / `attach`, spawning through a
-  `pty` / `tmux` / `cmux` runtime).
+  `@cotal/cli` (`up` / `join` / `watch` / `console` / `web` / `spawn` / `setup`); the agent
+  supervisor in `@cotal/manager` — `supervise` / `cmux` run a manager daemon (the latter
+  spawns each teammate into a cmux tab), plus the `start` / `stop` / `ps` / `attach` control
+  plane, over a `pty` / `tmux` / `cmux` runtime.
 - **`examples/*`** — **use-cases** (composition roots). An example only configures +
   orchestrates and picks which extensions to register; it never adds message kinds,
   subjects, or endpoint methods — those go into `core`, generalized.
@@ -135,7 +164,8 @@ pnpm + TypeScript ESM monorepo, four dependency tiers with one-way deps —
 ## Commands
 
 ```bash
-pnpm cotal <cmd>   # run the CLI (up, join, watch, console, web, spawn, start, stop, ps, attach)
+pnpm cotal <cmd>   # up, join, watch, console, web, mint, setup, spawn,
+                   # supervise, cmux (--drive), start, stop, ps, attach
 pnpm smoke         # non-interactive end-to-end check against a running mesh
 pnpm typecheck     # tsc --noEmit across all packages
 pnpm build         # tsc build across all packages
@@ -144,6 +174,9 @@ pnpm build         # tsc build across all packages
 ## Where to go next
 
 - **Run the demo** → the [Quick start](#quick-start) above.
+- **Run your own agent team** → [`cotal cmux --drive`](#run-real-claude-agents--one-command):
+  one command brings up a mesh + manager + a driving session you steer with
+  `cotal_persona` / `cotal_spawn` / `cotal_despawn`.
 - **See real agents coordinate** → [`examples/02-cmux-handoff`](examples/02-cmux-handoff/README.md):
   four Claude Code agents ship one change across three repos — one human prompt, then
   agent-to-agent fan-out and an automatic API→web handoff.
@@ -167,6 +200,10 @@ See [examples](docs/examples.md) for what's demonstrable now.
 - **Do I need auth?** — not for local dev. `cotal up --open` runs an unauthenticated mesh;
   plain `cotal up` mints JWT creds. See [architecture](docs/architecture.md) →
   *Identity & authorization*.
+- **Do I need to install a plugin?** — only for the Claude-agent flow, and `cotal setup`
+  does it for you (idempotent; `cotal cmux --drive` runs it automatically). It registers the
+  `cotal-mesh` marketplace and installs the plugin (repo-local scope) so Claude sessions get
+  the `cotal_*` tools. The bare-peer Quick start needs no plugin.
 - **Nothing shows in the console** — each peer and the console need the same `--space`, and
   the mesh from `cotal up` must still be running in its own terminal.
 
