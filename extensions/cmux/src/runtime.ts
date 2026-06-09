@@ -47,7 +47,9 @@ export class CmuxRuntime implements Runtime {
     // sending Enter to this tab's own surface a few times — so a spawned teammate joins the mesh
     // without anyone switching to its tab to press Enter. (Same trick as run-agent.sh.)
     const autoConfirm = spec.confirm ? `${ENTER_LOOP}\n` : "";
-    const script = `#!/usr/bin/env bash\ncd ${shellQuote(cwd)}\n${autoConfirm}exec ${cmd}\n`;
+    // `exec env …` (not `exec …`): exec can't take KEY=val assignments — `env` applies them
+    // then execs the agent. Without it the script dies with "exec: COTAL_SPACE=…: not found".
+    const script = `#!/usr/bin/env bash\ncd ${shellQuote(cwd)}\n${autoConfirm}exec env ${cmd}\n`;
     const scriptPath = join(tmpdir(), `cotal-spawn-${name}.sh`);
     writeFileSync(scriptPath, script, { mode: 0o755 });
     const layout = JSON.stringify({

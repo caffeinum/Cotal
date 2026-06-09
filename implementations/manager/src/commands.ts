@@ -18,7 +18,7 @@ import { c } from "./ui.js";
 type Values = Record<string, string | undefined>;
 
 function parse(argv: string[]): Values {
-  const { values } = parseArgs({
+  const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
     options: {
@@ -33,6 +33,14 @@ function parse(argv: string[]): Values {
       drive: { type: "boolean" },
     },
   });
+  // These commands are flags-only — reject stray positionals instead of silently ignoring
+  // them (e.g. `cotal cmux up` / `cotal cmux go`, which used to start a default-space manager).
+  if (positionals.length) {
+    const x = positionals[0];
+    const hint = x === "up" ? " — did you mean `cotal up`?" : x === "go" ? " — did you mean `cotal go`?" : "";
+    console.error(c.red(`✗ unexpected argument: ${x}${hint}`));
+    process.exit(1);
+  }
   return values as Values;
 }
 
@@ -265,7 +273,12 @@ async function runDrive(argv: string[]): Promise<void> {
     /* none running */
   }
   if (mgrRunning) {
-    console.log(c.dim(`✓ manager already running for space "${space}"`));
+    console.log(
+      c.dim(
+        `✓ manager already running for space "${space}" — to pick up code changes, restart it: ` +
+          `Ctrl-C its tab or \`pkill -f "cotal.ts cmux --space ${space}"\`, then re-run.`,
+      ),
+    );
   } else {
     openWs("cotal-manager", leaf(`cmux --space ${space}`));
     console.log(c.green("✓ opened the manager tab (cotal-manager)"));
