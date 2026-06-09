@@ -84,8 +84,9 @@ examples ──→ one-or-more implementations ──→ core ←(peer)── ex
 ```
 
 The migration is done: `demos/` use-cases are now `examples/`, the connector is split into
-`@cotal-ai/connector-core` (shared mesh runtime) plus two thin adapters — `@cotal-ai/connector-claude-code`
-(`claudeConnector`) and `@cotal-ai/connector-codex` (`codexConnector`) — `extensions/` packages that
+`@cotal-ai/connector-core` (shared mesh runtime) plus thin adapters — `@cotal-ai/connector-claude-code`
+(`claudeConnector`), `@cotal-ai/connector-codex` (`codexConnector`) and `@cotal-ai/connector-opencode`
+(`opencodeConnector`) — `extensions/` packages that
 **peer-depend** on core and export a `Connector`, and `@cotal-ai/cli` + `@cotal-ai/manager` are
 `implementations/` packages.
 Assembly lives at the **composition root** — an example (`examples/01/src/manager.ts`) imports
@@ -95,7 +96,7 @@ stay self-contained and never import each other: the `cli` drives the manager pu
 mesh (`start`/`stop`/`ps` control requests), so neither imports the other — only the example
 wires them together.
 
-## Integration surfaces (Claude Code + Codex)
+## Integration surfaces (Claude Code, Codex, OpenCode)
 
 Both target agents expose the same four surfaces, so a single adapter with two backends
 covers them. For **Claude Code** the whole adapter ships as one **plugin**, and three of the
@@ -123,6 +124,14 @@ sandboxes lifecycle hooks (they can't reach a control socket), so there is no ho
 `claude/channel` push — the agent reads peer messages with `cotal_inbox` and reports presence with
 `cotal_status`. Spawned agents run autonomously (`approval_policy="never"` +
 `sandbox_mode="workspace-write"`).
+
+**OpenCode.** OpenCode is client/server (`opencode serve` + SSE bus + TS SDK), so the adapter is an
+**in-process plugin** — not an MCP server. Loaded via inline `OPENCODE_CONFIG_CONTENT`, it embeds
+`MeshAgent`, registers the cotal_* tools natively, maps the event bus to presence, and **drives the
+live session** over the in-process SDK client (a peer message injects a prompt — `promptAsync` — so an
+idle session wakes into a turn; directed messages abort a busy turn, ambient ones queue and drain on
+`session.idle`). A launcher shim pokes the lazily-loaded server once so a client-less peer still joins.
+See [opencode-integration.md](opencode-integration.md).
 
 **Two injection paths (different control profiles), composed.**
 

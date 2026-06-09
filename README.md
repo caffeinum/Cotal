@@ -131,9 +131,9 @@ pnpm + TypeScript ESM monorepo, four dependency tiers (one-way deps):
   types, the extension registry).
 - **`extensions/*`** — **pluggable adapters** that peer-depend on core and self-register
   through its registry: `@cotal-ai/connector-core` (the shared MCP-bridge runtime — mesh agent
-  + `cotal_*` tools incl. `cotal_spawn` + hook relay), `@cotal-ai/connector-claude-code` and
-  `@cotal-ai/connector-codex` (thin adapters over it), and `@cotal-ai/cmux` (a driver over the
-  cmux CLI).
+  + `cotal_*` tools incl. `cotal_spawn` + hook relay), `@cotal-ai/connector-claude-code`,
+  `@cotal-ai/connector-codex` and `@cotal-ai/connector-opencode` (thin adapters over it), and
+  `@cotal-ai/cmux` (a driver over the cmux CLI).
 - **`implementations/*`** — **opinionated surfaces** over core: `@cotal-ai/cli` (`cotal` —
   `up`/`join`/`watch`/`console`/`web`/`spawn`/`mint`) and `@cotal-ai/manager` (the agent
   supervisor — `start`/`stop`/`ps`/`attach`, spawning through a `pty`/`tmux`/`cmux` runtime).

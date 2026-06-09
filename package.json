@@ -20,6 +20,7 @@
     "@cotal-ai/cli": "workspace:*",
     "@cotal-ai/connector-claude-code": "workspace:*",
     "@cotal-ai/connector-codex": "workspace:*",
+    "@cotal-ai/connector-opencode": "workspace:*",
     "@cotal-ai/core": "workspace:*",
     "@cotal-ai/manager": "workspace:*"
   },
