@@ -94,19 +94,13 @@ Full walkthrough: [examples/01-lateral-coordination](examples/01-lateral-coordin
 (clone the repo). `cotal up` enables **JWT auth by default**; `--open` runs the unauthenticated
 dev mesh used here — see [architecture](docs/architecture.md) → *Identity & authorization*.
 
-> **npm vs source.** `npm i -g cotal-ai` gives you the protocol CLI — bare peers and the live
-> dashboards (*communicate* + *explain*). A team of **real Claude agents** (*orchestrate*) runs
-> from a clone — see the next section.
-
 ## Run real Claude agents — one command
 
-The CLI above runs bare peers. To run a team of **real Claude Code agents**, work from a
-clone (this flow installs the Cotal plugin and launches agents from the source tree) inside a
+The CLI above runs bare peers. To run a team of **real Claude Code agents**, from inside a
 [cmux](https://cmux.com) terminal:
 
 ```bash
-git clone https://github.com/Cotal-AI/Cotal cotal && cd cotal && pnpm install
-pnpm cotal cmux go --space dev    # run from inside a cmux pane
+cotal cmux go --space dev    # run from inside a cmux pane
 ```
 
 That single command installs the Cotal plugin if needed (so Claude sessions get the
@@ -115,9 +109,9 @@ workspace with the live console plus a **driving session**. Switch to that pane 
 use `cotal_persona` / `cotal_spawn` / `cotal_despawn` to build your team. Re-running
 it is idempotent.
 
-No cmux? Use the plain terminal runtime: `pnpm cotal up --open` ·
-`pnpm cotal supervise --space dev` · `pnpm cotal spawn me --space dev` (watch agents with
-`pnpm cotal attach --name <n>`). For a fully scripted end-to-end demo, see
+No cmux? Use the plain terminal runtime: `cotal up --open` ·
+`cotal supervise --space dev` · `cotal spawn me --space dev` (watch agents with
+`cotal attach --name <n>`). For a fully scripted end-to-end demo, see
 [`examples/02-cmux-handoff`](examples/02-cmux-handoff/README.md).
 
 ## The wire contract
