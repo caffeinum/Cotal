@@ -220,7 +220,7 @@ async function runDrive(argv: string[]): Promise<void> {
   // its own cmux surface a few times — so the session joins the mesh with no manual keypress.
   const enterLoop =
     '( [ -n "$CMUX_SURFACE_ID" ] && [ -n "$CMUX_BUNDLED_CLI_PATH" ] && ' +
-    'for _ in 1 2 3 4 5; do sleep 1; "$CMUX_BUNDLED_CLI_PATH" send-key --surface "$CMUX_SURFACE_ID" enter 2>/dev/null; done ) &';
+    'for _ in 1 2 3 4 5; do sleep 1; "$CMUX_BUNDLED_CLI_PATH" send-key --surface "$CMUX_SURFACE_ID" enter >/dev/null 2>&1; done ) &';
   const leafConfirm = (sub: string) => ({
     pane: {
       surfaces: [

@@ -17,7 +17,7 @@ const GRACE_MS = 1_500;
  *  pane's own cmux surface a few times. Gated on the cmux env vars so it's a no-op off cmux. */
 const ENTER_LOOP =
   '[ -n "$CMUX_SURFACE_ID" ] && [ -n "$CMUX_BUNDLED_CLI_PATH" ] && ' +
-  '( for _ in 1 2 3 4 5; do sleep 1; "$CMUX_BUNDLED_CLI_PATH" send-key --surface "$CMUX_SURFACE_ID" enter 2>/dev/null; done ) &';
+  '( for _ in 1 2 3 4 5; do sleep 1; "$CMUX_BUNDLED_CLI_PATH" send-key --surface "$CMUX_SURFACE_ID" enter >/dev/null 2>&1; done ) &';
 
 function shellQuote(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`;
