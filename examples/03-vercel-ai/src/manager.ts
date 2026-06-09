@@ -6,9 +6,9 @@
  * self-registers it as "vercel-ai"; we also alias it under "cotal" so a bare
  * `cotal start --name x` (the default agent type) spawns one too.
  */
-import { DEFAULT_SERVER, isReachable, registry, type Connector } from "@cotal/core";
-import { Manager } from "@cotal/manager";
-import { vercelAiConnector } from "@cotal/vercel-ai"; // self-registers "vercel-ai"
+import { DEFAULT_SERVER, isReachable, registry, type Connector } from "@cotal-ai/core";
+import { Manager } from "@cotal-ai/manager";
+import { vercelAiConnector } from "@cotal-ai/vercel-ai"; // self-registers "vercel-ai"
 
 const cotalAlias: Connector = {
   kind: "connector",

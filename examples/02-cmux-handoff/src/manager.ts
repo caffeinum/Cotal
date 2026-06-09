@@ -16,8 +16,8 @@ import {
   type Connector,
   type LaunchOpts,
   type LaunchSpec,
-} from "@cotal/core";
-import { Manager } from "@cotal/manager";
+} from "@cotal-ai/core";
+import { Manager } from "@cotal-ai/manager";
 import { fileURLToPath } from "node:url";
 
 const RUN_AGENT = fileURLToPath(new URL("../run-agent.sh", import.meta.url));

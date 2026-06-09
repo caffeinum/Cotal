@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util";
 import { readFileSync } from "node:fs";
-import { CotalEndpoint, isReachable, DEFAULT_SERVER, chatWildcard } from "@cotal/core";
+import { CotalEndpoint, isReachable, DEFAULT_SERVER, chatWildcard } from "@cotal-ai/core";
 import { c, statusBadge } from "../ui.js";
 
 export async function watch(argv: string[]): Promise<void> {

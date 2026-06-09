@@ -1,8 +1,8 @@
 import { generateText, tool, stepCountIs } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
-import { MeshAgent, configFromEnv } from "@cotal/connector-core";
-import type { InboxItem } from "@cotal/connector-core";
+import { MeshAgent, configFromEnv } from "@cotal-ai/connector-core";
+import type { InboxItem } from "@cotal-ai/connector-core";
 
 const MODEL = process.env.OPENAI_MODEL ?? "gpt-4.1";
 

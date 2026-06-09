@@ -14,7 +14,7 @@ import {
   newIdentity,
   setupSpaceStreams,
   type SpaceAuth,
-} from "@cotal/core";
+} from "@cotal-ai/core";
 import { c } from "../ui.js";
 
 export async function up(argv: string[]): Promise<void> {

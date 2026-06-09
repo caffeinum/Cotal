@@ -1,4 +1,4 @@
-import type { Command, Registry } from "@cotal/core";
+import type { Command, Registry } from "@cotal-ai/core";
 import { c } from "./ui.js";
 
 function help(commands: Command[]): void {

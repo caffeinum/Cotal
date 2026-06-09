@@ -7,7 +7,7 @@ import {
   registry,
   type Command,
   type ControlReply,
-} from "@cotal/core";
+} from "@cotal-ai/core";
 import { attachClient } from "./attach-client.js";
 import { c } from "./ui.js";
 

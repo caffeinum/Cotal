@@ -1,6 +1,6 @@
 import { userInfo } from "node:os";
 import { readFileSync } from "node:fs";
-import { DEFAULT_SERVER, loadAgentFile, parseJoinLink, type AgentDef, type EndpointKind } from "@cotal/core";
+import { DEFAULT_SERVER, loadAgentFile, parseJoinLink, type AgentDef, type EndpointKind } from "@cotal-ai/core";
 
 /**
  * How a connector instance presents itself on the mesh. Everything is read from

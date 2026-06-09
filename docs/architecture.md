@@ -75,9 +75,9 @@ examples ──→ one-or-more implementations ──→ core ←(peer)── ex
 ```
 
 The migration is done: `demos/` use-cases are now `examples/`, the connector is split into
-`@cotal/connector-core` (shared mesh runtime) plus two thin adapters — `@cotal/connector-claude-code`
-(`claudeConnector`) and `@cotal/connector-codex` (`codexConnector`) — `extensions/` packages that
-**peer-depend** on core and export a `Connector`, and `@cotal/cli` + `@cotal/manager` are
+`@cotal-ai/connector-core` (shared mesh runtime) plus two thin adapters — `@cotal-ai/connector-claude-code`
+(`claudeConnector`) and `@cotal-ai/connector-codex` (`codexConnector`) — `extensions/` packages that
+**peer-depend** on core and export a `Connector`, and `@cotal-ai/cli` + `@cotal-ai/manager` are
 `implementations/` packages.
 Assembly lives at the **composition root** — an example (`examples/01/src/manager.ts`) imports
 the manager + the connectors it wants and hands them to the manager (`new Manager({ connectors:
@@ -191,7 +191,7 @@ abstracted behind one interface (`spawn → handle`, `stop`, `status`, `attach`,
 - **`tmux` / `iTerm2` (opt-in)** — for users already living in a multiplexer who want native
   panes / persistence; auto-detect (if already inside tmux, use it).
 - **`cmux` (opt-in)** — each agent gets its own [cmux](https://github.com/) tab via the
-  `@cotal/cmux` driver. Like tmux you watch it natively, so `attach` points you at the tab
+  `@cotal-ai/cmux` driver. Like tmux you watch it natively, so `attach` points you at the tab
   rather than streaming. The manager must run inside a live cmux surface (cmux only authorizes
   its control socket from a real pane). Drives [`examples/02`](../examples/02-cmux-handoff/README.md).
 - **`byo` (floor)** — the manager doesn't own the process; a human runs `cotal claude --role …`

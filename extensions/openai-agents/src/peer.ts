@@ -1,7 +1,7 @@
 import { Agent, run, tool } from "@openai/agents";
 import { z } from "zod";
-import { MeshAgent, configFromEnv } from "@cotal/connector-core";
-import type { InboxItem } from "@cotal/connector-core";
+import { MeshAgent, configFromEnv } from "@cotal-ai/connector-core";
+import type { InboxItem } from "@cotal-ai/connector-core";
 
 const DEFAULT_MODEL = "gpt-4o-mini";
 

@@ -8,19 +8,19 @@ importers:
 
   .:
     dependencies:
-      '@cotal/cli':
+      '@cotal-ai/cli':
         specifier: workspace:*
         version: link:implementations/cli
-      '@cotal/connector-claude-code':
+      '@cotal-ai/connector-claude-code':
         specifier: workspace:*
         version: link:extensions/connector-claude-code
-      '@cotal/connector-codex':
+      '@cotal-ai/connector-codex':
         specifier: workspace:*
         version: link:extensions/connector-codex
-      '@cotal/core':
+      '@cotal-ai/core':
         specifier: workspace:*
         version: link:packages/core
-      '@cotal/manager':
+      '@cotal-ai/manager':
         specifier: workspace:*
         version: link:implementations/manager
     devDependencies:
@@ -36,13 +36,13 @@ importers:
 
   examples/01-lateral-coordination:
     dependencies:
-      '@cotal/connector-claude-code':
+      '@cotal-ai/connector-claude-code':
         specifier: workspace:*
         version: link:../../extensions/connector-claude-code
-      '@cotal/core':
+      '@cotal-ai/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@cotal/manager':
+      '@cotal-ai/manager':
         specifier: workspace:*
         version: link:../../implementations/manager
     devDependencies:
@@ -52,10 +52,10 @@ importers:
 
   examples/02-cmux-handoff:
     dependencies:
-      '@cotal/core':
+      '@cotal-ai/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@cotal/manager':
+      '@cotal-ai/manager':
         specifier: workspace:*
         version: link:../../implementations/manager
     devDependencies:
@@ -65,13 +65,13 @@ importers:
 
   examples/03-openai-agents:
     dependencies:
-      '@cotal/core':
+      '@cotal-ai/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@cotal/manager':
+      '@cotal-ai/manager':
         specifier: workspace:*
         version: link:../../implementations/manager
-      '@cotal/openai-agents':
+      '@cotal-ai/openai-agents':
         specifier: workspace:*
         version: link:../../extensions/openai-agents
     devDependencies:
@@ -81,13 +81,13 @@ importers:
 
   examples/03-vercel-ai:
     dependencies:
-      '@cotal/core':
+      '@cotal-ai/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@cotal/manager':
+      '@cotal-ai/manager':
         specifier: workspace:*
         version: link:../../implementations/manager
-      '@cotal/vercel-ai':
+      '@cotal-ai/vercel-ai':
         specifier: workspace:*
         version: link:../../extensions/vercel-ai
     devDependencies:
@@ -103,14 +103,14 @@ importers:
 
   extensions/connector-claude-code:
     dependencies:
-      '@cotal/connector-core':
+      '@cotal-ai/connector-core':
         specifier: workspace:*
         version: link:../connector-core
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.3)
     devDependencies:
-      '@cotal/core':
+      '@cotal-ai/core':
         specifier: workspace:*
         version: link:../../packages/core
       esbuild:
@@ -122,7 +122,7 @@ importers:
 
   extensions/connector-codex:
     dependencies:
-      '@cotal/connector-core':
+      '@cotal-ai/connector-core':
         specifier: workspace:*
         version: link:../connector-core
       '@modelcontextprotocol/sdk':
@@ -132,7 +132,7 @@ importers:
         specifier: ^4.22.4
         version: 4.22.4
     devDependencies:
-      '@cotal/core':
+      '@cotal-ai/core':
         specifier: workspace:*
         version: link:../../packages/core
 
@@ -145,13 +145,13 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
-      '@cotal/core':
+      '@cotal-ai/core':
         specifier: workspace:*
         version: link:../../packages/core
 
   extensions/openai-agents:
     dependencies:
-      '@cotal/connector-core':
+      '@cotal-ai/connector-core':
         specifier: workspace:*
         version: link:../connector-core
       '@openai/agents':
@@ -164,7 +164,7 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
-      '@cotal/core':
+      '@cotal-ai/core':
         specifier: workspace:*
         version: link:../../packages/core
 
@@ -173,7 +173,7 @@ importers:
       '@ai-sdk/openai':
         specifier: ^3.0.68
         version: 3.0.68(zod@4.4.3)
-      '@cotal/connector-core':
+      '@cotal-ai/connector-core':
         specifier: workspace:*
         version: link:../connector-core
       ai:
@@ -186,22 +186,22 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
-      '@cotal/core':
+      '@cotal-ai/core':
         specifier: workspace:*
         version: link:../../packages/core
 
   implementations/cli:
     dependencies:
-      '@cotal/core':
+      '@cotal-ai/core':
         specifier: workspace:*
         version: link:../../packages/core
 
   implementations/manager:
     dependencies:
-      '@cotal/cmux':
+      '@cotal-ai/cmux':
         specifier: workspace:*
         version: link:../../extensions/cmux
-      '@cotal/core':
+      '@cotal-ai/core':
         specifier: workspace:*
         version: link:../../packages/core
       '@lydell/node-pty':

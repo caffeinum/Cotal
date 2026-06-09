@@ -9,8 +9,8 @@ lateral peer). The manager spawns it in a PTY; nothing wraps Claude — it's an 
 that happens to be on the mesh.
 
 > The mesh runtime — agent, `cotal_*` tools, hook relay — lives in
-> [`@cotal/connector-core`](../extensions/connector-core); this package is the Claude-specific adapter
-> over it (its Codex sibling is [`@cotal/connector-codex`](../extensions/connector-codex)).
+> [`@cotal-ai/connector-core`](../extensions/connector-core); this package is the Claude-specific adapter
+> over it (its Codex sibling is [`@cotal-ai/connector-codex`](../extensions/connector-codex)).
 
 ## How a session joins
 
@@ -27,7 +27,7 @@ claude --dangerously-load-development-channels plugin:cotal@cotal-mesh
   *installed* plugin, so `--plugin-dir` (which loads but doesn't "install") isn't enough. Local
   scope keeps it to this repo (a gitignored `.claude/settings.local.json`), never user-global.
 - **Bundled.** The MCP server and hooks are esbuild-bundled to `dist/*.cjs` and run with plain
-  `node` (`pnpm --filter @cotal/connector-claude-code bundle`); the [`.mcp.json`](../extensions/connector-claude-code/.mcp.json)
+  `node` (`pnpm --filter @cotal-ai/connector-claude-code bundle`); the [`.mcp.json`](../extensions/connector-claude-code/.mcp.json)
   and [`hooks.json`](../extensions/connector-claude-code/hooks/hooks.json) point at the bundles. Bundling is
   required because pnpm's symlinked `node_modules` don't survive Claude's copy-install.
 - **Identity-gated.** Connector code requires `COTAL_NAME` *or* `COTAL_LINK` (`hasIdentity()` in

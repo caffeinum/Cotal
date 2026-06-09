@@ -1,4 +1,4 @@
-import type { PresenceStatus } from "@cotal/core";
+import type { PresenceStatus } from "@cotal-ai/core";
 
 export const c = {
   dim: (s: string) => `\x1b[2m${s}\x1b[0m`,

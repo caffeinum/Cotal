@@ -1,25 +1,35 @@
 {
-  "name": "@cotal/connector-core",
-  "version": "0.0.0",
+  "name": "@cotal-ai/connector-core",
+  "version": "0.1.0",
   "license": "Apache-2.0",
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^4.4.3"
   },
   "peerDependencies": {
-    "@cotal/core": "workspace:*"
+    "@cotal-ai/core": "workspace:*"
   },
   "devDependencies": {
-    "@cotal/core": "workspace:*"
+    "@cotal-ai/core": "workspace:*"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
   }
 }

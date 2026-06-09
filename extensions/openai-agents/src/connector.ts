@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { registry, type Connector, type LaunchOpts, type LaunchSpec } from "@cotal/core";
+import { registry, type Connector, type LaunchOpts, type LaunchSpec } from "@cotal-ai/core";
 
 /** The peer loop runs straight from source via tsx (resolved from this extension's own
  *  node_modules, so it works regardless of the spawned process's PATH/cwd) — both paths

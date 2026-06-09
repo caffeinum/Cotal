@@ -2,7 +2,7 @@
  * Cotal Claude Code connector — MCP (stdio) server.
  *
  * Turns the Claude Code session that launches it into a first-class Cotal mesh
- * peer: presence + the shared cotal_* tools (from @cotal/connector-core), plus
+ * peer: presence + the shared cotal_* tools (from @cotal-ai/connector-core), plus
  * Claude's `claude/channel` push so an idle session wakes the instant a peer
  * message arrives. Identity comes from `COTAL_*` env.
  *
@@ -23,7 +23,7 @@ import {
   channelMeta,
   type InboxItem,
   type HookHandle,
-} from "@cotal/connector-core";
+} from "@cotal-ai/connector-core";
 
 /**
  * Last tool Claude tried to use, captured on PreToolUse. When a permission Notification

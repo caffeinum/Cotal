@@ -7,7 +7,7 @@ import {
   type Presence,
   type PresenceStatus,
   type CotalMessage,
-} from "@cotal/core";
+} from "@cotal-ai/core";
 import type { AgentConfig } from "./config.js";
 
 /** A message that has arrived for us, normalized for the agent to read. */

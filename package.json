@@ -15,11 +15,11 @@
     "smoke": "tsx packages/core/smoke.ts"
   },
   "dependencies": {
-    "@cotal/cli": "workspace:*",
-    "@cotal/connector-claude-code": "workspace:*",
-    "@cotal/connector-codex": "workspace:*",
-    "@cotal/core": "workspace:*",
-    "@cotal/manager": "workspace:*"
+    "@cotal-ai/cli": "workspace:*",
+    "@cotal-ai/connector-claude-code": "workspace:*",
+    "@cotal-ai/connector-codex": "workspace:*",
+    "@cotal-ai/core": "workspace:*",
+    "@cotal-ai/manager": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.19.19",

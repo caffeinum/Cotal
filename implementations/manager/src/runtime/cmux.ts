@@ -1,8 +1,8 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { LaunchSpec } from "@cotal/core";
-import { cmux } from "@cotal/cmux";
+import type { LaunchSpec } from "@cotal-ai/core";
+import { cmux } from "@cotal-ai/cmux";
 import type { AgentHandle, Runtime } from "./types.js";
 
 export function cmuxAvailable(): boolean {

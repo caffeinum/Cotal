@@ -8,7 +8,7 @@
  */
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { isConcreteChannel, type PresenceStatus } from "@cotal/core";
+import { isConcreteChannel, type PresenceStatus } from "@cotal-ai/core";
 import type { MeshAgent, InboxItem } from "./agent.js";
 import type { AgentConfig } from "./config.js";
 
@@ -98,7 +98,7 @@ export function registerCotalTools(server: McpServer, agent: MeshAgent, config: 
           .array(z.string())
           .optional()
           .describe(
-            "Names of peers to call out (e.g. ['bob']). Everyone on the channel still receives the message, but a mentioned peer gets high-priority delivery — woken now if idle, instead of waiting for its next idle moment. Use sparingly: a mention WAKES that peer, so only call someone out when you need THAT specific peer to act now — never in an acknowledgement, thanks, or sign-off, or mentions ping-pong between peers and wake the channel in a loop.",
+            "Names of peers to call out (e.g. ['bob']). Everyone on the channel still receives the message, but a mentioned peer gets high-priority delivery (eg @bob) — woken now if idle, instead of waiting for its next idle moment. Use sparingly: a mention WAKES that peer, so only call someone out when you need THAT specific peer to act now — never in an acknowledgement, thanks, or sign-off, or mentions ping-pong between peers and wake the channel in a loop.",
           ),
       },
     },

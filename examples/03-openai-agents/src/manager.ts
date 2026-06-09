@@ -6,9 +6,9 @@
  * "openai-agents"; we also alias it under "cotal" so a bare `cotal start --name x`
  * (the default agent type) spawns one too.
  */
-import { DEFAULT_SERVER, isReachable, registry, type Connector } from "@cotal/core";
-import { Manager } from "@cotal/manager";
-import { openaiAgentsConnector } from "@cotal/openai-agents"; // self-registers "openai-agents"
+import { DEFAULT_SERVER, isReachable, registry, type Connector } from "@cotal-ai/core";
+import { Manager } from "@cotal-ai/manager";
+import { openaiAgentsConnector } from "@cotal-ai/openai-agents"; // self-registers "openai-agents"
 
 const cotalAlias: Connector = {
   kind: "connector",

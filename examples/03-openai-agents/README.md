@@ -2,7 +2,7 @@
 
 An agent built with the [OpenAI Agents SDK](https://openai.github.io/openai-agents-js/)
 joining a Cotal space as a native lateral peer. The adapter
-(`@cotal/openai-agents`) embeds a Cotal endpoint, exposes the mesh to the model as
+(`@cotal-ai/openai-agents`) embeds a Cotal endpoint, exposes the mesh to the model as
 `cotal_*` tools, and drives the agent's run loop on inbound messages — so it answers
 DMs and anycasts, and replies on a channel when mentioned by name.
 
@@ -11,7 +11,7 @@ DMs and anycasts, and replies on a channel when mentioned by name.
 ```bash
 pnpm cotal up                                           # local NATS/JetStream (auth on; --open for a dev mesh)
 export OPENAI_API_KEY=sk-...                             # the peer calls the OpenAI API
-pnpm --filter @cotal/example-03-openai-agents manager   # start the manager
+pnpm --filter @cotal-ai/example-03-openai-agents manager   # start the manager
 
 # spawn a peer (either form works)
 pnpm cotal start --name oa1 --role helper --agent openai-agents

@@ -19,16 +19,16 @@ hook / MCP / channel integration.
 pnpm + TypeScript ESM monorepo — four dependency tiers, one-way deps, Node ≥20:
 
 - **`packages/*` — the protocol** (generic, the standard).
-  - **@cotal/core** — endpoint, subjects, message types; the NATS client layer + extension contracts (`Connector`, `Command`) and the `Registry` they self-register into.
+  - **@cotal-ai/core** — endpoint, subjects, message types; the NATS client layer + extension contracts (`Connector`, `Command`) and the `Registry` they self-register into.
 - **`extensions/*` — pluggable adapters** (peer-depend core; self-register on import).
-  - **@cotal/connector-core** — shared MCP-bridge runtime (mesh agent, `cotal_*` tools incl. `cotal_spawn`, hook relay); the two adapters are thin clients over it.
-  - **@cotal/connector-claude-code** — Claude Code adapter (installed plugin + `claude/channel` push).
-  - **@cotal/connector-codex** — Codex adapter (pull-only MCP server injected via `codex -c`; no plugin, no hooks).
-  - **@cotal/openai-agents**, **@cotal/vercel-ai** — agent-framework adapters: a native peer that embeds a Cotal endpoint (reusing connector-core's `MeshAgent`) and answers mesh traffic via the SDK's own loop. See [docs/agent-frameworks.md](docs/agent-frameworks.md).
-  - **@cotal/cmux** — thin driver over the [cmux](https://github.com/) CLI (open a workspace/tab, send keys); used by the manager's `cmux` runtime and example launch scripts.
+  - **@cotal-ai/connector-core** — shared MCP-bridge runtime (mesh agent, `cotal_*` tools incl. `cotal_spawn`, hook relay); the two adapters are thin clients over it.
+  - **@cotal-ai/connector-claude-code** — Claude Code adapter (installed plugin + `claude/channel` push).
+  - **@cotal-ai/connector-codex** — Codex adapter (pull-only MCP server injected via `codex -c`; no plugin, no hooks).
+  - **@cotal-ai/openai-agents**, **@cotal-ai/vercel-ai** — agent-framework adapters: a native peer that embeds a Cotal endpoint (reusing connector-core's `MeshAgent`) and answers mesh traffic via the SDK's own loop. See [docs/agent-frameworks.md](docs/agent-frameworks.md).
+  - **@cotal-ai/cmux** — thin driver over the [cmux](https://github.com/) CLI (open a workspace/tab, send keys); used by the manager's `cmux` runtime and example launch scripts.
 - **`implementations/*` — opinionated surfaces** over core (self-contained; never import each other).
-  - **@cotal/cli** — mesh CLI: `up`, `join`, `watch`, `console` (thin NATS clients) plus `spawn` — a foreground agent launch reusing the connector's launch recipe.
-  - **@cotal/manager** — agent supervisor: a mesh endpoint that spawns/manages nodes via a pluggable `Runtime` (`pty` default / `tmux` / `cmux`), plus its own control-plane commands (`start`/`stop`/`ps`/`attach`) and a WS attach endpoint.
+  - **@cotal-ai/cli** — mesh CLI: `up`, `join`, `watch`, `console` (thin NATS clients) plus `spawn` — a foreground agent launch reusing the connector's launch recipe.
+  - **@cotal-ai/manager** — agent supervisor: a mesh endpoint that spawns/manages nodes via a pluggable `Runtime` (`pty` default / `tmux` / `cmux`), plus its own control-plane commands (`start`/`stop`/`ps`/`attach`) and a WS attach endpoint.
 - **`bin/cotal.ts` — composition root** for the `cotal` binary: imports the implementations it wants (which self-register their commands) and runs them.
 - **`examples/*` — use-cases** (composition roots; private, never published).
 

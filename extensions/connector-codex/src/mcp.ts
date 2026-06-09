@@ -2,7 +2,7 @@
  * Cotal Codex connector — MCP (stdio) server.
  *
  * Turns the Codex session that launches it into a first-class Cotal mesh peer: presence + the
- * shared cotal_* tools (from @cotal/connector-core). Codex is **pull-only** — it sandboxes
+ * shared cotal_* tools (from @cotal-ai/connector-core). Codex is **pull-only** — it sandboxes
  * lifecycle hooks (they can't reach a control socket), so there is no hook relay: the agent reads
  * its inbox with cotal_inbox and reports presence with cotal_status. Identity comes from `COTAL_*`
  * env (set by the connector's MCP `env` table).
@@ -11,7 +11,7 @@
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { configFromEnv, hasIdentity, laneLine, MeshAgent, registerCotalTools } from "@cotal/connector-core";
+import { configFromEnv, hasIdentity, laneLine, MeshAgent, registerCotalTools } from "@cotal-ai/connector-core";
 
 async function main(): Promise<void> {
   // No identity → not a launcher-spawned agent. Stay inert so a stray `codex` with the cotal MCP

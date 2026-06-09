@@ -15,7 +15,7 @@ import {
   CotalEndpoint,
   type AgentDef,
   type Connector,
-} from "@cotal/core";
+} from "@cotal-ai/core";
 
 /**
  * `cotal spawn <name-or-path>` — launch an agent in the FOREGROUND of this

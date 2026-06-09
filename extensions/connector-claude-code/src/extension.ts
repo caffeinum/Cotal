@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { loadAgentFile, registry, type Connector, type LaunchOpts, type LaunchSpec } from "@cotal/core";
+import { loadAgentFile, registry, type Connector, type LaunchOpts, type LaunchSpec } from "@cotal-ai/core";
 
 /** Channel ref for the locally-installed `cotal` plugin (marketplace `cotal-mesh`).
  *  `--dangerously-load-development-channels <ref>` turns on the plugin's

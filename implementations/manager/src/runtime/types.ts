@@ -1,4 +1,4 @@
-import type { LaunchSpec } from "@cotal/core";
+import type { LaunchSpec } from "@cotal-ai/core";
 
 export type RuntimeKind = "pty" | "tmux" | "cmux";
 

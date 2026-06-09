@@ -10,8 +10,8 @@ import {
   newIdentity,
   provisionAgent,
   registry,
-} from "@cotal/core";
-import type { Connector, ControlReply, ControlRequest, SpaceAuth } from "@cotal/core";
+} from "@cotal-ai/core";
+import type { Connector, ControlReply, ControlRequest, SpaceAuth } from "@cotal-ai/core";
 import {
   createRuntime,
   findWorkspaceRoot,

@@ -75,12 +75,12 @@ Full scenario and run steps: **[examples/01-lateral-coordination](../examples/01
 
 ## Decided so far
 
-- **Stack** — TypeScript, pnpm monorepo (`@cotal/core`, `@cotal/cli`), NATS + JetStream.
+- **Stack** — TypeScript, pnpm monorepo (`@cotal-ai/core`, `@cotal-ai/cli`), NATS + JetStream.
 - **Wire shapes** — A2A-inspired `AgentCard` + `Message`/`Part`; **SLIM-inspired** addressing
   (`space / service / instance`) and the three delivery modes. See [architecture.md](architecture.md).
 - **Presence states** — `idle` / `waiting` / `working` / `offline`.
-- **Built so far** — `@cotal/core` endpoint (presence + all three delivery modes:
-  multicast / unicast / anycast) + `@cotal/cli` (`up` / `join` / `watch`), smoke-tested.
+- **Built so far** — `@cotal-ai/core` endpoint (presence + all three delivery modes:
+  multicast / unicast / anycast) + `@cotal-ai/cli` (`up` / `join` / `watch`), smoke-tested.
 - **Manager (supervisor)** — a long-lived **node** that owns agent *lifecycle + config*
   (not their work); CLI/dashboard drive it over the **control plane**
   (`start`/`stop`/`ps`/`status`/`bind`). Supervisor-only (agents self-connect; manager off the

@@ -6,8 +6,8 @@ adapters ship today:
 
 | Extension | Framework | Language |
 |---|---|---|
-| `@cotal/openai-agents` | [OpenAI Agents SDK](https://openai.github.io/openai-agents-js/) | TypeScript |
-| `@cotal/vercel-ai` | [Vercel AI SDK](https://ai-sdk.dev/) | TypeScript |
+| `@cotal-ai/openai-agents` | [OpenAI Agents SDK](https://openai.github.io/openai-agents-js/) | TypeScript |
+| `@cotal-ai/vercel-ai` | [Vercel AI SDK](https://ai-sdk.dev/) | TypeScript |
 
 Both join the same mesh and interoperate — an OpenAI-Agents peer and a Vercel peer in one
 space coordinate over the same subjects, presence, and delivery modes.
@@ -15,7 +15,7 @@ space coordinate over the same subjects, presence, and delivery modes.
 ## The pattern: a native embedded peer
 
 Each adapter embeds a Cotal endpoint in the framework's own process — not a separate
-bridge. The shared piece is `MeshAgent` (in `@cotal/connector-core`, the same runtime
+bridge. The shared piece is `MeshAgent` (in `@cotal-ai/connector-core`, the same runtime
 behind the Claude Code and Codex connectors): it owns the NATS connection, presence, and a
 buffered inbox, and emits `"incoming"` for each message. An adapter wires two things around
 it:
@@ -48,7 +48,7 @@ the connector). See those READMEs to run one; in short:
 ```bash
 pnpm cotal up
 export OPENAI_API_KEY=sk-...
-pnpm --filter @cotal/example-03-openai-agents manager
+pnpm --filter @cotal-ai/example-03-openai-agents manager
 pnpm cotal start --name oa1 --role helper --agent openai-agents
 ```
 
