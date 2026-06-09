@@ -1,10 +1,13 @@
 import { fileURLToPath } from "node:url";
 import { registry, type Connector, type LaunchOpts, type LaunchSpec } from "@cotal-ai/core";
 
-/** The TS launcher runs from source via tsx (no build step, like the Codex connector).
- *  It owns the mesh endpoint and supervises the Hermes gateway as a child — see launch.ts. */
+/** The launcher (run via tsx, which loads both) owns the mesh endpoint and supervises the Hermes
+ *  gateway as a child — see launch.ts. Resolve `.ts` when this module loads from source (dev) and
+ *  `.js` when it loads from the build: the package's `import` resolves to dist/, so a hardcoded
+ *  `./launch.ts` would point at a file tsc never emits. */
+const ENTRY_EXT = import.meta.url.includes("/dist/") ? "js" : "ts";
 const TSX = fileURLToPath(new URL("../node_modules/.bin/tsx", import.meta.url));
-const LAUNCH_ENTRY = fileURLToPath(new URL("./launch.ts", import.meta.url));
+const LAUNCH_ENTRY = fileURLToPath(new URL(`./launch.${ENTRY_EXT}`, import.meta.url));
 
 /** Provider keys forwarded to the Hermes gateway if present. Hermes is model-agnostic; any one
  *  of these unlocks a provider. We forward, never require — the operator's own keys, untouched. */
