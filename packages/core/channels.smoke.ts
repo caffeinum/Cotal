@@ -121,8 +121,29 @@ try {
   await sleep(500);
   check("rebind does not re-backfill history", B2.got.filter((g) => g.historical).length === 0);
 
-  await A.stop();
+  // ---- Gap 2: restart with a CHANGED config reconciles the filter + backfills the gained channel ----
   await B2.ep.stop();
+  await sleep(300);
+  const B3 = recorder("B", "B_join", ["log", "incident"]); // config gained #incident (has history)
+  await B3.ep.start();
+  await sleep(500);
+  check("restart reconciles to config: gained channel is backfilled", B3.got.filter((g) => g.channel === "incident" && g.historical).length === 1);
+  check("restart does not re-backfill the unchanged channel", B3.got.filter((g) => g.channel === "log" && g.historical).length === 0);
+
+  // ---- native time-window backfill (Direct-Get start_time) ----
+  await seedChannelRegistry({ servers, space, file: { channels: { recent: { replay: true, replayWindow: "1s" }, archive: { replay: true, replayWindow: "1h" } } } });
+  await A.multicast("recent-old", { channel: "recent" });
+  await A.multicast("archive-old", { channel: "archive" });
+  await sleep(1500); // age both past the 1s window
+  const W = recorder("W", "W_join", ["recent", "archive"]);
+  await W.ep.start();
+  await sleep(500);
+  check("time window EXCLUDES messages older than it", has(W.got, "recent-old").length === 0);
+  check("wider window INCLUDES them", W.got.filter((g) => g.channel === "archive" && g.historical).length === 1);
+
+  await A.stop();
+  await B3.ep.stop();
+  await W.ep.stop();
   console.log(`\nCHANNEL REGISTRY TESTS PASSED ✅  (${pass} checks)`);
 } finally {
   srv.kill("SIGKILL");

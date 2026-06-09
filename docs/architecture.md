@@ -54,11 +54,19 @@ model — those don't fit lateral pub/sub.
   and history is an explicit **per-channel backfill on join** via JetStream Direct Get (a read
   verb — no consumer create), gated by the channel's replay policy. A per-channel join watermark
   (the stream frontier at join) lets the tail ack-drop pre-join messages, so a no-replay channel
-  starts clean and a replay backfill never double-delivers.
+  starts clean and a replay backfill never double-delivers. **How far back** is the registry's
+  `replayWindow` (`"24h"`), realized natively as a Direct-Get `start_time` — not a client-side
+  count. *Why one multi-filter durable and not one consumer per channel (which would let the
+  broker replay natively)? A per-channel consumer is named `chat_<id>_<channel>`, and consumer
+  names can't contain `.`, so that's a single ACL token — and NATS permission wildcards are
+  token-granular, so it can't be scoped to one agent. One fixed-name durable is what keeps the
+  per-agent grant tight AND makes dynamic join just a filter edit (no per-channel grant).*
 - **Dynamic subscription.** A peer joins/leaves channels **mid-session** —
   `endpoint.joinChannel`/`leaveChannel` mutate the existing chat durable's `filter_subjects` via
   `consumers.update` (same durable, no teardown; rides the self-scoped create grant). So channel
-  membership is a live view, and join triggers the replay backfill above.
+  membership is a live view, and join triggers the replay backfill above. On **restart** the
+  durable's filter is **reconciled to the agent's current config** (channels the config gained are
+  backfilled like a join; channels it lost are dropped) — an unchanged config is a pure resume.
 - **Sessions + moderator** (managed groups with admit/remove) — *deferred*, but the design
   leaves room for it.
 

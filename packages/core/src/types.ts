@@ -61,16 +61,20 @@ export interface Presence {
 export interface ChannelConfig {
   /** Override the space default for history replay-on-join. */
   replay?: boolean;
+  /** How far back a joiner's backfill reaches — a duration like `"24h"`, `"30m"`, `"7d"`.
+   *  Maps to a native Direct-Get `start_time` (now − window). Unset + `replay` ⇒ the full
+   *  retained window; ignored when replay is off. */
+  replayWindow?: string;
   /** One-line "what this channel is for". */
   description?: string;
   /** Longer "how to use it" — surfaced to joiners as advisory, attributed data. */
   instructions?: string;
 }
 
-/** Space-wide channel defaults, stored under {@link CHANNEL_DEFAULTS_KEY}. Only `replay`
- *  for now (description/instructions are inherently per-channel). */
+/** Space-wide channel defaults, stored under {@link CHANNEL_DEFAULTS_KEY}. */
 export interface ChannelDefaults {
   replay?: boolean;
+  replayWindow?: string;
 }
 
 export type Part =

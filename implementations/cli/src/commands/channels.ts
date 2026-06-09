@@ -9,6 +9,7 @@ import {
   readChannelRegistry,
   effectiveReplay,
   type ChannelConfig,
+  type ChannelDefaults,
   type ChannelRegistryFile,
 } from "@cotal-ai/core";
 import { c } from "../ui.js";
@@ -31,6 +32,7 @@ export async function channels(argv: string[]): Promise<void> {
       space: { type: "string" },
       replay: { type: "boolean" },
       "no-replay": { type: "boolean" },
+      window: { type: "string" }, // backfill window, e.g. 24h / 30m / 7d
       desc: { type: "string" },
       instructions: { type: "string" },
     },
@@ -51,10 +53,11 @@ export async function channels(argv: string[]): Promise<void> {
       if (!name) return usage();
       const cfg: ChannelConfig = {};
       if (replay !== undefined) cfg.replay = replay;
+      if (values.window !== undefined) cfg.replayWindow = values.window;
       if (values.desc !== undefined) cfg.description = values.desc;
       if (values.instructions !== undefined) cfg.instructions = values.instructions;
       if (!Object.keys(cfg).length) {
-        console.error(c.red("nothing to set — pass --replay/--no-replay, --desc, or --instructions"));
+        console.error(c.red("nothing to set — pass --replay/--no-replay, --window, --desc, or --instructions"));
         process.exit(1);
       }
       await seedChannelRegistry({ servers: server, space, creds, file: { channels: { [name]: cfg } } });
@@ -62,12 +65,15 @@ export async function channels(argv: string[]): Promise<void> {
       return;
     }
     case "default": {
-      if (replay === undefined) {
-        console.error(c.red("usage: cotal channels default --replay|--no-replay"));
+      const defaults: ChannelDefaults = {};
+      if (replay !== undefined) defaults.replay = replay;
+      if (values.window !== undefined) defaults.replayWindow = values.window;
+      if (!Object.keys(defaults).length) {
+        console.error(c.red("usage: cotal channels default [--replay|--no-replay] [--window <dur>]"));
         process.exit(1);
       }
-      await seedChannelRegistry({ servers: server, space, creds, file: { defaults: { replay } } });
-      console.log(c.green(`✓ set space default replay=${replay} in "${space}"`));
+      await seedChannelRegistry({ servers: server, space, creds, file: { defaults } });
+      console.log(c.green(`✓ set space defaults in "${space}"`));
       return;
     }
     default:
@@ -85,7 +91,8 @@ async function managerCreds(): Promise<string | undefined> {
 
 function printRegistry(reg: ChannelRegistryFile): void {
   const def = reg.defaults?.replay;
-  console.log(c.dim(`space default replay: ${def === undefined ? "true (built-in)" : def}`));
+  const dw = reg.defaults?.replayWindow;
+  console.log(c.dim(`space default replay: ${def === undefined ? "true (built-in)" : def}${dw ? `, window=${dw}` : ""}`));
   const entries = Object.entries(reg.channels ?? {}).sort((a, b) => a[0].localeCompare(b[0]));
   if (!entries.length) {
     console.log(c.dim("no channel entries yet."));
@@ -94,7 +101,8 @@ function printRegistry(reg: ChannelRegistryFile): void {
   for (const [name, cfg] of entries) {
     const effective = effectiveReplay(cfg, reg.defaults);
     const src = cfg.replay === undefined ? " (default)" : "";
-    console.log(`#${name}  replay=${effective}${src}`);
+    const win = cfg.replayWindow ?? reg.defaults?.replayWindow;
+    console.log(`#${name}  replay=${effective}${src}${effective && win ? ` window=${win}` : ""}`);
     if (cfg.description) console.log(c.dim(`  ${cfg.description}`));
     if (cfg.instructions) console.log(c.dim(`  usage: ${cfg.instructions}`));
   }
@@ -103,7 +111,7 @@ function printRegistry(reg: ChannelRegistryFile): void {
 function usage(): void {
   console.error(
     c.red(
-      "usage: cotal channels <list | set <name> [--replay|--no-replay] [--desc <s>] [--instructions <s>] | default --replay|--no-replay> [--space <s>] [--server <url>]",
+      "usage: cotal channels <list | set <name> [--replay|--no-replay] [--window <dur>] [--desc <s>] [--instructions <s>] | default [--replay|--no-replay] [--window <dur>]> [--space <s>] [--server <url>]",
     ),
   );
   process.exit(1);

@@ -8,6 +8,6 @@
       "instructions": "Reply only to new claims, not the backlog. Keep it tight."
     },
     "commands": { "replay": false, "description": "Fast control chatter — no history replay." },
-    "decisions": { "replay": true, "description": "Durable record of what was decided and why." }
+    "decisions": { "replay": true, "replayWindow": "7d", "description": "Durable record of what was decided and why." }
   }
 }

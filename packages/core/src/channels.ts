@@ -24,8 +24,8 @@ export interface ChannelRegistryFile {
 export const MAX_CHANNEL_DESCRIPTION = 200;
 export const MAX_CHANNEL_INSTRUCTIONS = 2000;
 
-/** Throw if a config's text fields exceed their caps. A write past the cap is a caller bug,
- *  not data to clamp — fail loud so the oversize is fixed at the source. */
+/** Throw if a config is invalid: oversize text (rejected, never clamped — a write past the cap
+ *  is a caller bug) or an unparseable `replayWindow`. */
 export function validateChannelConfig(cfg: ChannelConfig): void {
   if (cfg.description !== undefined && cfg.description.length > MAX_CHANNEL_DESCRIPTION)
     throw new Error(
@@ -35,6 +35,17 @@ export function validateChannelConfig(cfg: ChannelConfig): void {
     throw new Error(
       `channel instructions too long (${cfg.instructions.length} > ${MAX_CHANNEL_INSTRUCTIONS} chars)`,
     );
+  if (cfg.replayWindow !== undefined) parseDuration(cfg.replayWindow); // throws if unparseable
+}
+
+/** Parse a duration like `"24h"`, `"30m"`, `"7d"`, `"90s"` into milliseconds. Throws on a bad
+ *  format — a typo'd window must fail loud, not silently mean "no window". */
+export function parseDuration(s: string): number {
+  const m = /^(\d+)(s|m|h|d)$/.exec(s.trim());
+  if (!m) throw new Error(`invalid duration "${s}" — expected <number><s|m|h|d>, e.g. "24h"`);
+  const n = Number(m[1]);
+  const unit = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 }[m[2] as "s" | "m" | "h" | "d"];
+  return n * unit;
 }
 
 /** Effective replay-on-join policy for a channel: per-channel override ?? space default ??
@@ -44,6 +55,16 @@ export function effectiveReplay(
   defaults: ChannelDefaults | undefined,
 ): boolean {
   return cfg?.replay ?? defaults?.replay ?? true;
+}
+
+/** Effective backfill window in ms (per-channel ?? space default), or undefined for "the full
+ *  retained window". Only meaningful when {@link effectiveReplay} is true. */
+export function effectiveReplayWindowMs(
+  cfg: ChannelConfig | undefined,
+  defaults: ChannelDefaults | undefined,
+): number | undefined {
+  const w = cfg?.replayWindow ?? defaults?.replayWindow;
+  return w === undefined ? undefined : parseDuration(w);
 }
 
 /** Open the channels registry bucket. Auth mode (creds present) OPENs the bucket pre-created
