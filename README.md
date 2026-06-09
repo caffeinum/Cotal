@@ -19,41 +19,76 @@ The **wire contract is the standard** — the subjects, the message envelope, an
 presence conventions *are* Cotal. The libraries here are thin clients over them. Transport
 is **NATS + JetStream**; the reference implementation is **TypeScript**.
 
+## Try it in 2 minutes
+
+**Prerequisites:** Node ≥ 20 · [pnpm](https://pnpm.io) · **`nats-server`** (v2.11+).
+Cotal *spawns* `nats-server` — it doesn't bundle it, so install it first:
+`brew install nats-server` (macOS) or see [nats.io](https://docs.nats.io/running-a-nats-service/introduction/installation).
+
+```bash
+git clone https://github.com/Cotal-AI/Cotal.git cotal && cd cotal
+pnpm install
+```
+
+Then, each in its own terminal:
+
+```bash
+pnpm cotal up --open                                          # 1. start the local mesh (keep it running)
+pnpm cotal join --space demo --name alice --role planner      # 2. a peer
+pnpm cotal join --space demo --name bob   --role builder      # 3. another peer
+pnpm cotal watch --space demo                                 # 4. (optional) tail everything on the mesh
+```
+
+Type a line in a `join` terminal to broadcast it to the space; the other peer and `watch`
+see it instantly. In-session verbs drive the rest:
+
+| Verb | Does |
+|---|---|
+| `/who` | show the live roster (names, roles, states) |
+| `/dm <name> <msg>` | message one peer directly (unicast) |
+| `/anycast <role> <msg>` | reach *any one* peer of a role |
+| `/working` · `/waiting` · `/idle` | set your presence state |
+| `/quit` | leave (peers see you go `offline`) |
+
+Prefer a dashboard? `pnpm cotal console --space demo` (terminal UI) or
+`pnpm cotal web --space demo` (browser, [docs](docs/web.md)) show presence, channels, and a
+live feed.
+
 <p align="center">
   <img src="assets/dashboard.png" alt="Cotal web dashboard — presence roster, channels, live activity feed, and a Needs You panel" width="100%" />
 </p>
 
-An **example surface built on the protocol** — not part of the standard itself. It's a thin
-client that subscribes to a space and renders what's already on the wire: the **presence**
-roster down the left (who's online, their role and state), the **channels** they broadcast
-on, the **live feed** of every message (chat, unicast, anycast), and a **Needs You** panel
-that surfaces the moments a human has to step in — a blocked peer, a failed task, an
-unclaimed anycast request, an approval. Nothing here is privileged; anything it shows, any
-peer could compute from the same presence and message streams.
+These dashboards are **example surfaces built on the protocol** — not part of the standard.
+Each is a thin client that subscribes to a space and renders what's already on the wire: the
+**presence** roster, the **channels** peers broadcast on, the **live feed** of every message
+(chat, unicast, anycast), and a **Needs You** panel for the moments a human has to step in.
+Nothing here is privileged; any peer could compute the same from the presence and message
+streams.
 
-## Quick start
+Full walkthrough: [examples/01-lateral-coordination](examples/01-lateral-coordination/README.md).
 
-Prerequisites: Node ≥ 20, pnpm, and `nats-server` (v2.11+; macOS: `brew install nats-server`).
+> `cotal up` enforces **JWT auth by default** (agents present minted creds); `--open` runs
+> the unauthenticated dev mesh used above. See [architecture](docs/architecture.md) →
+> *Identity & authorization*.
+
+## Get real agents coordinating
+
+The same mesh carries **coding agents**. Through the manager, a `cotal start --agent claude`
+spawns a real Claude Code session that joins the space and coordinates with its peers over
+`cotal_*` MCP tools (`cotal_dm`, `cotal_roster`, `cotal_spawn`, …):
 
 ```bash
-git clone <repo> cotal && cd cotal
-pnpm install
-
-pnpm cotal up --open                            # start the local mesh, unauthenticated (keep running)
-pnpm cotal join --space demo --name alice --role planner    # a peer, in its own terminal
-pnpm cotal join --space demo --name bob   --role builder    # another peer
-pnpm cotal watch --space demo                   # optional: tail everything on the mesh
-pnpm cotal console --space demo                 # live dashboard of agents + messages (--plain for a log)
-pnpm cotal web --space demo                      # browser observability: presence, channels, live feed ([docs](docs/web.md))
+pnpm cotal up --open                                        # mesh
+(cd examples/01-lateral-coordination && pnpm manager)       # manager + console (http://127.0.0.1:7878)
+pnpm cotal start --space demo --agent claude --name ada   --role planner
+pnpm cotal start --space demo --agent claude --name linus --role reviewer
 ```
 
-`cotal up` enables **JWT auth by default** (agents need minted creds); `--open` runs the
-unauthenticated dev mesh used above. See [docs/architecture.md](docs/architecture.md) →
-*Identity & authorization*.
-
-Inside a `join` session, type a line to broadcast it; `/who`, `/dm`, `/anycast`,
-`/working`, `/waiting`, `/idle`, `/me`, `/quit` drive the rest. Full walkthrough:
-[examples/01-lateral-coordination](examples/01-lateral-coordination/README.md).
+This needs the Claude Code plugin (research preview) — setup in
+[docs/claude-code-integration.md](docs/claude-code-integration.md). For a richer demo — an
+orchestrator that grows its own team with `cotal_spawn` and routes an API→web handoff across
+parallel [cmux](https://cmux.com) sessions — see
+[examples/02-cmux-handoff](examples/02-cmux-handoff/README.md).
 
 ## Core model
 
@@ -95,36 +130,36 @@ pnpm + TypeScript ESM monorepo, four dependency tiers (one-way deps):
 - **`packages/*`** — the **protocol** (the standard): `@cotal/core` (endpoint, subjects,
   types, the extension registry).
 - **`extensions/*`** — **pluggable adapters** that peer-depend on core and self-register
-  through its registry: `@cotal/connector` (the Claude Code / Codex MCP bridge, incl. the
-  `cotal_spawn` tool) and `@cotal/cmux` (a thin driver over the cmux CLI).
+  through its registry: `@cotal/connector-core` (the shared MCP-bridge runtime — mesh agent
+  + `cotal_*` tools incl. `cotal_spawn` + hook relay), `@cotal/connector-claude-code` and
+  `@cotal/connector-codex` (thin adapters over it), and `@cotal/cmux` (a driver over the
+  cmux CLI).
 - **`implementations/*`** — **opinionated surfaces** over core: `@cotal/cli` (`cotal` —
-  `up`/`join`/`watch`/`console`/`spawn`) and `@cotal/manager` (the agent supervisor —
-  `start`/`stop`/`ps`/`attach`, spawning through a `pty`/`tmux`/`cmux` runtime).
+  `up`/`join`/`watch`/`console`/`web`/`spawn`/`mint`) and `@cotal/manager` (the agent
+  supervisor — `start`/`stop`/`ps`/`attach`, spawning through a `pty`/`tmux`/`cmux` runtime).
 - **`examples/*`** — **use-cases** (composition roots). An example only configures +
   orchestrates and picks which extensions to register; it never adds message kinds,
   subjects, or endpoint methods — those go into `core`, generalized.
 
 Deps flow one way: `examples → implementations → packages ← (peer) extensions`.
 
-## Commands
-
 ```bash
-pnpm cotal <cmd>   # run the CLI (up, join, watch, console, spawn, start, stop, ps, attach)
+pnpm cotal <cmd>   # the CLI (up, join, watch, console, web, spawn, mint, start, stop, ps, attach)
 pnpm smoke         # non-interactive end-to-end check against a running mesh
 pnpm typecheck     # tsc --noEmit across all packages
 pnpm build         # tsc build across all packages
 ```
 
-## Status
+## Troubleshooting
 
-Today: presence and all three delivery modes over `@cotal/core` with **stream-backed
-delivery** (JetStream durable consumers), an **extension registry** the manager resolves
-connectors through, and the Claude Code connector under `extensions/`. Manual CLI peers in
-[`examples/01`](examples/01-lateral-coordination/README.md); real coding-agent panes — an
-orchestrator that grows its team with `cotal_spawn` and routes an API→web handoff — in
-[`examples/02`](examples/02-cmux-handoff/README.md). See [examples](docs/examples.md) for
-what runs now. Agents built with other SDKs join as native peers too — the OpenAI Agents
-and Vercel AI adapters under [`extensions/`](docs/agent-frameworks.md).
+- **`nats-server: command not found`** — install it (`brew install nats-server`); Cotal
+  spawns it, it isn't bundled.
+- **Port already in use** — NATS defaults to `4222`, the web dashboard to `7799`. Free the
+  port, or pass `cotal web --port <n>`. `cotal up` reuses a NATS already running on `4222`.
+- **Agents rejected / `authorization violation`** — you're on the auth mesh; use
+  `cotal up --open` for local dev, or mint creds (`cotal mint`).
+- **Nothing happens on first run** — make sure `pnpm install` completed and the
+  `cotal up` terminal is still running.
 
 ## License
 
