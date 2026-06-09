@@ -26,7 +26,10 @@ export interface AgentHandle {
   readonly name: string;
   readonly kind: RuntimeKind;
   status(): "running" | "exited";
-  stop(): void;
+  /** Tear the agent down. `graceful` (default) signals a clean exit (so the session
+   *  leaves the mesh on its own) before ensuring the process/tab is gone; otherwise
+   *  it's a hard, immediate kill. */
+  stop(opts?: { graceful?: boolean }): void;
   interrupt(): void;
   /** Open a live attach. Throws on backends that can't stream (e.g. tmux, which
    *  you attach to natively). */

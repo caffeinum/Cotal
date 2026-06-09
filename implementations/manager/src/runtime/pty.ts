@@ -8,6 +8,8 @@ const DEFAULT_ROWS = 32;
 const SCROLLBACK_BYTES = 256 * 1024;
 /** Stop watching for a spawn-confirm prompt after this long (it appears at startup). */
 const CONFIRM_WINDOW_MS = 20_000;
+/** Grace window for a clean exit before a graceful stop escalates to SIGKILL. */
+const GRACE_MS = 3_000;
 
 /** Strip ANSI control sequences and whitespace so a confirm prompt matches regardless
  *  of how a TUI positions its text (cursor moves between words, not spaces). */
@@ -79,8 +81,16 @@ export class PtyRuntime implements Runtime {
       name,
       kind: "pty",
       status: () => (alive ? "running" : "exited"),
-      stop: () => {
-        if (alive) proc.kill();
+      stop: (opts) => {
+        if (!alive) return;
+        if (opts?.graceful === false) {
+          proc.kill("SIGKILL");
+          return;
+        }
+        // Graceful: SIGTERM lets the session run its exit handlers (incl. leaving the
+        // mesh); escalate to SIGKILL if it's still up after a grace window.
+        proc.kill("SIGTERM");
+        setTimeout(() => alive && proc.kill("SIGKILL"), GRACE_MS);
       },
       interrupt: () => {
         if (alive) proc.write("\x03");

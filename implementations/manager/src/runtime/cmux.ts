@@ -9,6 +9,9 @@ export function cmuxAvailable(): boolean {
   return cmux.available();
 }
 
+/** Grace window for a clean exit before a graceful stop force-closes the tab. */
+const GRACE_MS = 1_500;
+
 function shellQuote(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`;
 }
@@ -19,7 +22,8 @@ function shellQuote(s: string): string {
  * command in a fresh surface directly, so we write the launch as a temp bash
  * script and point the tab's terminal at it — sidestepping nushell↔bash quoting.
  * Opened unfocused so the human stays put; switch to the new tab to watch the
- * worker. Like tmux, you watch it natively, so `attach()` throws.
+ * worker. Like tmux, you watch it natively, so `attach()` throws — but teardown is
+ * real: we keep the tab's workspace + surface ids to drive and close it.
  */
 export class CmuxRuntime implements Runtime {
   readonly kind = "cmux" as const;
@@ -38,17 +42,27 @@ export class CmuxRuntime implements Runtime {
     const layout = JSON.stringify({
       pane: { surfaces: [{ type: "terminal", command: `bash ${scriptPath}` }] },
     });
-    cmux.openWorkspace(`cotal-${name}`, layout, { focus: false });
+    // Keep the new tab's ids so we can drive (send keys) and close it later.
+    const workspace = cmux.openWorkspace(`cotal-${name}`, layout, { focus: false });
+    const surface = cmux.firstSurface(workspace);
 
     return {
       name,
       kind: "cmux",
-      // Best-effort: we don't track the tab's surface id, so we can't poll it or
-      // close it programmatically — the tab is closed by hand.
       status: () => "running",
-      stop: () => {},
+      stop: (opts) => {
+        if (opts?.graceful === false) {
+          cmux.closeWorkspace(workspace);
+          return;
+        }
+        // Graceful: type `/exit` so the Claude session shuts down cleanly (its
+        // SessionEnd hook leaves the mesh), then close the now-idle tab.
+        cmux.send("/exit", { surface });
+        cmux.sendKey("enter", { surface });
+        setTimeout(() => cmux.closeWorkspace(workspace), GRACE_MS);
+      },
       interrupt: () => {
-        throw new Error(`cmux runtime: switch to the "cotal-${name}" tab to drive it`);
+        cmux.sendKey("ctrl+c", { surface });
       },
       attach: () => {
         throw new Error(`cmux runtime: switch to the "cotal-${name}" cmux tab to watch it`);

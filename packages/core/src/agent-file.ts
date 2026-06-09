@@ -18,8 +18,8 @@
  * session reads its own card from it. Part of the wire contract's onboarding
  * half, alongside the join link.
  */
-import { readFileSync } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { EndpointKind } from "./types.js";
 
 export interface AgentDef {
@@ -108,6 +108,26 @@ export function loadAgentFile(path: string): AgentDef {
     model: str("model"),
     persona: persona || undefined,
   };
+}
+
+/** Write an agent definition back to disk in the form {@link loadAgentFile} reads:
+ *  the set frontmatter fields followed by the persona body. Round-trips through the
+ *  parser; creates parent dirs. The runtime persona-definition path uses this to
+ *  persist a peer-defined agent as config. */
+export function saveAgentFile(path: string, def: AgentDef): void {
+  if (!def.name) throw new Error('saveAgentFile: "name" is required');
+  const lines = ["---", `name: ${def.name}`];
+  if (def.role) lines.push(`role: ${def.role}`);
+  if (def.kind) lines.push(`kind: ${def.kind}`);
+  if (def.description) lines.push(`description: ${def.description}`);
+  if (def.tags?.length) lines.push(`tags: [${def.tags.join(", ")}]`);
+  if (def.channels?.length) lines.push(`channels: [${def.channels.join(", ")}]`);
+  if (def.publish?.length) lines.push(`publish: [${def.publish.join(", ")}]`);
+  if (def.model) lines.push(`model: ${def.model}`);
+  lines.push("---");
+  const body = def.persona ? `${def.persona.trim()}\n` : "";
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${lines.join("\n")}\n\n${body}`);
 }
 
 /** Resolve a name-or-path to an agent file. A path (absolute, contains a slash,

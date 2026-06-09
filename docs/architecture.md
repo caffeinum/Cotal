@@ -192,8 +192,10 @@ abstracted behind one interface (`spawn → handle`, `stop`, `status`, `attach`,
   panes / persistence; auto-detect (if already inside tmux, use it).
 - **`cmux` (opt-in)** — each agent gets its own [cmux](https://github.com/) tab via the
   `@cotal/cmux` driver. Like tmux you watch it natively, so `attach` points you at the tab
-  rather than streaming. The manager must run inside a live cmux surface (cmux only authorizes
-  its control socket from a real pane). Drives [`examples/02`](../examples/02-cmux-handoff/README.md).
+  rather than streaming. Teardown is real: the runtime keeps the tab's workspace + surface ids,
+  so `stop` types `/exit` for a clean leave then closes the tab (graceful) or closes it outright
+  (hard). The manager must run inside a live cmux surface (cmux only authorizes its control
+  socket from a real pane). Drives [`examples/02`](../examples/02-cmux-handoff/README.md).
 - **`byo` (floor)** — the manager doesn't own the process; a human runs `cotal claude --role …`
   in their own terminal and the manager just tracks it via presence.
 - **`host` (upgrade)** — headless via the Agent SDK / Codex app-server for structured control +
@@ -222,13 +224,16 @@ owner for the actual pixels (same stream `cotal attach` consumes, just rendered 
   loopback port (`COTAL_CONSOLE_PORT`, default `7878`). It can split later into a standalone
   `cotal console` node that discovers managers over the mesh and aggregates their streams.
 
-**Control schema (first cut):** `start {role, name, agent}` · `stop {instance}` · `ps` ·
-`status {instance}` · `attach {instance}` · `bind {instance, config}` — control-plane
-request/reply messages any authorized node (CLI, dashboard, or an agent) can send; spawning is
-policy-gated.
+**Control schema (first cut):** `start {role, name, agent}` · `stop {name, graceful?}` ·
+`definePersona {name, persona, role?, model?}` · `ps` · `status {instance}` · `attach {instance}` ·
+`bind {instance, config}` — control-plane request/reply messages any authorized node (CLI,
+dashboard, or an agent) can send; spawning is policy-gated. `definePersona` writes
+`.cotal/agents/<name>.md` (via `saveAgentFile`), which a later `start` auto-discovers.
 
-**Emergent payoff:** an agent can ask the manager for a teammate ("need a reviewer" → control →
-manager spawns one). The new agent is a *peer*, not a child.
+**Emergent payoff:** an agent can grow *and* shape the team without a human — ask the manager for
+a teammate (`cotal_spawn`), mint a brand-new persona on the fly (`cotal_persona` → saved as config
+→ spawnable), or tear one down (`cotal_despawn`, graceful or hard). The new agent is a *peer*, not
+a child.
 
 ## Hosting & onboarding
 

@@ -244,6 +244,35 @@ export class MeshAgent extends EventEmitter {
     return this.ep.requestControl("manager", { op: "start", args: { name, role } });
   }
 
+  /** Ask the manager to tear a teammate down (its `stop` op). Graceful by default —
+   *  the session is told to exit cleanly (so it leaves the mesh) before the
+   *  process/tab is closed; `graceful:false` is a hard, immediate kill. */
+  async despawn(name: string, opts?: { graceful?: boolean }): Promise<ControlReply> {
+    this.assertConnected();
+    return this.ep.requestControl("manager", {
+      op: "stop",
+      args: { name, graceful: opts?.graceful ?? true },
+    });
+  }
+
+  /** Define a persona and persist it as config (the manager's `definePersona` op writes
+   *  .cotal/agents/<name>.md). On success, announce it on the channel — the "send it out"
+   *  half — so peers see the new persona; `spawn(name)` then launches an agent wearing it. */
+  async definePersona(def: {
+    name: string;
+    prompt: string;
+    role?: string;
+    model?: string;
+  }): Promise<ControlReply> {
+    this.assertConnected();
+    const reply = await this.ep.requestControl("manager", {
+      op: "definePersona",
+      args: { name: def.name, role: def.role, model: def.model, persona: def.prompt },
+    });
+    if (reply.ok) await this.send(`persona \`${def.name}\` is now available — spawn it to bring it online`);
+    return reply;
+  }
+
   // ---- presence ------------------------------------------------------------
 
   /** The full roster, including ourselves. */

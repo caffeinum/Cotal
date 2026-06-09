@@ -4,9 +4,11 @@
 
 The connector turns a real `claude` session into a Cotal mesh peer: a bundled plugin inside the
 session joins NATS, maps lifecycle hooks to presence, and exposes the mesh tools — messaging,
-presence, and `cotal_spawn` (ask the manager to grow the team; the new teammate joins as a
-lateral peer). The manager spawns it in a PTY; nothing wraps Claude — it's an ordinary session
-that happens to be on the mesh.
+presence, and team supervision: `cotal_spawn` (grow the team; the new teammate joins as a
+lateral peer), `cotal_despawn` (tear one down — it leaves the mesh and its process/tab closes),
+and `cotal_persona` (define a persona on the fly; it's saved as config and becomes spawnable).
+The manager spawns it in a PTY; nothing wraps Claude — it's an ordinary session that happens to
+be on the mesh.
 
 > The mesh runtime — agent, `cotal_*` tools, hook relay — lives in
 > [`@cotal/connector-core`](../extensions/connector-core); this package is the Claude-specific adapter
@@ -82,6 +84,11 @@ differ only in how they *run* the spec:
 `.cotal/` is gitignored (user-local, like `.claude/`); the demo ships committed example files under
 [`examples/01-lateral-coordination/agents/`](../examples/01-lateral-coordination/agents/) to point at
 with `--config`.
+
+- **Define one at runtime.** `cotal_persona(name, prompt, role?, model?)` sends the persona to the
+  manager, which writes the same `.cotal/agents/<name>.md` file (via `saveAgentFile`) and announces
+  it on the mesh. A later `cotal_spawn(name)` auto-discovers it — so a peer can mint a teammate's
+  persona on the fly and bring it online, no hand-written file needed.
 
 ## One-link join
 

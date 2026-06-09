@@ -41,7 +41,8 @@ export function channelMeta(i: InboxItem): Record<string, string> {
   return m;
 }
 
-/** Register the six Cotal tools (roster, inbox, send, dm, anycast, status) on a server. */
+/** Register the Cotal tools (roster, inbox, send, dm, anycast, status, spawn, despawn,
+ *  persona) on a server. */
 export function registerCotalTools(server: McpServer, agent: MeshAgent, config: AgentConfig): void {
   server.registerTool(
     "cotal_roster",
@@ -202,6 +203,59 @@ export function registerCotalTools(server: McpServer, agent: MeshAgent, config: 
       } catch (e) {
         return fail(
           `Couldn't spawn ${name}: no manager reachable (${(e as Error).message}). Is the manager running?`,
+        );
+      }
+    },
+  );
+
+  server.registerTool(
+    "cotal_despawn",
+    {
+      title: "Cotal: stop a teammate",
+      description:
+        "Ask the manager to tear a teammate down — it leaves the mesh and its process/tab is closed. Graceful by default (the session exits cleanly first); pass graceful:false for a hard, immediate kill. The inverse of cotal_spawn.",
+      inputSchema: {
+        name: z.string().describe("Name of the peer to stop."),
+        graceful: z
+          .boolean()
+          .optional()
+          .describe("Default true: let the session exit cleanly. false = hard kill."),
+      },
+    },
+    async ({ name, graceful }) => {
+      try {
+        const reply = await agent.despawn(name, { graceful });
+        if (!reply.ok) return fail(`Couldn't despawn ${name}: ${reply.error ?? "manager refused"}`);
+        return text(`Stopping ${name}${graceful === false ? " (hard)" : ""} — it will leave the roster shortly.`);
+      } catch (e) {
+        return fail(
+          `Couldn't despawn ${name}: no manager reachable (${(e as Error).message}). Is the manager running?`,
+        );
+      }
+    },
+  );
+
+  server.registerTool(
+    "cotal_persona",
+    {
+      title: "Cotal: define a persona",
+      description:
+        "Define a new persona and save it as config (the manager writes .cotal/agents/<name>.md), then announce it on the mesh. Afterwards cotal_spawn(name) launches a real agent wearing this persona/model. Use to grow the team with a custom role you describe on the fly.",
+      inputSchema: {
+        name: z.string().describe("Unique name for the persona (also the spawn name)."),
+        prompt: z.string().describe("The persona — an appended system prompt describing who this agent is."),
+        role: z.string().optional().describe("Optional role label (e.g. reviewer, scout)."),
+        model: z.string().optional().describe("Optional model override (e.g. opus, sonnet)."),
+      },
+    },
+    async ({ name, prompt, role, model }) => {
+      try {
+        const reply = await agent.definePersona({ name, prompt, role, model });
+        if (!reply.ok) return fail(`Couldn't define ${name}: ${reply.error ?? "manager refused"}`);
+        return text(`Persona \`${name}\` saved — spawn it with cotal_spawn(name="${name}") to bring it online.`);
+      } catch (e) {
+        return fail(
+          `Couldn't define ${name}: no manager reachable (${(e as Error).message}). Is the manager running?`,
         );
       }
     },
