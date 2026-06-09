@@ -87,6 +87,12 @@ are visible to everyone with stream-read on the space.
   - Recover the id by stripping `chat_` and matching forward against `token(p.card.id)` over
     the live roster (don't reverse the lossy durable name). A consumer with no roster match
     is a ghost/foreign id — display the id prefix, never drop it.
+  - **Coordinate with the channel-registry plan** (`channel-registry.md`): if per-channel
+    replay control lands, each endpoint's durable splits into `chat_<id>` (replay) +
+    `chatnew_<id>` (no-replay). The parser must then **union both prefixes per id** —
+    `channels = filter_subjects(chat_<id>) ∪ filter_subjects(chatnew_<id>)` — so a no-replay
+    subscriber stays visible. Membership is indifferent to *how* a peer receives; the two
+    must land together.
   - `consumers.list` is a JSAPI round-trip (the presence-only view was free); cache / refresh
     on a sane interval, don't poll it per render frame.
 - Surfaces (`watch` / `console` / `manager`) — join the consumer list with the roster and
