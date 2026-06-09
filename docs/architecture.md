@@ -451,6 +451,8 @@ covers three things at once: live delivery, the inbound buffer, and late-join hi
   `ControlRequest`/`ControlReply` envelope is unchanged; only the transport underneath swaps.
 - **Isolation:** one NATS **account** per space (later: split `space` into `org/namespace`).
   Auth mode (the default) makes the account a real boundary; `--open` is one shared account.
+  See [spaces.md](spaces.md) for the space-vs-channel model and how spaces connect
+  (export/import within an operator, a narrow bridge across operators).
 - **Transport choice:** JetStream streams for all three delivery modes (durability + per-reader
   bookmarks + history), KV for presence, Object Store for artifacts, and the Services API for
   the control plane.
