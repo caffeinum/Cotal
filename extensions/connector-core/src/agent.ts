@@ -263,6 +263,19 @@ export class MeshAgent extends EventEmitter {
     await this.ep.setStatus(status);
   }
 
+  // ---- channel registry ----------------------------------------------------
+
+  /** A channel's registry config + effective replay policy, from the endpoint's live cache.
+   *  Config only — never membership (that view is kept off agents on purpose). */
+  channelInfo(channel: string): { description?: string; instructions?: string; replay: boolean } {
+    const cfg = this.ep.getChannelConfig(channel);
+    return {
+      description: cfg?.description,
+      instructions: cfg?.instructions,
+      replay: this.ep.channelReplay(channel),
+    };
+  }
+
   // ---- internals -----------------------------------------------------------
 
   private who(): string {

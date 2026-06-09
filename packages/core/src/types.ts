@@ -51,6 +51,28 @@ export interface Presence {
   ts: number;
 }
 
+/**
+ * Channel registry entry — channel-global config, stored in the per-space channels KV
+ * (one entry per channel; the space-wide default lives under {@link CHANNEL_DEFAULTS_KEY}).
+ * Shared across every peer, not a per-subscriber choice. `description`/`instructions` reach
+ * the model, so this is a prompt-injection surface: writes are privileged and both text
+ * fields are length-bounded at the write path (see channels.ts).
+ */
+export interface ChannelConfig {
+  /** Override the space default for history replay-on-join. */
+  replay?: boolean;
+  /** One-line "what this channel is for". */
+  description?: string;
+  /** Longer "how to use it" — surfaced to joiners as advisory, attributed data. */
+  instructions?: string;
+}
+
+/** Space-wide channel defaults, stored under {@link CHANNEL_DEFAULTS_KEY}. Only `replay`
+ *  for now (description/instructions are inherently per-channel). */
+export interface ChannelDefaults {
+  replay?: boolean;
+}
+
 export type Part =
   | { kind: "text"; text: string }
   | { kind: "data"; data: unknown };

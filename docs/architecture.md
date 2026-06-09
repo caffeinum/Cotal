@@ -40,6 +40,15 @@ model — those don't fit lateral pub/sub.
   only the allow-all **manager** profile holds today — agents/observer/admin are denied, so it's
   manager-served (a dashboard profile is a one-line grant away). Observability only, never an
   agent gate on sending.
+- **Channel registry** (config *about* a channel) lives in a per-space KV bucket
+  (`cotal_channels_<space>`, sibling of presence): per-channel `{ replay?, description?,
+  instructions? }` plus a space-wide default under a reserved key. **Channel-global, not
+  per-subscriber** — the same channel replays (or not) for everyone. Writes are **privileged**
+  (`cotal up --channels <file>` to seed; `cotal channels set` at runtime); everyone reads it via
+  a live KV watch (`endpoint.getChannelConfig` / `channelReplay`, and enriched `listChannels`).
+  `replay` toggles whether a fresh joiner gets history backfilled; `description`/`instructions`
+  reach the model, so the registry is a prompt-injection surface — text is length-bounded at the
+  write path and surfaced to agents as attributed, advisory data (never system-prompt text).
 - **Sessions + moderator** (managed groups with admit/remove) — *deferred*, but the design
   leaves room for it.
 

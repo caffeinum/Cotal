@@ -37,6 +37,7 @@ import {
   dmDurable,
   taskDurable,
   presenceBucket,
+  channelBucket,
 } from "./subjects.js";
 import type { Identity } from "./identity.js";
 
@@ -168,6 +169,7 @@ function permissionsFor(
   if (profile === "manager") return {}; // privileged: allow-all defaults
   const CHAT = chatStream(space), DM = dmStream(space), TASK = taskStream(space);
   const KV = `KV_${presenceBucket(space)}`;
+  const CHKV = `KV_${channelBucket(space)}`; // channel registry (read-only for everyone)
   const inbox = `_INBOX_${id}.>`;
 
   if (profile === "observer" || profile === "admin") {
@@ -197,6 +199,10 @@ function permissionsFor(
       `$JS.ACK.${CHAT}.>`,
       `$JS.API.CONSUMER.CREATE.${KV}.>`, // kv.watch ordered consumer (roster is public)
       `$JS.API.CONSUMER.INFO.${KV}.>`,
+      // Channel registry read (watch + enriched listChannels) — config is world-readable.
+      `$JS.API.STREAM.INFO.${CHKV}`,
+      `$JS.API.CONSUMER.CREATE.${CHKV}.>`,
+      `$JS.API.CONSUMER.INFO.${CHKV}.>`,
       "$JS.FC.>", // ordered-consumer flow control
     ];
     if (profile === "admin") {
@@ -227,7 +233,7 @@ function permissionsFor(
     controlServiceSubject(space, manager, id), // ctl.<mgr>.<id>
     // JetStream control plane — scoped to this agent's own streams/durables.
     "$JS.API.INFO",
-    `$JS.API.STREAM.INFO.${CHAT}`, `$JS.API.STREAM.INFO.${DM}`, `$JS.API.STREAM.INFO.${TASK}`, `$JS.API.STREAM.INFO.${KV}`,
+    `$JS.API.STREAM.INFO.${CHAT}`, `$JS.API.STREAM.INFO.${DM}`, `$JS.API.STREAM.INFO.${TASK}`, `$JS.API.STREAM.INFO.${KV}`, `$JS.API.STREAM.INFO.${CHKV}`,
     // CHAT consumer: self-create (chat is world-readable, so name-scope is enough).
     `$JS.API.CONSUMER.DURABLE.CREATE.${CHAT}.${chatD}`,
     `$JS.API.CONSUMER.INFO.${CHAT}.${chatD}`,
@@ -242,6 +248,10 @@ function permissionsFor(
     `$JS.API.CONSUMER.INFO.${KV}.>`,
     "$JS.FC.>",
     `$KV.${presenceBucket(space)}.${id}`, // own presence key only — can't spoof peers
+    // Channel registry: read-only (watch). No `$KV.${channelBucket(space)}.*` publish — the
+    // registry is privileged-write, and default-deny gives that for free.
+    `$JS.API.CONSUMER.CREATE.${CHKV}.>`,
+    `$JS.API.CONSUMER.INFO.${CHKV}.>`,
   ];
   if (svcD) {
     // TASK consumer: BIND ONLY its own role's pre-created durable (svc_<role>). Like DM, the

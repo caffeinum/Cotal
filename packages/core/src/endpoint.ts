@@ -25,6 +25,8 @@ import { Kvm, type KV, type KvEntry } from "@nats-io/kv";
 
 import type {
   AgentCard,
+  ChannelConfig,
+  ChannelDefaults,
   ControlReply,
   ControlRequest,
   Delivery,
@@ -34,8 +36,10 @@ import type {
   PresenceStatus,
   CotalMessage,
 } from "./types.js";
+import { openChannelRegistry, effectiveReplay } from "./channels.js";
 import {
   anycastSubject,
+  CHANNEL_DEFAULTS_KEY,
   chatStream,
   chatDurable,
   chatSubject,
@@ -133,6 +137,10 @@ export class CotalEndpoint extends EventEmitter {
   private js?: JetStreamClient;
   private jsm?: JetStreamManager;
   private kv?: KV;
+  private channelKv?: KV;
+  /** Live local cache of the channel registry (key = channel token), kept by a KV watch. */
+  private readonly channelConfigs = new Map<string, ChannelConfig>();
+  private channelDefaults: ChannelDefaults = {};
   private readonly subs: Subscription[] = [];
   private readonly streamMsgs: ConsumerMessages[] = [];
   private heartbeatTimer?: ReturnType<typeof setInterval>;
@@ -205,6 +213,10 @@ export class CotalEndpoint extends EventEmitter {
         () => this.sweep(),
         Math.max(500, Math.floor(this.ttlMs / 3)),
       );
+      // The channel registry is shared mesh state like presence — open its bucket (auth mode
+      // OPENs the pre-created one; open mode lazily creates it) and keep a live local cache.
+      this.channelKv = await openChannelRegistry(this.nc, this.space, { create: !this.creds });
+      await this.startChannelWatch();
     }
 
     if (this.doRegister) {
@@ -424,28 +436,44 @@ export class CotalEndpoint extends EventEmitter {
 
   // ---- channel discovery ---------------------------------------------------
 
-  /** List channels that have messages in the chat stream, with message counts.
-   *  Works even on observer endpoints (no consumers needed). */
-  async listChannels(): Promise<{ channel: string; messages: number }[]> {
+  /** This channel's registry config from the live local cache (undefined if unset). */
+  getChannelConfig(channel: string): ChannelConfig | undefined {
+    return this.channelConfigs.get(channel);
+  }
+
+  /** Effective replay-on-join policy for a channel: per-channel override ?? space default ??
+   *  true. Reads the live cache, so it reflects runtime registry edits. */
+  channelReplay(channel: string): boolean {
+    return effectiveReplay(this.channelConfigs.get(channel), this.channelDefaults);
+  }
+
+  /** One coherent channel model for dashboards: every channel that has messages OR a registry
+   *  entry (configured-but-empty), each tagged with its {@link ChannelConfig}. Works even on
+   *  observer endpoints (no consumers needed). */
+  async listChannels(): Promise<{ channel: string; messages: number; config?: ChannelConfig }[]> {
     if (!this.nc) throw new Error("endpoint not started");
     const mgr = await jetstreamManager(this.nc);
-    let info;
-    try {
-      info = await mgr.streams.info(chatStream(this.space), { subjects_filter: ">" });
-    } catch {
-      return [];
-    }
-    // Subjects now carry the sender (chat.<sender>.<channel>), so collapse across senders:
-    // sum each channel's counts regardless of who published.
+    // Subjects carry the sender (chat.<sender>.<channel>), so collapse across senders: sum
+    // each channel's counts regardless of who published.
     const counts = new Map<string, number>();
-    if (info.state.subjects) {
-      for (const [subject, count] of Object.entries(info.state.subjects)) {
-        const p = parseSubject(subject);
-        if (p?.kind === "chat") counts.set(p.rest, (counts.get(p.rest) ?? 0) + count);
+    try {
+      const info = await mgr.streams.info(chatStream(this.space), { subjects_filter: ">" });
+      if (info.state.subjects) {
+        for (const [subject, count] of Object.entries(info.state.subjects)) {
+          const p = parseSubject(subject);
+          if (p?.kind === "chat") counts.set(p.rest, (counts.get(p.rest) ?? 0) + count);
+        }
       }
+    } catch {
+      /* stream missing — fall through to registry-only channels */
     }
-    return [...counts]
-      .map(([channel, messages]) => ({ channel, messages }))
+    const channels = new Set<string>([...counts.keys(), ...this.channelConfigs.keys()]);
+    return [...channels]
+      .map((channel) => ({
+        channel,
+        messages: counts.get(channel) ?? 0,
+        config: this.channelConfigs.get(channel),
+      }))
       .sort((a, b) => a.channel.localeCompare(b.channel));
   }
 
@@ -755,6 +783,40 @@ export class CotalEndpoint extends EventEmitter {
     void (async () => {
       for await (const e of iter) this.handleKvEntry(e);
     })().catch((e) => this.emit("error", e as Error));
+  }
+
+  /** Watch the channel registry: replay existing keys, then stream updates, into the local
+   *  cache. Best-effort — a registry the endpoint can't read leaves the cache empty (effective
+   *  policy then falls back to the default), never a fault. */
+  private async startChannelWatch(): Promise<void> {
+    if (!this.channelKv) return;
+    const iter = await this.channelKv.watch();
+    void (async () => {
+      for await (const e of iter) this.handleChannelEntry(e);
+    })().catch((e) => this.emit("error", e as Error));
+  }
+
+  private handleChannelEntry(e: KvEntry): void {
+    const gone = e.operation === "DEL" || e.operation === "PURGE";
+    if (e.key === CHANNEL_DEFAULTS_KEY) {
+      if (gone) this.channelDefaults = {};
+      else
+        try {
+          this.channelDefaults = e.json<ChannelDefaults>();
+        } catch {
+          /* keep last good */
+        }
+      return;
+    }
+    if (gone) {
+      this.channelConfigs.delete(e.key);
+      return;
+    }
+    try {
+      this.channelConfigs.set(e.key, e.json<ChannelConfig>());
+    } catch {
+      /* keep last good */
+    }
   }
 
   private handleKvEntry(e: KvEntry): void {
