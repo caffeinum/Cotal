@@ -32,7 +32,9 @@ export class CmuxRuntime implements Runtime {
       );
     const envPrefix = Object.entries(spec.env ?? {}).map(([k, v]) => `${k}=${shellQuote(v)}`);
     const cmd = [...envPrefix, spec.command, ...spec.args.map(shellQuote)].join(" ");
-    const script = `#!/usr/bin/env bash\ncd ${shellQuote(cwd)}\nexec ${cmd}\n`;
+    // `exec` rejects the `VAR=val cmd` inline-env prefix (it execs a program literally named
+    // "VAR=val"); route through `env`, which consumes the assignments then execs the command.
+    const script = `#!/usr/bin/env bash\ncd ${shellQuote(cwd)}\nexec env ${cmd}\n`;
     const scriptPath = join(tmpdir(), `cotal-spawn-${name}.sh`);
     writeFileSync(scriptPath, script, { mode: 0o755 });
     const layout = JSON.stringify({

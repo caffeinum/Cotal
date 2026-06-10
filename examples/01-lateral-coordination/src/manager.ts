@@ -31,15 +31,17 @@ registry.register(cotalConnector);
 const space = process.env.COTAL_SPACE?.trim() || "demo";
 const server = process.env.COTAL_SERVERS?.trim() || DEFAULT_SERVER;
 const consolePort = Number(process.env.COTAL_CONSOLE_PORT) || 7878;
+// Spawn backend: default `auto` (pty), or `cmux`/`tmux` via env (a tab/pane per teammate).
+const runtime = process.env.COTAL_RUNTIME?.trim() as "pty" | "tmux" | "cmux" | "auto" | undefined;
 
 if (!(await isReachable(server))) {
   console.error(`Can't reach NATS at ${server}. Run: pnpm cotal up`);
   process.exit(1);
 }
 
-const mgr = new Manager({ space, servers: server, consolePort });
+const mgr = new Manager({ space, servers: server, consolePort, runtime });
 await mgr.start();
-console.log(`example-01 manager up in space "${space}" — connectors: cotal, claude`);
+console.log(`example-01 manager up in space "${space}" — runtime: ${mgr.runtimeKind} — connectors: cotal, claude`);
 console.log(`console: ${mgr.consoleUrl}`);
 
 process.on("SIGINT", () => void mgr.stop().then(() => process.exit(0)));
