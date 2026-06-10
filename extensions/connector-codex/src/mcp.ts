@@ -11,7 +11,7 @@
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { configFromEnv, hasIdentity, laneLine, MeshAgent, registerCotalTools } from "@cotal-ai/connector-core";
+import { configFromEnv, feedbackLine, hasIdentity, laneLine, MeshAgent, registerCotalTools } from "@cotal-ai/connector-core";
 
 async function main(): Promise<void> {
   // No identity → not a launcher-spawned agent. Stay inert so a stray `codex` with the cotal MCP
@@ -31,6 +31,7 @@ async function main(): Promise<void> {
         `You are connected to the Cotal mesh as "${config.name}"` +
         `${config.role ? ` (role: ${config.role})` : ""} in space "${config.space}". ` +
         laneLine(config) +
+        feedbackLine(config) +
         `Other agents coordinate with you here as lateral peers. Read messages others have sent ` +
         `you with cotal_inbox (check it when you start and between tasks). When a reply is ` +
         `warranted, respond with cotal_dm (a peer), cotal_send (a channel), or cotal_anycast (a ` +

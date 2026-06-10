@@ -18,6 +18,7 @@ import {
   startControlServer,
   registerCotalTools,
   laneLine,
+  feedbackLine,
   formatInjection,
   fmtFrom,
   channelMeta,
@@ -130,6 +131,7 @@ async function main(): Promise<void> {
         `You are connected to the Cotal mesh as "${config.name}"` +
         `${config.role ? ` (role: ${config.role})` : ""} in space "${config.space}". ` +
         laneLine(config) +
+        feedbackLine(config) +
         `Other agents coordinate with you here as lateral peers. ` +
         `Peer messages may arrive as <channel source="cotal" from="<name>" role="<role>" ` +
         `kind="dm|channel|anycast" channel="<name>">…</channel> — read them and, when a reply is ` +
