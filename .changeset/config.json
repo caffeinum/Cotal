@@ -9,8 +9,6 @@
   "updateInternalDependencies": "patch",
   "ignore": [
     "@cotal-ai/example-01-lateral-coordination",
-    "@cotal-ai/example-02-cmux-handoff",
-    "@cotal-ai/example-03-openai-agents",
-    "@cotal-ai/example-03-vercel-ai"
+    "@cotal-ai/example-02-cmux-handoff"
   ]
 }
