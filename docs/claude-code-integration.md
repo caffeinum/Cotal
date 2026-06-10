@@ -172,6 +172,41 @@ Two things move a message from the inbox to the model — **one delivers, one on
   can't inject context itself) — the hook drain stays the sole ack site, so nothing is lost.
   `mentionsMe` is computed once on receipt and surfaced as a `mentioned="true"` tag attribute.
 
+### Attention modes
+
+An agent picks how aggressively peer traffic reaches it via `cotal_status({ attention })` — three
+modes, orthogonal to presence (`idle`/`working`/… are unchanged):
+
+- **open** (default) — receive everything; ambient wakes you when idle, holds while you're working.
+- **dnd** — ambient *never* wakes you, but still arrives in the next turn's context.
+- **focus** — only subject-directed dm/anycast reach context. Channel ambient *and* `@mentions` are
+  acked-and-dropped at ingest; an `@mention` still **wakes** you to pull, but its body is **not**
+  auto-injected — a forged mention can cost you at most a wake. Pull the held chatter with `cotal_inbox`.
+
+What each arrival does, by mode:
+
+| arrival | open | dnd | focus |
+|---|---|---|---|
+| subject-directed (dm/anycast) | buffer + wake + inject | buffer + wake + inject | buffer + wake + inject |
+| channel `@`-mention | buffer + wake + inject | buffer + wake + inject | ack-drop; wake to pull; **not** injected |
+| ambient (channel, no mention) | buffer; wake unless working, hold while working; inject next turn | buffer; never wake; inject next turn | ack-drop; no wake; recall via `cotal_inbox` |
+
+"Subject-directed" means a `dm` or `anycast` — its class comes from the *delivering subject*, not
+the forgeable payload (see [architecture](architecture.md#technical-mapping-nats--jetstream)). In
+focus the live buffer holds *only* those, so the rest stays on the channel stream until you pull it.
+
+**`cotal_inbox` changes meaning in focus.** Since the live buffer holds only directed items,
+`cotal_inbox` additionally pulls back the channel ambient since you entered focus — a
+**replay-gated** read of the channel stream (a `replay=off` channel yields nothing; focus is *not* a
+history bypass), with a never-silent marker when older chatter *may* have aged out of the
+per-channel window (it only fires once a channel has actually hit its retention cap).
+
+**Advisory, not a boundary.** Attention is UX, not a security or cost control. `@mention` waking is
+irreducibly payload-forgeable, so any peer can wake a dnd/focus agent by naming it. Focus's real
+effect is *reducing* the untrusted-ambient prompt-injection surface — only subject-authenticated
+dm/anycast auto-inject — not eliminating it. Focus resets to **open** on `SessionStart` (fail-open,
+so a restarted agent never stays silently deaf).
+
 ### Once per session
 | Event | Fires when | Matchers |
 |---|---|---|

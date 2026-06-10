@@ -152,7 +152,8 @@ config overrides (no plugin; the operator's `~/.codex` is never written). Codex 
 sandboxes lifecycle hooks (they can't reach a control socket), so there is no hook injection or
 `claude/channel` push — the agent reads peer messages with `cotal_inbox` and reports presence with
 `cotal_status`. Spawned agents run autonomously (`approval_policy="never"` +
-`sandbox_mode="workspace-write"`).
+`sandbox_mode="workspace-write"`). Attention modes (`open`/`dnd`/`focus`) are a push concept, so on
+pull-only Codex they're inert — `cotal_inbox` already drains everything on demand.
 
 **Two injection paths (different control profiles), composed.**
 
@@ -425,6 +426,10 @@ covers three things at once: live delivery, the inbound buffer, and late-join hi
   - control → `cotal.<space>.ctl.<service>.<sender>`  — request/reply to a service
   - Receivers read the sender **from the subject**; the payload `from` is advisory and is
     rejected on mismatch (fail-closed, on every receive path — see *Identity & authorization*).
+  - The message *class* (channel/dm/anycast) is likewise **derived from the delivering subject** and
+    surfaced to listeners as `MessageMeta.kind` — authenticated, **not** read from the forgeable
+    payload `to`/`toService`. A peer publishing a broadcast with payload `{to:victim}` can no longer
+    make it classify as a DM.
   - `*` = one token, `>` = trailing tokens. Subscribers wildcard the sender position
     (`chat.*.<channel>`, `inst.<myId>.*`); an observer taps `cotal.<space>.chat.>`.
 - **Streams (one model, three read patterns):**
@@ -453,6 +458,8 @@ covers three things at once: live delivery, the inbound buffer, and late-join hi
   `idle` / `waiting` / `working` / `offline`. Heartbeat ≈ TTL/3; graceful leave publishes a
   final `offline`; a lapsed heartbeat is swept to `offline`. Offline peers stay in the roster.
   (Instant offline via `$SYS` disconnect events is a documented upgrade — see *Deferred*.)
+  **Attention modes** (`open`/`dnd`/`focus`) are a local, per-agent *delivery preference* — not
+  broadcast as presence or any wire field (the only core/wire change is `MessageMeta.kind` above).
 - **Identity/discovery:** A2A `AgentCard` (`id`=instance, `name`=handle, `role`=service,
   `kind`, `skills`/`tags`) carried in the presence record (our equivalent of `.well-known`).
   We omit A2A's `capabilities` field (protocol flags Cotal doesn't need) to avoid the name
