@@ -1,18 +1,19 @@
 /**
- * The Cotal OpenCode plugin — loaded in-process by the `opencode` TUI (via the inline config the
- * connector sets). It turns the session into a first-class mesh peer, at parity with the Claude
- * Code connector:
+ * The Cotal OpenCode plugin — loaded in-process by `opencode serve` (via the inline config the
+ * connector sets). The serve shim attaches a foreground `opencode` TUI to the session this plugin
+ * owns, so the human watches (and can type into) the exact session the agent drives. It turns the
+ * session into a first-class mesh peer, at parity with the Claude Code connector:
  *
- *  • holds the {@link MeshAgent} (NATS endpoint, inbox, presence) for the TUI's lifetime;
+ *  • holds the {@link MeshAgent} (NATS endpoint, inbox, presence) for the server's lifetime;
  *  • registers the cotal_* tools natively, rendered from the SHARED {@link cotalToolSpecs}
  *    (`./tools.ts`) — same surface as Claude/Codex, incl. channels / join / leave / channel_info;
  *  • maps OpenCode bus events to presence (idle | working | waiting | offline);
- *  • drives the **visible** session: it injects each inbox batch as a turn via the prompt API
- *    (`session.promptAsync` on the session the TUI displays — server-side, so it can't race the TUI
- *    input box, and the TUI renders it live), acking ON TURN COMPLETION (so a crash/error
- *    redelivers). A human watching sees the agent work and can type into the same session. Delivery
- *    is **attention-aware** (open/dnd/focus) and never interrupts a running turn — a message that
- *    arrives mid-turn waits for the turn to end (matching Claude's no-interrupt behavior), then drives.
+ *  • owns ONE session (created at boot) and drives it: it injects each inbox batch as a turn via the
+ *    prompt API (`session.promptAsync` — server-side, so it can't race the TUI input box; the
+ *    attached TUI renders it live), acking ON TURN COMPLETION (so a crash/error redelivers).
+ *    Delivery is **attention-aware** (open/dnd/focus) and never interrupts a running turn — a
+ *    message that arrives mid-turn waits for the turn to end (matching Claude's no-interrupt
+ *    behavior), then drives.
  *
  * Identity comes from COTAL_* env (the plugin runs in the opencode process and inherits it).
  * No identity → inert, so an operator's own `opencode` never joins as a stray peer.
@@ -53,8 +54,9 @@ export const cotal: Plugin = async ({ client }) => {
   const def = process.env.COTAL_AGENT_FILE?.trim() ? loadAgentFile(process.env.COTAL_AGENT_FILE.trim()) : undefined;
   const persona = def?.persona;
 
-  // The session the TUI is showing — adopted from `session.created` (or `session.list`), driven via
-  // the prompt API and used to match this agent's turn-end (idle) against stray/subagent idles.
+  // This agent OWNS one session, created at boot. The serve shim attaches the foreground TUI to it
+  // (`opencode attach --session <id>`), so what the human watches IS the session we drive — no
+  // phantom home-screen, no stale-session guessing. Used to match our turn-end (idle) vs subagent idles.
   let sessionID: string | undefined;
   let busy = false; // a turn is running → don't prompt: opencode would COALESCE onto it (no reject)
   let driving = false; // re-entrancy guard around an in-flight promptAsync
@@ -71,23 +73,25 @@ export const cotal: Plugin = async ({ client }) => {
     }
   };
 
-  /** Resolve the session the TUI is displaying — the one to drive. Adopted from `session.created`;
-   *  if a drive beats that event, fall back to the most-recently-updated top-level session from
-   *  `session.list` (the TUI mints one at boot). We never `session.create`: a session we made
-   *  ourselves wouldn't be the one on screen, so the turn wouldn't render. */
-  async function ensureSession(): Promise<string | undefined> {
-    if (sessionID) return sessionID;
+  /** Create the session this agent owns and announce its id to the serve shim, which attaches the
+   *  foreground TUI to it. The handshake line on stderr (`[cotal-session] <id>`) is how the shim
+   *  learns *which* session to open — by exact id, so a stale same-titled session from a prior run
+   *  can't be picked. Awaited by ensureSession before the first drive. */
+  const sessionReady: Promise<string | undefined> = (async () => {
     try {
-      const res = await client.session.list();
-      const top = (res.data ?? []).filter((s) => !s.parentID); // skip subagent/child sessions
-      if (top.length) {
-        top.sort((a, b) => b.time.updated - a.time.updated);
-        sessionID = top[0].id;
-      }
+      const res = await client.session.create({ body: { title: `cotal:${config.space}:${config.name}` } });
+      sessionID = res.data?.id;
+      if (sessionID) process.stderr.write(`[cotal-session] ${sessionID}\n`);
+      else log("session.create returned no id");
     } catch (e) {
-      log(`session.list failed: ${(e as Error).message}`);
+      log(`session.create failed: ${(e as Error).message}`);
     }
     return sessionID;
+  })();
+
+  /** The session to drive — the one we created and the TUI is attached to. */
+  async function ensureSession(): Promise<string | undefined> {
+    return sessionID ?? (await sessionReady);
   }
 
   /** Drive a turn carrying the current inbox batch (and the boot briefing once) into the visible

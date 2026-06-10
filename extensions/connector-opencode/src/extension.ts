@@ -2,20 +2,24 @@ import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { loadAgentFile, registry, type Connector, type LaunchOpts, type LaunchSpec } from "@cotal-ai/core";
 
-/** The bundled in-process plugin (esbuild → `dist/plugin.bundle.js`). opencode loads it by
- *  absolute path from the inline config, so it runs *inside* the TUI's embedded server and shares
- *  its SDK client. Resolved relative to this module — beside the built `dist/extension.js`, so the
- *  connector must be built+bundled (`pnpm build`). */
+/** The bundled in-process plugin (esbuild → `dist/plugin.bundle.js`). `opencode serve` loads it by
+ *  absolute path from the inline config, so it runs *inside* the server and shares its SDK client.
+ *  Resolved relative to this module — beside the built `dist/extension.js`, so the connector must be
+ *  built+bundled (`pnpm build`). */
 const PLUGIN_ENTRY = fileURLToPath(new URL("./plugin.bundle.js", import.meta.url));
 
+/** The launcher shim (`dist/serve.js`): starts `opencode serve` with the plugin, then attaches a
+ *  foreground `opencode` TUI to the exact session the plugin drives (see serve.ts). */
+const SERVE_SHIM = fileURLToPath(new URL("./serve.js", import.meta.url));
+
 /**
- * The OpenCode connector: launches the real `opencode` TUI (foreground, watchable — like the
- * Claude Code connector launches `claude`) with the Cotal mesh bridge loaded as an in-process
- * plugin via inline config. The plugin holds the {@link MeshAgent}, registers the cotal_* tools
- * natively (from the shared specs, at parity with Claude/Codex), reports presence off the event
- * bus, and drives the *visible* session — it injects each incoming peer batch as a turn via the
- * prompt API (`session.promptAsync` on the session the TUI displays), so a human watching the TUI
- * sees the agent work and can type into the same session.
+ * The OpenCode connector: launches a watchable `opencode` TUI bound to the agent's session, using
+ * OpenCode's client/server split (see serve.ts). The Cotal mesh bridge runs as an in-process plugin
+ * inside a headless `opencode serve`: it holds the {@link MeshAgent}, registers the cotal_* tools
+ * natively (from the shared specs, at parity with Claude/Codex), reports presence off the event bus,
+ * and owns ONE session it drives — injecting each incoming peer batch as a turn via the prompt API
+ * (`session.promptAsync`, server-side, so it can't race the TUI input box). The shim then attaches a
+ * foreground TUI to that session, so a human watching sees the agent work and can type into it.
  *
  * Config rides in `OPENCODE_CONFIG_CONTENT` (inline JSON, the highest merge layer), so the
  * operator's `~/.config/opencode` is never written — the Codex `-c` trick in JSON.
@@ -34,29 +38,28 @@ export const opencodeConnector: Connector = {
     if (opts.creds) env.COTAL_CREDS = opts.creds;
     if (opts.servers) env.COTAL_SERVERS = opts.servers;
 
-    const args: string[] = [];
-
-    // An agent file carries identity (read in-session via COTAL_AGENT_FILE) plus persona + model.
-    // The model is a launch flag (the TUI's default model is what `submitPrompt` runs); the persona
-    // is applied in-session by the plugin (opencode has no `--append-system-prompt`).
-    if (opts.configPath) {
-      const path = resolve(opts.configPath);
-      env.COTAL_AGENT_FILE = path; // plugin reads persona from it
-      const def = loadAgentFile(path);
-      if (def.model) args.push("--model", def.model);
-    }
-
-    const config = {
+    const config: Record<string, unknown> = {
       $schema: "https://opencode.ai/config.json",
       permission: "allow",
       plugin: [PLUGIN_ENTRY],
     };
+
+    // An agent file carries identity (read in-session via COTAL_AGENT_FILE) plus persona + model.
+    // The model is a config default (the session — and the attached TUI — use it); the persona is
+    // applied in-session by the plugin (opencode has no `--append-system-prompt`).
+    if (opts.configPath) {
+      const path = resolve(opts.configPath);
+      env.COTAL_AGENT_FILE = path; // plugin reads persona from it
+      const def = loadAgentFile(path);
+      if (def.model) config.model = def.model;
+    }
+
     env.OPENCODE_CONFIG_CONTENT = JSON.stringify(config);
 
-    // Launch the `opencode` TUI in the foreground. Override the binary with COTAL_OPENCODE_BIN.
+    // Run the shim (node dist/serve.js): `opencode serve` + an attached foreground TUI.
     return {
-      command: process.env.COTAL_OPENCODE_BIN?.trim() || "opencode",
-      args,
+      command: process.execPath,
+      args: [SERVE_SHIM],
       env,
     };
   },
