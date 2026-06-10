@@ -114,8 +114,9 @@ examples ──→ one-or-more implementations ──→ core ←(peer)── ex
 ```
 
 The migration is done: `demos/` use-cases are now `examples/`, the connector is split into
-`@cotal-ai/connector-core` (shared mesh runtime) plus two thin adapters — `@cotal-ai/connector-claude-code`
-(`claudeConnector`) and `@cotal-ai/connector-codex` (`codexConnector`) — `extensions/` packages that
+`@cotal-ai/connector-core` (shared mesh runtime) plus three thin adapters — `@cotal-ai/connector-claude-code`
+(`claudeConnector`), `@cotal-ai/connector-codex` (`codexConnector`), and `@cotal-ai/connector-opencode`
+(`opencodeConnector`) — `extensions/` packages that
 **peer-depend** on core and export a `Connector`, and `@cotal-ai/cli` + `@cotal-ai/manager` are
 `implementations/` packages.
 Assembly lives at the **composition root** — an example (`examples/01/src/manager.ts`) imports
@@ -125,16 +126,17 @@ stay self-contained and never import each other: the `cli` drives the manager pu
 mesh (`start`/`stop`/`ps` control requests), so neither imports the other — only the example
 wires them together.
 
-## Integration surfaces (Claude Code + Codex)
+## Integration surfaces (Claude Code + Codex + OpenCode)
 
-Both target agents expose the same four surfaces, so a single adapter with two backends
-covers them. For **Claude Code** the whole adapter ships as one **plugin**, and three of the
-four surfaces collapse into a **single dual-purpose MCP server**:
+Each target agent exposes the same four surfaces; the adapters share one runtime
+(`@cotal-ai/connector-core`) and differ only in how they bind to their host. For **Claude Code**
+the whole adapter ships as one **plugin**, and three of the four surfaces collapse into a
+**single dual-purpose MCP server**:
 
 | | Claude Code | Codex CLI |
 |---|---|---|
 | **Outbound — ambient** | `http` lifecycle hooks → POST to the local daemon (native http hook, no curl shim) | — (hooks are sandboxed; presence is self-reported via `cotal_status`) |
-| **Outbound — deliberate** | MCP tools `cotal_send`/`cotal_dm`/`cotal_anycast` *(same server as the channel)* | MCP tools (same) |
+| **Outbound — deliberate** | MCP tools `cotal_send`/`cotal_dm`/`cotal_anycast` *(same server as the channel)* plus optional authenticated `cotal_feedback` beta egress | MCP tools (same) |
 | **Inbound — pull** | MCP tool `cotal_inbox` *(same server)* | MCP tool (same) |
 | **Inbound — push** | Two native paths — see below | — (pull-only: `cotal_inbox`) |
 
@@ -147,6 +149,13 @@ Inbound mesh messages arrive in context as
 `<channel source="cotal" from="bob" kind="dm" channel="general">…</channel>`; each meta key
 becomes a tag attribute the agent can read for routing.
 
+`cotal_feedback` is deliberately outside mesh routing: a beta tester's local MCP server posts to an
+HTTPS intake URL with `Authorization: Bearer <tester-key>`. The payload includes `origin` (`human`
+when the user asked the agent to pass feedback along, `agent` when the agent auto-reports a major
+Cotal issue). The intake server maps the key to a tester, writes JSONL as the source of truth, then
+publishes an attributed, untrusted feedback item into our internal Cotal `#feedback` channel for
+triage.
+
 **Codex.** The Codex adapter ships the same `cotal_*` MCP server, injected at launch via `codex -c`
 config overrides (no plugin; the operator's `~/.codex` is never written). Codex is **pull-only**: it
 sandboxes lifecycle hooks (they can't reach a control socket), so there is no hook injection or
@@ -154,6 +163,21 @@ sandboxes lifecycle hooks (they can't reach a control socket), so there is no ho
 `cotal_status`. Spawned agents run autonomously (`approval_policy="never"` +
 `sandbox_mode="workspace-write"`). Attention modes (`open`/`dnd`/`focus`) are a push concept, so on
 pull-only Codex they're inert — `cotal_inbox` already drains everything on demand.
+
+**OpenCode.** OpenCode has a native plugin runtime, so its adapter is **not** an MCP server at all:
+a single plugin — injected at launch via `OPENCODE_CONFIG_CONTENT` (inline config merged into the
+operator's, never written to disk) — runs inside the OpenCode process and does all four surfaces. The
+connector launches the real `opencode` **TUI** (foreground, watchable — like Claude Code launches
+`claude`), and the plugin renders the shared `cotal_*` tools as native plugin tools (from
+`cotalToolSpecs`, the same source the MCP adapters render, so the surface can't drift); derives
+presence from OpenCode's event stream (`session.status` busy → working, `session.idle` → idle,
+`permission.asked` → waiting); and **drives the visible session** — it injects each waiting peer
+batch as a turn via the prompt API (`session.promptAsync` on the session the TUI displays, so it
+can't race the TUI input box and the TUI renders it live), acking on `session.idle`, so a human
+watching the TUI sees the agent work and can type into the same session. So unlike Codex it is
+push-capable, and unlike Claude Code it needs no separate hooks or control socket — the plugin holds
+the mesh connection for the session and closes it in `dispose`. Spawned agents run autonomously
+(`permission: "allow"`).
 
 **Two injection paths (different control profiles), composed.**
 

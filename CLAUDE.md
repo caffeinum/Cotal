@@ -82,3 +82,4 @@ MCP SDK, A2A/SLIM conventions, etc.) before replying or writing code — verify 
 - Delivery modes (SLIM-inspired): multicast / unicast / anycast.
 - Never use fallbacks in the code, rather throw if something isn't supported in the current environment or configuration.
 - Always try to use native features of NATS/JetStream first, rather than re-implementing them.
+- Don't switch branches without being prompted to, if you need to work independently, do so in a git worktree.

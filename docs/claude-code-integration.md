@@ -4,13 +4,14 @@
 
 The connector turns a real `claude` session into a Cotal mesh peer: a bundled plugin inside the
 session joins NATS, maps lifecycle hooks to presence, and exposes the mesh tools — messaging,
-presence, and `cotal_spawn` (ask the manager to grow the team; the new teammate joins as a
-lateral peer). The manager spawns it in a PTY; nothing wraps Claude — it's an ordinary session
+presence, `cotal_spawn` (ask the manager to grow the team), and optional `cotal_feedback` for beta
+reports. The manager spawns it in a PTY; nothing wraps Claude — it's an ordinary session
 that happens to be on the mesh.
 
 > The mesh runtime — agent, `cotal_*` tools, hook relay — lives in
 > [`@cotal-ai/connector-core`](../extensions/connector-core); this package is the Claude-specific adapter
-> over it (its Codex sibling is [`@cotal-ai/connector-codex`](../extensions/connector-codex)).
+> over it (its siblings are [`@cotal-ai/connector-codex`](../extensions/connector-codex), a pull-only
+> MCP adapter, and [`@cotal-ai/connector-opencode`](../extensions/connector-opencode), a native plugin).
 
 ## How a session joins
 
@@ -115,6 +116,76 @@ token, spaces separated only by the `cotal.<space>.*` subject prefix). The **def
 makes the account a real boundary: the connector threads a minted creds file via `COTAL_CREDS`
 and the agent authenticates as its own JWT identity. See [architecture.md](architecture.md) →
 *Identity & authorization*.
+
+## Beta feedback
+
+Set this in a beta tester's agent environment to expose `cotal_feedback`:
+
+```
+COTAL_FEEDBACK_KEY=fbk_<per-tester-key>
+```
+
+The tool posts to the hardcoded intake URL `https://broker.cotal.ai/v1/feedback` with
+`Authorization: Bearer ...`; the server derives tester identity from the key, not from the
+model-supplied body. Each submission has `origin: "human" | "agent"`: human means the tester asked
+the agent to send feedback; agent means the agent independently hit a major Cotal issue and
+auto-reported it.
+
+Run the intake server behind HTTPS (for example Caddy):
+
+```
+pnpm cotal up --space beta-feedback
+mkdir -p .cotal/agents
+```
+
+Create `.cotal/agents/feedback-intake.md` before minting so the creds can publish to `#feedback`:
+
+```md
+---
+name: feedback-intake
+kind: endpoint
+role: feedback
+channels: [feedback]
+publish: [feedback]
+---
+Authenticated beta feedback intake.
+```
+
+Then mint and run:
+
+```
+pnpm cotal mint feedback-intake --profile agent --out .cotal/auth/creds/feedback-intake.creds
+
+pnpm cotal feedback \
+  --keys .cotal/feedback/keys.json \
+  --creds .cotal/auth/creds/feedback-intake.creds \
+  --space beta-feedback \
+  --channel feedback \
+  --port 8787
+```
+
+Key file format:
+
+```json
+{
+  "keys": [
+    { "key": "fbk_alice_secret", "tester": "alice", "name": "Alice Example" }
+  ]
+}
+```
+
+The intake writes `.cotal/feedback/feedback.jsonl` first, then publishes an attributed, untrusted
+summary into `#feedback`. Use the JSONL file as the source of truth; Cotal is the live triage stream.
+
+To read submissions yourself:
+
+```
+pnpm cotal mint feedback-observer --profile observer --out .cotal/auth/creds/feedback-observer.creds
+pnpm cotal watch --space beta-feedback --creds .cotal/auth/creds/feedback-observer.creds
+```
+
+For the browser dashboard, run `pnpm cotal web --space beta-feedback --port 8788 --no-open` on the
+server and tunnel the port. For raw storage, inspect `.cotal/feedback/feedback.jsonl`.
 
 ## Presence mapping
 

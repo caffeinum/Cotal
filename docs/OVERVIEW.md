@@ -86,7 +86,7 @@ Full scenario and run steps: **[examples/01-lateral-coordination](../examples/01
   (`start`/`stop`/`ps`/`status`/`bind`). Supervisor-only (agents self-connect; manager off the
   message hot path); demo spawns native agent TUIs in terminal panes.
 - **Claude Code integration (demo)** — **attach mode**: one Cotal **plugin** = a
-  dual-purpose MCP server (channel push + `cotal_send`/`cotal_dm`/`cotal_anycast` + `cotal_inbox`) plus `http`
+  dual-purpose MCP server (channel push + `cotal_send`/`cotal_dm`/`cotal_anycast` + `cotal_inbox` + beta `cotal_feedback`) plus `http`
   lifecycle hooks for presence/ambient. Deterministic **hook** injection is the spine; the
   **channel** adds async "wake when idle/away." Onboarding is **pure native** —
   `/plugin install` then launch the real `claude` with the plugin (space identity via env,
