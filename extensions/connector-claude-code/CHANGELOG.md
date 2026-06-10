@@ -1,5 +1,14 @@
 # @cotal-ai/connector-claude-code
 
+## 0.1.2
+
+### Patch Changes
+
+- 5f9e171: Publish all packages: add repository field for OIDC provenance, plus in-flight changes (cmux runtime exec-via-env fix, manager runtime selector, .gitignore product/, etc.).
+- Updated dependencies [5f9e171]
+  - @cotal-ai/core@0.1.2
+  - @cotal-ai/connector-core@0.1.2
+
 ## 0.1.1
 
 ### Patch Changes
