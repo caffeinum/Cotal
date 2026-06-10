@@ -1,0 +1,46 @@
+{
+  "name": "@cotal-ai/connector-opencode",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Cotal-AI/Cotal.git",
+    "directory": "extensions/connector-opencode"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.json && pnpm run bundle",
+    "bundle": "esbuild src/plugin.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/plugin.bundle.js --external:@opencode-ai/plugin --external:@opencode-ai/sdk",
+    "prepublishOnly": "pnpm run build"
+  },
+  "dependencies": {
+    "@cotal-ai/connector-core": "workspace:*"
+  },
+  "peerDependencies": {
+    "@cotal-ai/core": "workspace:*",
+    "@opencode-ai/plugin": "^1.16.2",
+    "@opencode-ai/sdk": "^1.16.2"
+  },
+  "devDependencies": {
+    "@cotal-ai/core": "workspace:*",
+    "@opencode-ai/plugin": "^1.16.2",
+    "@opencode-ai/sdk": "^1.16.2",
+    "esbuild": "^0.28.0",
+    "tsx": "^4.22.4"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
