@@ -484,13 +484,15 @@ export class CotalEndpoint extends EventEmitter {
     const next = collapseFilterSubjects(
       [...this.channels, channel].map((ch) => chatSubject(this.space, "*", ch)),
     );
-    // Filter update BEFORE backfill (gap-safe: backfill-first would leave a window where a
-    // message is in neither the tail nor the catch-up block).
+    // Arm the watermark BEFORE the filter flip (single-delivery: a tail message on the new
+    // channel is then either ≤ frontier → backfill-only or > frontier → tail-only, never both),
+    // and filter BEFORE backfill (gap-safe: backfill-first leaves a window in neither stream).
+    const armed = await this.armJoin([channel]);
     await this.jsm.consumers.update(chatStream(this.space), chatDurable(this.card.id), {
       filter_subjects: next,
     });
     this.channels.push(channel);
-    const backfilled = await this.backfillJoin([channel]);
+    const backfilled = await this.backfillArmed(armed);
     return { joined: true, backfilled };
   }
 
@@ -775,8 +777,11 @@ export class CotalEndpoint extends EventEmitter {
           deliver_policy: DeliverPolicy.New,
           inactive_threshold,
         });
+        // Arm the tail-drop watermarks BEFORE pump starts, so the tail can never deliver a
+        // just-created channel's message un-watermarked (which would double-emit: live + backfill).
+        const armed = await this.armJoin(this.channels);
         await this.pump(chatStream(this.space), durable);
-        await this.backfillJoin(this.channels);
+        await this.backfillArmed(armed);
       } else {
         // Rebind: reconcile the durable's filter to the CURRENT config (a config that changed
         // between restarts is honored). Channels the config GAINED are backfilled like a fresh
@@ -790,9 +795,11 @@ export class CotalEndpoint extends EventEmitter {
         const gained = this.channels.filter(
           (c) => !haveFilters.some((f) => subjectMatches(f, chatSubject(this.space, "*", c))),
         );
+        // Arm watermarks for the gained channels BEFORE the filter reconcile flips them on.
+        const armed = gained.length ? await this.armJoin(gained) : undefined;
         if (!sameSet(haveFilters, want))
           await this.jsm.consumers.update(chatStream(this.space), durable, { filter_subjects: want });
-        if (gained.length) await this.backfillJoin(gained);
+        if (armed) await this.backfillArmed(armed);
       }
     }
 
@@ -893,15 +900,25 @@ export class CotalEndpoint extends EventEmitter {
     return (await this.jsm.streams.info(chatStream(this.space))).state.last_seq;
   }
 
-  /** For each newly-joined channel: arm its tail-drop watermark at the current frontier, then —
-   *  if replay is on — backfill its history up to that frontier. Returns the total backfilled.
-   *  Reads the policy FRESH from the registry (not the watch cache) — a join is authoritative
-   *  and infrequent, and at startup the async cache may not have caught up yet. */
-  private async backfillJoin(channels: string[]): Promise<number> {
-    let total = 0;
+  /** Phase 1 of a join — arm each channel's tail-drop watermark at the current frontier. MUST run
+   *  BEFORE the filter flip (consumers.update, or pump on a fresh create) so the tail can never
+   *  carry a just-joined message un-watermarked — which would double-emit it (live + backfill).
+   *  Returns the per-channel frontiers for {@link backfillArmed}. */
+  private async armJoin(channels: string[]): Promise<Map<string, number>> {
+    const frontiers = new Map<string, number>();
     for (const ch of channels) {
       const frontier = await this.chatFrontier();
       this.joinSeq.set(ch, frontier);
+      frontiers.set(ch, frontier);
+    }
+    return frontiers;
+  }
+
+  /** Phase 2 of a join — backfill each armed channel's history up to its frontier (replay-gated),
+   *  AFTER the filter flip. Returns the total backfilled. */
+  private async backfillArmed(frontiers: Map<string, number>): Promise<number> {
+    let total = 0;
+    for (const [ch, frontier] of frontiers) {
       const policy = await this.joinPolicyFresh(ch);
       if (policy.replay) total += await this.backfillChannel(ch, frontier, policy.windowMs);
     }
