@@ -14,8 +14,8 @@ const PLUGIN_ENTRY = fileURLToPath(new URL("./plugin.bundle.js", import.meta.url
  * plugin via inline config. The plugin holds the {@link MeshAgent}, registers the cotal_* tools
  * natively (from the shared specs, at parity with Claude/Codex), reports presence off the event
  * bus, and drives the *visible* session — it injects each incoming peer batch as a turn via the
- * TUI prompt (clear → append → submit), so a human watching the TUI sees the agent work and can
- * type into the same session.
+ * prompt API (`session.promptAsync` on the session the TUI displays), so a human watching the TUI
+ * sees the agent work and can type into the same session.
  *
  * Config rides in `OPENCODE_CONFIG_CONTENT` (inline JSON, the highest merge layer), so the
  * operator's `~/.config/opencode` is never written — the Codex `-c` trick in JSON.

@@ -7,12 +7,12 @@
  *  • registers the cotal_* tools natively, rendered from the SHARED {@link cotalToolSpecs}
  *    (`./tools.ts`) — same surface as Claude/Codex, incl. channels / join / leave / channel_info;
  *  • maps OpenCode bus events to presence (idle | working | waiting | offline);
- *  • drives the **visible** session: it injects each inbox batch as a turn into the TUI prompt
- *    (clear → append → submit), acking ON TURN COMPLETION (so a crash/error redelivers). Because
- *    it drives the session the TUI displays, a human watching sees the agent work and can type into
- *    the same session. Delivery is **attention-aware** (open/dnd/focus) and never interrupts a
- *    running turn — a message that arrives mid-turn waits for the turn to end (matching Claude's
- *    no-interrupt behavior), then drives.
+ *  • drives the **visible** session: it injects each inbox batch as a turn via the prompt API
+ *    (`session.promptAsync` on the session the TUI displays — server-side, so it can't race the TUI
+ *    input box, and the TUI renders it live), acking ON TURN COMPLETION (so a crash/error
+ *    redelivers). A human watching sees the agent work and can type into the same session. Delivery
+ *    is **attention-aware** (open/dnd/focus) and never interrupts a running turn — a message that
+ *    arrives mid-turn waits for the turn to end (matching Claude's no-interrupt behavior), then drives.
  *
  * Identity comes from COTAL_* env (the plugin runs in the opencode process and inherits it).
  * No identity → inert, so an operator's own `opencode` never joins as a stray peer.
@@ -53,12 +53,11 @@ export const cotal: Plugin = async ({ client }) => {
   const def = process.env.COTAL_AGENT_FILE?.trim() ? loadAgentFile(process.env.COTAL_AGENT_FILE.trim()) : undefined;
   const persona = def?.persona;
 
-  // The session the TUI is showing — adopted from the first session event, then used to match this
-  // agent's turn-end (idle) against stray idles. We never `session.create`: driving goes through the
-  // TUI prompt, which uses (and on first submit creates) the visible session.
+  // The session the TUI is showing — adopted from `session.created` (or `session.list`), driven via
+  // the prompt API and used to match this agent's turn-end (idle) against stray/subagent idles.
   let sessionID: string | undefined;
-  let busy = false; // a turn is running → don't submit another (it would clobber the prompt)
-  let driving = false; // re-entrancy guard around an in-flight submit
+  let busy = false; // a turn is running → don't prompt: opencode would COALESCE onto it (no reject)
+  let driving = false; // re-entrancy guard around an in-flight promptAsync
   let primed = false; // persona is prepended to the first turn's text once
   let briefed = false; // the boot channel briefing is prepended once, on the first turn
   let surfaced: string[] = []; // ids surfaced into the current turn, acked on completion (by id, not count)
@@ -72,49 +71,62 @@ export const cotal: Plugin = async ({ client }) => {
     }
   };
 
-  /** Submit `text` as a turn into the TUI's visible session: clear the prompt (so we send exactly
-   *  our text, not whatever was half-typed), append, submit. The TUI runs it in — and on the first
-   *  submit creates — the session it displays. */
-  async function submitTurn(text: string): Promise<void> {
-    await client.tui.clearPrompt();
-    await client.tui.appendPrompt({ body: { text } });
-    await client.tui.submitPrompt();
+  /** Resolve the session the TUI is displaying — the one to drive. Adopted from `session.created`;
+   *  if a drive beats that event, fall back to the most-recently-updated top-level session from
+   *  `session.list` (the TUI mints one at boot). We never `session.create`: a session we made
+   *  ourselves wouldn't be the one on screen, so the turn wouldn't render. */
+  async function ensureSession(): Promise<string | undefined> {
+    if (sessionID) return sessionID;
+    try {
+      const res = await client.session.list();
+      const top = (res.data ?? []).filter((s) => !s.parentID); // skip subagent/child sessions
+      if (top.length) {
+        top.sort((a, b) => b.time.updated - a.time.updated);
+        sessionID = top[0].id;
+      }
+    } catch (e) {
+      log(`session.list failed: ${(e as Error).message}`);
+    }
+    return sessionID;
   }
 
-  /** Inject a turn carrying the current inbox batch (and the boot briefing once). Surfaces the
-   *  items but does NOT ack them — ackSurfaced runs on turn completion, so a crash/error/abort
-   *  redelivers. `override` replaces the body (a bare nudge, e.g. a focus @mention pull) and
-   *  surfaces nothing to ack. Self-guards re-entrancy and never submits into a running turn. */
+  /** Drive a turn carrying the current inbox batch (and the boot briefing once) into the visible
+   *  session via the prompt API — server-side, so it can't race like the TUI input box, and the TUI
+   *  renders it live (it subscribes to that session's events). Surfaces the items but does NOT ack
+   *  them — ackSurfaced runs on turn completion, so a crash/error redelivers. `override` replaces
+   *  the body (a bare nudge, e.g. a focus @mention pull) and surfaces nothing to ack. Self-guards
+   *  re-entrancy and never prompts into a running turn (opencode would COALESCE onto it). */
   async function drive(override?: string): Promise<void> {
     if (driving || busy) return;
     driving = true;
     try {
-      const blocks: string[] = [];
+      const id = await ensureSession();
+      if (!id) return; // no visible session yet — retry on the next event/wake
+      const parts: { type: "text"; text: string }[] = [];
       let ids: string[] = [];
       if (override) {
-        blocks.push(override);
+        parts.push({ type: "text", text: override });
       } else {
         const items = agent.peekInbox();
         if (items.length === 0) return;
         ids = items.map((i) => i.id);
         const inj = formatInjection(items);
-        if (inj) blocks.push(inj);
+        if (inj) parts.push({ type: "text", text: inj });
       }
       if (!briefed) {
         briefed = true;
         const brief = agent.channelBriefing();
-        if (brief) blocks.unshift(brief);
+        if (brief) parts.unshift({ type: "text", text: brief });
       }
-      if (!primed && persona) {
-        blocks.unshift(persona);
-      }
-      if (blocks.length === 0) return;
+      if (parts.length === 0) return;
+      const body: { parts: typeof parts; system?: string } = { parts };
+      if (!primed && persona) body.system = persona; // persona once, as system (no --append-system-prompt)
       busy = true;
       surfaced = ids;
-      // Arm BEFORE the await: a turn-end signal can land before submit resolves, and completeTurn
-      // bails unless armed — arming after would drop it and wedge the agent.
+      // Arm BEFORE the await: a turn-end signal can land before promptAsync resolves, and
+      // completeTurn bails unless armed — arming after would drop it and wedge the agent.
       awaitingTurnEnd = true;
-      await submitTurn(blocks.join("\n\n"));
+      await client.session.promptAsync({ path: { id }, body });
       primed = true;
     } catch (e) {
       busy = false;
@@ -191,7 +203,8 @@ export const cotal: Plugin = async ({ client }) => {
       }
       switch (event.type) {
         case "session.created":
-          ours(event.properties.info.id); // adopt the visible session as soon as it's born
+          // Adopt the visible (top-level) session as soon as it's born; ignore subagent children.
+          if (!event.properties.info.parentID) ours(event.properties.info.id);
           break;
         case "session.idle":
           if (!ours(event.properties.sessionID)) return;
