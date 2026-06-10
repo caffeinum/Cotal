@@ -56,7 +56,10 @@ model — those don't fit lateral pub/sub.
   (the stream frontier at join) lets the tail ack-drop pre-join messages, so a no-replay channel
   starts clean and a replay backfill never double-delivers. **How far back** is the registry's
   `replayWindow` (`"24h"`), realized natively as a Direct-Get `start_time` — not a client-side
-  count. *Why one multi-filter durable and not one consumer per channel (which would let the
+  count. **No-replay is noise control, not confidentiality** — the drop is client-side and every
+  peer can read a channel's history on demand (chat is world-readable, agents hold `DIRECT.GET`),
+  so it must never be documented or relied on as privacy/access-control. Anything confidential
+  uses DM/anycast (private streams, consumer-create-deny), never a no-replay channel. *Why one multi-filter durable and not one consumer per channel (which would let the
   broker replay natively)? A per-channel consumer is named `chat_<id>_<channel>`, and consumer
   names can't contain `.`, so that's a single ACL token — and NATS permission wildcards are
   token-granular, so it can't be scoped to one agent. One fixed-name durable is what keeps the
