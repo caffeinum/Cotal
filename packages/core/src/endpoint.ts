@@ -11,7 +11,7 @@ import {
   type Subscription,
 } from "@nats-io/transport-node";
 import { idFromCreds } from "./identity.js";
-import { createSpaceStreams, dmDurableConfig, taskDurableConfig } from "./streams.js";
+import { createSpaceStreams, dmDurableConfig, taskDurableConfig, MAX_MSGS_PER_SUBJECT } from "./streams.js";
 import {
   jetstream,
   jetstreamManager,
@@ -58,6 +58,7 @@ import {
   isConcreteChannel,
   normalizeMentions,
   parseSubject,
+  type ParsedSubject,
   presenceBucket,
   spacePrefix,
   spaceWildcard,
@@ -866,7 +867,10 @@ export class CotalEndpoint extends EventEmitter {
           }
         }
         const delivery: Delivery = { ack: () => m.ack(), nak: () => m.nak() };
-        this.emit("message", msg, delivery, { historical: false } satisfies MessageMeta);
+        this.emit("message", msg, delivery, {
+          historical: false,
+          kind: kindFromParsed(parsed.kind),
+        } satisfies MessageMeta);
       }
     })().catch((e) => {
       if (!this.stopped) this.emit("error", e as Error);
@@ -894,8 +898,9 @@ export class CotalEndpoint extends EventEmitter {
     }
   }
 
-  /** Current frontier (last sequence) of the chat stream — a channel's join watermark. */
-  private async chatFrontier(): Promise<number> {
+  /** Current frontier (last sequence) of the chat stream — a channel's join watermark, and the
+   *  focus-watermark a connector captures on entering `focus` (recall reads ambient after it). */
+  async chatFrontier(): Promise<number> {
     if (!this.jsm) throw new Error("endpoint not started");
     return (await this.jsm.streams.info(chatStream(this.space))).state.last_seq;
   }
@@ -989,8 +994,108 @@ export class CotalEndpoint extends EventEmitter {
     }
     const noop: Delivery = { ack: () => {}, nak: () => {} };
     for (const { msg } of collected)
-      this.emit("message", msg, noop, { historical: true } satisfies MessageMeta);
+      // Backfill only ever pages the chat stream, so the authenticated class is always "channel".
+      this.emit("message", msg, noop, { historical: true, kind: "channel" } satisfies MessageMeta);
     return collected.length;
+  }
+
+  /**
+   * Replay-gated pull of a channel's retained ambient from `sinceSeq` (exclusive) forward — the
+   * focus-recall read behind `cotal_inbox`. Returns the messages (NOT emitted — this is a pull,
+   * not a push into context) plus `dropped: true` when the channel's earliest *retained* message
+   * is already newer than the watermark, i.e. some ambient aged out of the per-subject window and
+   * the caller must say so rather than silently short the window.
+   *
+   * Honors the **same** per-channel replay gate as join-backfill ({@link joinPolicyFresh}): a
+   * `replay=off` channel returns nothing, so `focus` can't become a history bypass for a channel
+   * that denies replay to everyone else (chat is `allow_direct` with no broker-level ACL, so this
+   * app gate is the entire boundary).
+   */
+  async recallChannel(
+    channel: string,
+    sinceSeq: number,
+  ): Promise<{ messages: CotalMessage[]; dropped: boolean }> {
+    if (!this.jsm) throw new Error("endpoint not started");
+    if (!isConcreteChannel(channel)) return { messages: [], dropped: false };
+    const policy = await this.joinPolicyFresh(channel);
+    if (!policy.replay) return { messages: [], dropped: false };
+    const subject = chatSubject(this.space, "*", channel);
+    const collected: CotalMessage[] = [];
+    let startSeq = sinceSeq + 1;
+    pages: for (;;) {
+      let last = 0;
+      let got = 0;
+      try {
+        const iter = await this.jsm.direct.getBatch(chatStream(this.space), {
+          seq: startSeq,
+          next_by_subj: subject,
+          batch: 256,
+        });
+        for await (const sm of iter) {
+          got++;
+          last = sm.seq;
+          let msg: CotalMessage;
+          try {
+            msg = sm.json<CotalMessage>();
+          } catch {
+            continue; // skip undecodable
+          }
+          // Same authenticity guard as the tail/backfill; skip our own echoes.
+          const parsed = parseSubject(sm.subject);
+          if (!parsed || msg.from?.id !== parsed.sender || msg.from.id === this.card.id) continue;
+          collected.push(msg);
+        }
+      } catch (e) {
+        if ((e as { code?: number }).code === 404) break; // no more history (empty or last page)
+        this.emit("error", e as Error);
+        break;
+      }
+      if (got === 0 || last === 0) break;
+      startSeq = last + 1;
+    }
+    const dropped = await this.channelDropped(subject, sinceSeq);
+    return { messages: collected, dropped };
+  }
+
+  /** Did focus recall on `subject` miss ambient that aged out past the watermark? Ambient is only
+   *  ever discarded once a sender-subject reaches {@link MAX_MSGS_PER_SUBJECT} (`DiscardPolicy.Old`);
+   *  below the cap nothing was evicted, so the window is complete — return false without crying
+   *  wolf. At the cap, the surviving oldest seq decides: if it already postdates the watermark, the
+   *  eviction reached into the "since you focused" window. (Avoids the false positive of comparing a
+   *  per-subject oldest against the stream-global frontier, which fires on any other channel's
+   *  traffic.) */
+  private async channelDropped(subject: string, sinceSeq: number): Promise<boolean> {
+    if (!this.jsm) return false;
+    let maxPerSubject = 0;
+    try {
+      const info = await this.jsm.streams.info(chatStream(this.space), { subjects_filter: subject });
+      for (const count of Object.values(info.state.subjects ?? {}))
+        maxPerSubject = Math.max(maxPerSubject, count);
+    } catch (e) {
+      if ((e as { code?: number }).code !== 404) this.emit("error", e as Error);
+      return false; // stream/subject missing — nothing retained, nothing dropped
+    }
+    if (maxPerSubject < MAX_MSGS_PER_SUBJECT) return false; // never hit the cap ⇒ never evicted
+    const oldest = await this.channelOldestSeq(subject);
+    return oldest !== undefined && oldest > sinceSeq + 1;
+  }
+
+  /** Sequence of the earliest message still retained on a channel subject (any sender), or
+   *  undefined if nothing is retained. One 1-message Direct Get — used for the recall drop marker. */
+  private async channelOldestSeq(subject: string): Promise<number | undefined> {
+    if (!this.jsm) return undefined;
+    try {
+      const iter = await this.jsm.direct.getBatch(chatStream(this.space), {
+        seq: 1,
+        next_by_subj: subject,
+        batch: 1,
+      });
+      for await (const sm of iter) return sm.seq;
+      return undefined;
+    } catch (e) {
+      if ((e as { code?: number }).code !== 404) this.emit("error", e as Error);
+      return undefined; // 404 = nothing retained on this subject (normal)
+    }
   }
 
   private async publishPresence(): Promise<void> {
@@ -1127,6 +1232,22 @@ export class CotalEndpoint extends EventEmitter {
 function chatDurableToken(durable: string): string | null {
   const prefix = "chat_";
   return durable.startsWith(prefix) ? durable.slice(prefix.length) : null;
+}
+
+/** Map an authenticated parsed-subject kind to the message class surfaced to "message" listeners.
+ *  Throws on `ctl` (control-plane is request/reply, never a "message") — per repo convention, no
+ *  silent default: an unexpected delivering kind is a bug, not something to swallow. */
+function kindFromParsed(kind: ParsedSubject["kind"]): MessageMeta["kind"] {
+  switch (kind) {
+    case "chat":
+      return "channel";
+    case "inst":
+      return "dm";
+    case "svc":
+      return "anycast";
+    default:
+      throw new Error(`cannot derive a message kind from subject kind "${kind}"`);
+  }
 }
 
 /** Set equality over two subject lists (order/duplicate-insensitive). */

@@ -123,6 +123,13 @@ export type PresenceEvent =
  *  so a joiner doesn't act on a resolved 2-hour-old thread as if it were live. */
 export interface MessageMeta {
   historical: boolean;
+  /** Authenticated message class, derived from the **delivering NATS subject** (NOT the
+   *  forgeable payload routing fields `to`/`toService`). `channel` = multicast (chat.*),
+   *  `dm` = unicast (inst.*), `anycast` = a role's work-queue (svc.*). This is the only
+   *  trustworthy "how was this addressed to me" signal: a peer can put your id in payload
+   *  `to`, but it cannot publish on your private DM subject — so directedness rides this,
+   *  never the payload. */
+  kind: "channel" | "dm" | "anycast";
 }
 
 /**

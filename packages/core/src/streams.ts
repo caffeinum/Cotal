@@ -26,6 +26,11 @@ import {
 /** Default presence-bucket entry TTL (ms) — matches the endpoint's default liveness window. */
 const PRESENCE_TTL_MS = 6_000;
 
+/** Per-(sender,channel)-subject retention cap on the chat stream — the bound past which the
+ *  oldest message on a subject is discarded (`DiscardPolicy.Old`). Also the horizon of focus
+ *  recall: only the last {@link MAX_MSGS_PER_SUBJECT} per sender-subject are recallable. */
+export const MAX_MSGS_PER_SUBJECT = 1000;
+
 /**
  * Create (idempotently) the three backing streams for a space — CHAT (multicast backlog +
  * history), DM (per-instance inboxes), TASK (anycast work queue).
@@ -45,7 +50,7 @@ export async function createSpaceStreams(
     subjects: [`${p}.chat.>`],
     retention: RetentionPolicy.Limits,
     storage: StorageType.File,
-    max_msgs_per_subject: 1000, // capped per-channel backlog (buffer + history)
+    max_msgs_per_subject: MAX_MSGS_PER_SUBJECT, // capped per-channel backlog (buffer + history)
     discard: DiscardPolicy.Old,
     // Enable the read-only Direct Get API for per-channel history backfill on join (a pure
     // read verb, no consumer create). CHAT ONLY — never DM/TASK: direct-get bypasses the

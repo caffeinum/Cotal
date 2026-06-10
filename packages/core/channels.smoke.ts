@@ -9,13 +9,16 @@
  * Run: pnpm smoke:channels
  */
 import { strict as assert } from "node:assert";
+import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { connect } from "@nats-io/transport-node";
+import { jetstream } from "@nats-io/jetstream";
 import {
   CotalEndpoint, seedChannelRegistry, readChannelRegistry, effectiveReplay, validateChannelConfig,
-  isReachable, type CotalMessage, type Delivery, type MessageMeta,
+  isReachable, chatSubject, type CotalMessage, type Delivery, type MessageMeta,
 } from "./src/index.js";
 
 const PORT = 14224;
@@ -24,13 +27,13 @@ const space = "chansmoke";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const textOf = (m: CotalMessage) => m.parts.map((p) => (p.kind === "text" ? p.text : "")).join("");
 
-interface Rec { channel?: string; text: string; historical: boolean }
+interface Rec { channel?: string; text: string; historical: boolean; kind?: MessageMeta["kind"] }
 function recorder(name: string, id: string, channels: string[]) {
   const got: Rec[] = [];
   const ep = new CotalEndpoint({ space, servers, card: { name, kind: "agent", id }, channels });
   ep.on("error", () => {});
   ep.on("message", (m: CotalMessage, d: Delivery, meta?: MessageMeta) => {
-    got.push({ channel: m.channel, text: textOf(m), historical: meta?.historical ?? false });
+    got.push({ channel: m.channel, text: textOf(m), historical: meta?.historical ?? false, kind: meta?.kind });
     d.ack();
   });
   return { ep, got };
@@ -82,6 +85,33 @@ try {
   await A.multicast("chat-live-1", { channel: "chat" });
   await sleep(500);
   check("live delivery, no dup, not historical", has(B.got, "log-live-1").length === 1 && has(B.got, "log-live-1")[0].historical === false && has(B.got, "chat-live-1").length === 1);
+  check("multicast is authenticated kind=channel", has(B.got, "log-live-1")[0].kind === "channel");
+
+  // ---- kind authentication: a forged payload `to` can't masquerade as a DM (§5 regression) ----
+  // Raw-publish a chat message carrying a forged `to: <B's id>` straight to A's chat subject.
+  // The payload `from` is A (so it passes the endpoint's subject-binds-from authenticity guard),
+  // but the DELIVERING subject is `chat.*` → B must classify it kind="channel", NEVER "dm".
+  B.got.length = 0;
+  {
+    const nc = await connect({ servers });
+    const js = jetstream(nc);
+    const forged: CotalMessage = {
+      id: randomUUID(),
+      ts: Date.now(),
+      space,
+      from: A.ref(),          // MUST be the publishing endpoint A — binds payload.from to subject sender
+      channel: "log",
+      to: "B_join",           // the forgery: a payload `to` pointing at B
+      parts: [{ kind: "text", text: "forged-dm-probe" }],
+    };
+    const subject = chatSubject(space, A.card.id, "log");
+    await js.publish(subject, JSON.stringify(forged), { msgID: forged.id });
+    await nc.close();
+  }
+  await sleep(500);
+  const probe = has(B.got, "forged-dm-probe");
+  check("forged DM is delivered to the receiver", probe.length === 1);
+  check("forged DM is authenticated as kind=channel, not dm", probe[0].kind === "channel" && !probe.some((r) => r.kind === "dm"));
 
   // ---- dynamic join (replay) + idempotent ----
   B.got.length = 0;

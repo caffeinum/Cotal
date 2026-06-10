@@ -16,6 +16,15 @@ function statusGlyph(s: PresenceStatus): string {
   return s === "working" ? "●" : s === "waiting" ? "◐" : s === "idle" ? "○" : "·";
 }
 
+/** One-line meaning of each attention mode, echoed back on set/read so the agent always sees the
+ *  effect of a mode it may have set turns ago (self-visibility is the escape hatch for `focus`). */
+const ATTENTION_DESC: Record<"open" | "dnd" | "focus", string> = {
+  open: "open — you receive everything; untagged channel chatter wakes you when idle",
+  dnd: "dnd — channel chatter no longer wakes you (it still arrives in your next turn); DMs, anycast, and @mentions still wake you",
+  focus:
+    "focus — only DMs and anycast reach your context; an @mention wakes you to pull; untagged channel chatter is held on the channel — read it with cotal_inbox",
+};
+
 /** "name/role" (or just "name") for a message's sender. */
 export function fmtFrom(i: InboxItem): string {
   return i.fromRole ? `${i.fromName}/${i.fromRole}` : i.fromName;
@@ -80,7 +89,10 @@ export function registerCotalTools(server: McpServer, agent: MeshAgent, config: 
       if (!roster.length) return text(`No one is present in "${config.space}" yet.`);
       const lines = roster.map((p) => {
         const who = p.card.role ? `${p.card.name}/${p.card.role}` : p.card.name;
-        const me = p.card.id === agent.id ? " (you)" : "";
+        const me =
+          p.card.id === agent.id
+            ? ` (you${agent.attention !== "open" ? `, ${agent.attention}` : ""})`
+            : "";
         return `${statusGlyph(p.status)} ${who} — ${p.status}${p.activity ? `: ${p.activity}` : ""}${me}`;
       });
       return text(`Present in "${config.space}" (${roster.length}):\n${lines.join("\n")}`);
@@ -92,16 +104,37 @@ export function registerCotalTools(server: McpServer, agent: MeshAgent, config: 
     {
       title: "Cotal: read incoming messages",
       description:
-        "Read messages other agents have sent you since you last checked — channel broadcasts, direct messages, and role requests. Clears them unless peek is true.",
+        "Read messages other agents have sent you since you last checked — channel broadcasts, direct messages, and role requests. Clears them unless peek is true. In focus mode it also pulls back the channel chatter held since you entered focus.",
       inputSchema: {
         peek: z.boolean().optional().describe("If true, show messages without clearing them."),
       },
     },
     async ({ peek }) => {
-      const items = peek ? agent.peekInbox() : agent.drainInbox();
-      if (!items.length) return text("Inbox empty — no new messages.");
-      const head = `${items.length} message${items.length === 1 ? "" : "s"}${peek ? " (peek — not cleared)" : ""}:`;
-      return text(`${head}\n${items.map(fmtItem).join("\n")}`);
+      const live = peek ? agent.peekInbox() : agent.drainInbox();
+      if (agent.attention !== "focus") {
+        if (!live.length) return text("Inbox empty — no new messages.");
+        const head = `${live.length} message${live.length === 1 ? "" : "s"}${peek ? " (peek — not cleared)" : ""}:`;
+        return text(`${head}\n${live.map(fmtItem).join("\n")}`);
+      }
+      // Focus: the live buffer holds only DMs/anycast; the channel ambient + @mentions were
+      // acked-and-dropped at ingest, so pull them back from the channel stream here (replay-gated,
+      // "since you entered focus"). Recall is read-only — peek only affects the live buffer drain.
+      const recall = await agent.recallAmbient();
+      const all = [...live, ...recall.items];
+      if (!all.length && !recall.droppedChannels.length)
+        return text("Inbox empty — no new messages, and no channel chatter since you entered focus.");
+      const parts: string[] = [];
+      if (all.length) {
+        const head = `${all.length} message${all.length === 1 ? "" : "s"}${peek ? " (peek — live buffer not cleared)" : ""} — focus mode, channel items are recall since you focused:`;
+        parts.push(`${head}\n${all.map(fmtItem).join("\n")}`);
+      }
+      if (recall.droppedChannels.length)
+        parts.push(
+          `⚠ Some earlier chatter may have aged out of the channel buffer on ${recall.droppedChannels
+            .map((c) => `#${c}`)
+            .join(", ")} (per-channel history is capped).`,
+        );
+      return text(parts.join("\n\n"));
     },
   );
 
@@ -180,23 +213,39 @@ export function registerCotalTools(server: McpServer, agent: MeshAgent, config: 
   server.registerTool(
     "cotal_status",
     {
-      title: "Cotal: set your status",
-      description: "Set your presence status and activity so peers can see what you are doing.",
+      title: "Cotal: set your status / attention",
+      description:
+        "Set your presence status (what you're doing, so peers can see) and/or your attention mode (how much peer traffic interrupts you). Both are optional — pass only the one you want to change; with neither, it reports your current status and attention.",
       inputSchema: {
         status: z
           .enum(["idle", "working", "waiting"])
+          .optional()
           .describe(
             "idle = free; working = busy on a task; waiting = blocked on input, approval, or a peer.",
+          ),
+        attention: z
+          .enum(["open", "dnd", "focus"])
+          .optional()
+          .describe(
+            "open = receive everything; dnd = don't wake me for untagged channel chatter (it still arrives next turn); focus = only DMs/anycast reach my context, @mentions wake me to pull, untagged chatter is held on the channel — read it with cotal_inbox. Resets to open at the start of each session.",
           ),
         activity: z.string().optional().describe("Short note on what you're doing right now."),
       },
     },
-    async ({ status, activity }) => {
+    async ({ status, attention, activity }) => {
       try {
-        await agent.setStatus(status, activity);
-        return text(`You are now ${status}${activity ? `: ${activity}` : ""}.`);
+        if (status) await agent.setStatus(status, activity);
+        else if (activity !== undefined) await agent.setStatus(agent.status, activity);
+        if (attention) await agent.setAttention(attention);
+        const lines: string[] = [];
+        if (status || activity !== undefined)
+          lines.push(`You are now ${agent.status}${activity ? `: ${activity}` : ""}.`);
+        if (attention) lines.push(`Attention: ${ATTENTION_DESC[attention]}.`);
+        if (!lines.length)
+          lines.push(`Status: ${agent.status}. Attention: ${ATTENTION_DESC[agent.attention]}.`);
+        return text(lines.join("\n"));
       } catch (e) {
-        return fail(`Couldn't set status: ${(e as Error).message}`);
+        return fail(`Couldn't update: ${(e as Error).message}`);
       }
     },
   );

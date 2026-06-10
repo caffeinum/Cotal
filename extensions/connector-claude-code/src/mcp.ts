@@ -51,6 +51,7 @@ const claudeHandle: HookHandle = async (agent, ev) => {
     switch (event) {
       case "SessionStart": {
         await agent.setStatus("idle");
+        await agent.setAttention("open"); // F3: reset to fail-open on every (re)start — a crashed/restarted agent must not stay silently deaf
         // Boot push: a one-line note per subscribed channel (if the registry has loaded),
         // plus any messages waiting. Both are advisory context.
         const parts = [agent.channelBriefing(), formatInjection(agent.drainInbox())].filter(Boolean);
@@ -83,10 +84,14 @@ const claudeHandle: HookHandle = async (agent, ev) => {
         pendingTool = undefined; // turn ended — don't let a stale tool attach to an idle-wait notification
         await agent.setStatus("idle");
         // Now idle: if ambient channel chatter was held while we were busy, ask the channel to
-        // wake one turn so its UserPromptSubmit drains+acks the batch (the sole ack site). Stop
-        // can't inject context itself, so we must NOT drain here — that would ack with no vehicle
-        // to the model and silently lose the messages.
-        if (agent.inboxCount() > 0) agent.requestWake();
+        // wake one turn so its UserPromptSubmit drains+acks the batch. (Ack sites are two:
+        // drainInbox for surfaced items, and the focus ingest ack-drop for ambient/mentions a
+        // focus agent declined.) Stop can't inject context itself, so we must NOT drain here —
+        // that would ack with no vehicle to the model and silently lose the messages.
+        // Mode-aware: open flushes any held ambient too; dnd/focus wake only for held DIRECTED items
+        // (held ambient alone must not wake — it would empty-wake busy-loop; it rides the next human turn).
+        const pending = agent.attention === "open" ? agent.inboxCount() : agent.directedPendingCount();
+        if (pending > 0) agent.requestWake();
         return {};
       case "SessionEnd":
         await agent.setStatus("offline");
@@ -131,6 +136,9 @@ async function main(): Promise<void> {
         `warranted, respond with cotal_dm (back to that peer), cotal_send (to a channel), or ` +
         `cotal_anycast (to a role). Use cotal_roster to see who is present, cotal_inbox to pull ` +
         `anything you may have missed, and cotal_status to report what you are doing. ` +
+        `If you need to concentrate, cotal_status also sets your attention — dnd (channel ` +
+        `chatter stops waking you; it still arrives on your next turn) or focus (only DMs and ` +
+        `@mentions reach your context — pull the held chatter with cotal_inbox). ` +
         `Reply only when a reply is actually needed — a silent acknowledgement is correct; ` +
         `"agreed/thanks/good point" messages are noise. And @-mention a peer only when you need ` +
         `THAT specific peer to act: a mention wakes them, so mentioning in acknowledgements or ` +
@@ -143,14 +151,18 @@ async function main(): Promise<void> {
   // One wake-nudge path, shared by incoming messages and the Stop→idle flush. It stays a stable
   // function gated on a *mutable* `channelActive` flag (flipped true only after the MCP
   // handshake confirms the client speaks claude/channel — see below). If it fires before then it
-  // simply no-ops; the message waits unacked in the inbox and is drained at the next
-  // UserPromptSubmit, so nothing is lost. This only ever *wakes* a turn — drainInbox stays the
-  // sole ack site.
+  // simply no-ops; a *buffered* message waits in the inbox and is drained at the next
+  // UserPromptSubmit, so nothing is lost. This only ever *wakes* a turn (drainInbox and the focus
+  // ingest ack-drop are the ack sites). One exception: a focus @mention's body was already
+  // ack-dropped at ingest (not buffered), so a missed mention-wake is recoverable only by an
+  // explicit cotal_inbox pull (recall) — there is no buffered copy to drain.
   let channelActive = false;
-  const nudge = (item?: InboxItem): void => {
+  const nudge = (item?: InboxItem, pullHint?: string): void => {
     if (!channelActive) return;
     const n = agent.inboxCount();
-    const content = item
+    const content = pullHint
+      ? `📨 ${pullHint}`
+      : item
       ? `📨 New ${item.kind}${item.mentionsMe ? " — you were mentioned" : ""} from ${fmtFrom(item)} — delivering your Cotal inbox now.`
       : `📨 ${n} Cotal message${n === 1 ? "" : "s"} waiting — delivering your inbox now.`;
     void server.server
@@ -161,14 +173,21 @@ async function main(): Promise<void> {
       .catch((e) => process.stderr.write(`[cotal-connector] channel nudge failed: ${(e as Error).message}\n`));
   };
 
-  // Two priority tiers. A *directed* message (DM, anycast, or an @mention of us) always nudges,
-  // so the addressee sees it promptly — woken now if idle, at the next turn boundary if busy.
-  // *Ambient* channel chatter (not addressed to us) is suppressed while we're mid-turn ("working")
-  // and instead accumulates in the inbox; the Stop→idle flush then fires one batch nudge.
+  // Mode-aware wake. A *directed* message (DM, anycast, or an @mention of us) always nudges, so the
+  // addressee sees it promptly — woken now if idle, at the next turn boundary if busy. *Ambient*
+  // channel chatter nudges only in `open` while we're idle (suppressed mid-turn, never in dnd/focus).
+  // In `focus`, ambient/mentions never reach "incoming" (acked-and-dropped at ingest) — only directed
+  // does — so this nudges exactly the buffered, injectable set.
   agent.on("incoming", (item: InboxItem) => {
-    const ambient = item.kind === "channel" && !item.mentionsMe && agent.status === "working";
-    if (!ambient) nudge(item);
+    const directedOrMention = item.kind !== "channel" || item.mentionsMe;
+    const ambientWakes = agent.attention === "open" && agent.status !== "working";
+    if (directedOrMention || ambientWakes) nudge(item);
   });
+  // Focus-only: a channel @mention was acked-and-dropped (not buffered) but still wakes us to PULL it
+  // — F4=B (wake-only). Its body isn't injected; cotal_inbox recalls it.
+  agent.on("mention-wake", (item: InboxItem) =>
+    nudge(item, `You were mentioned by ${fmtFrom(item)} on #${item.channel ?? "?"} — pull it with cotal_inbox.`),
+  );
   agent.on("wake", () => nudge());
 
   const shutdown = async () => {
