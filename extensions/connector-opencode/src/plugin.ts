@@ -1,16 +1,18 @@
 /**
- * The Cotal OpenCode plugin — loaded in-process by `opencode serve` (via the inline config the
+ * The Cotal OpenCode plugin — loaded in-process by the `opencode` TUI (via the inline config the
  * connector sets). It turns the session into a first-class mesh peer, at parity with the Claude
  * Code connector:
  *
- *  • holds the {@link MeshAgent} (NATS endpoint, inbox, presence) for the server lifetime;
+ *  • holds the {@link MeshAgent} (NATS endpoint, inbox, presence) for the TUI's lifetime;
  *  • registers the cotal_* tools natively, rendered from the SHARED {@link cotalToolSpecs}
  *    (`./tools.ts`) — same surface as Claude/Codex, incl. channels / join / leave / channel_info;
  *  • maps OpenCode bus events to presence (idle | working | waiting | offline);
- *  • drives the session: it surfaces the inbox batch into a turn over the SDK (`promptAsync`),
- *    acking ON TURN COMPLETION (so a crash/error redelivers). Delivery is **attention-aware**
- *    (open/dnd/focus) and never interrupts a running turn — a message that arrives mid-turn waits
- *    for the turn to end (matching Claude's no-interrupt behavior), then drives.
+ *  • drives the **visible** session: it injects each inbox batch as a turn into the TUI prompt
+ *    (clear → append → submit), acking ON TURN COMPLETION (so a crash/error redelivers). Because
+ *    it drives the session the TUI displays, a human watching sees the agent work and can type into
+ *    the same session. Delivery is **attention-aware** (open/dnd/focus) and never interrupts a
+ *    running turn — a message that arrives mid-turn waits for the turn to end (matching Claude's
+ *    no-interrupt behavior), then drives.
  *
  * Identity comes from COTAL_* env (the plugin runs in the opencode process and inherits it).
  * No identity → inert, so an operator's own `opencode` never joins as a stray peer.
@@ -27,22 +29,14 @@ import {
 import type { Plugin, Hooks } from "@opencode-ai/plugin";
 import { buildCotalTools } from "./tools.js";
 
-/** Parse an agent-file `model` ("provider/model") into the SDK's shape. Without a provider we
- *  can't address it — return undefined and let opencode use its default. */
-function parseModel(s?: string): { providerID: string; modelID: string } | undefined {
-  if (!s) return undefined;
-  const i = s.indexOf("/");
-  return i > 0 ? { providerID: s.slice(0, i), modelID: s.slice(i + 1) } : undefined;
-}
-
 function log(msg: string): void {
   process.stderr.write(`[cotal-connector] ${msg}\n`);
 }
 
 /** Process-global guard: opencode loads the plugin once per app/worktree scope, so the function
- *  can run more than once in a single `serve` process. We want exactly one mesh endpoint — so the
- *  first call wires up the agent, and every call returns the *same* hooks (the same tools, bound to
- *  that one agent), whichever scope opencode ends up using. */
+ *  can run more than once in a single process. We want exactly one mesh endpoint — so the first
+ *  call wires up the agent, and every call returns the *same* hooks (the same tools, bound to that
+ *  one agent), whichever scope opencode ends up using. */
 const guard = globalThis as { __cotalOpencodeHooks?: Hooks };
 
 export const cotal: Plugin = async ({ client }) => {
@@ -58,15 +52,15 @@ export const cotal: Plugin = async ({ client }) => {
 
   const def = process.env.COTAL_AGENT_FILE?.trim() ? loadAgentFile(process.env.COTAL_AGENT_FILE.trim()) : undefined;
   const persona = def?.persona;
-  const model = parseModel(process.env.COTAL_OPENCODE_MODEL?.trim() ?? def?.model);
 
-  // The single driveable session — created lazily on the first wake so startup never races the
-  // server coming up.
+  // The session the TUI is showing — adopted from the first session event, then used to match this
+  // agent's turn-end (idle) against stray idles. We never `session.create`: driving goes through the
+  // TUI prompt, which uses (and on first submit creates) the visible session.
   let sessionID: string | undefined;
-  let busy = false; // a turn is running → don't prompt: opencode would COALESCE onto it (no reject)
-  let driving = false; // re-entrancy guard around an in-flight promptAsync
-  let primed = false; // persona is sent as `system` once, on the first turn
-  let briefed = false; // the boot channel briefing is injected once, on the first turn
+  let busy = false; // a turn is running → don't submit another (it would clobber the prompt)
+  let driving = false; // re-entrancy guard around an in-flight submit
+  let primed = false; // persona is prepended to the first turn's text once
+  let briefed = false; // the boot channel briefing is prepended once, on the first turn
   let surfaced: string[] = []; // ids surfaced into the current turn, acked on completion (by id, not count)
   let awaitingTurnEnd = false; // a turn is in flight → ignore a duplicate idle that isn't its end
 
@@ -78,53 +72,49 @@ export const cotal: Plugin = async ({ client }) => {
     }
   };
 
-  async function ensureSession(): Promise<string | undefined> {
-    if (sessionID) return sessionID;
-    try {
-      const res = await client.session.create({ body: { title: `cotal:${config.space}:${config.name}` } });
-      sessionID = res.data?.id;
-    } catch (e) {
-      log(`session.create failed: ${(e as Error).message}`);
-    }
-    return sessionID;
+  /** Submit `text` as a turn into the TUI's visible session: clear the prompt (so we send exactly
+   *  our text, not whatever was half-typed), append, submit. The TUI runs it in — and on the first
+   *  submit creates — the session it displays. */
+  async function submitTurn(text: string): Promise<void> {
+    await client.tui.clearPrompt();
+    await client.tui.appendPrompt({ body: { text } });
+    await client.tui.submitPrompt();
   }
 
   /** Inject a turn carrying the current inbox batch (and the boot briefing once). Surfaces the
    *  items but does NOT ack them — ackSurfaced runs on turn completion, so a crash/error/abort
-   *  redelivers. `text` overrides the body (a bare nudge, e.g. a focus @mention pull) and surfaces
-   *  nothing to ack. Self-guards re-entrancy and never prompts into a running turn. */
+   *  redelivers. `override` replaces the body (a bare nudge, e.g. a focus @mention pull) and
+   *  surfaces nothing to ack. Self-guards re-entrancy and never submits into a running turn. */
   async function drive(override?: string): Promise<void> {
     if (driving || busy) return;
     driving = true;
     try {
-      const id = await ensureSession();
-      if (!id) return;
-      const parts: { type: "text"; text: string }[] = [];
+      const blocks: string[] = [];
       let ids: string[] = [];
       if (override) {
-        parts.push({ type: "text", text: override });
+        blocks.push(override);
       } else {
         const items = agent.peekInbox();
         if (items.length === 0) return;
         ids = items.map((i) => i.id);
         const inj = formatInjection(items);
-        if (inj) parts.push({ type: "text", text: inj });
+        if (inj) blocks.push(inj);
       }
       if (!briefed) {
         briefed = true;
         const brief = agent.channelBriefing();
-        if (brief) parts.unshift({ type: "text", text: brief });
+        if (brief) blocks.unshift(brief);
       }
-      if (parts.length === 0) return;
-      const body: { parts: typeof parts; system?: string; model?: { providerID: string; modelID: string } } = { parts };
-      if (!primed && persona) body.system = persona;
-      if (model) body.model = model;
+      if (!primed && persona) {
+        blocks.unshift(persona);
+      }
+      if (blocks.length === 0) return;
       busy = true;
       surfaced = ids;
-      // Arm BEFORE the await: a turn-end signal can land before promptAsync resolves, and
-      // completeTurn bails unless armed — arming after would drop it and wedge the agent.
+      // Arm BEFORE the await: a turn-end signal can land before submit resolves, and completeTurn
+      // bails unless armed — arming after would drop it and wedge the agent.
       awaitingTurnEnd = true;
-      await client.session.promptAsync({ path: { id }, body });
+      await submitTurn(blocks.join("\n\n"));
       primed = true;
     } catch (e) {
       busy = false;
@@ -179,7 +169,13 @@ export const cotal: Plugin = async ({ client }) => {
     if (!busy) void drive();
   });
 
-  const ours = (id?: string): boolean => !sessionID || id === sessionID;
+  /** Match an event's session against the one we drive. Adopt the first session id we see (a fresh
+   *  spawn has exactly one — the visible session our first submit creates), then filter to it. */
+  const ours = (id?: string): boolean => {
+    if (!id) return !sessionID; // a session-less event counts as ours only before we've adopted one
+    if (!sessionID) sessionID = id;
+    return id === sessionID;
+  };
 
   const hooks: Hooks = {
     tool: buildCotalTools(agent, config),
@@ -194,6 +190,9 @@ export const cotal: Plugin = async ({ client }) => {
         return;
       }
       switch (event.type) {
+        case "session.created":
+          ours(event.properties.info.id); // adopt the visible session as soon as it's born
+          break;
         case "session.idle":
           if (!ours(event.properties.sessionID)) return;
           await safeStatus("idle");
