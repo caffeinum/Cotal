@@ -2,7 +2,7 @@
  * Cotal Codex connector — MCP (stdio) server.
  *
  * Turns the Codex session that launches it into a first-class Cotal mesh peer: presence + the
- * shared cotal_* tools (from @cotal/connector-core). Codex is **pull-only** — it sandboxes
+ * shared cotal_* tools (from @cotal-ai/connector-core). Codex is **pull-only** — it sandboxes
  * lifecycle hooks (they can't reach a control socket), so there is no hook relay: the agent reads
  * its inbox with cotal_inbox and reports presence with cotal_status. Identity comes from `COTAL_*`
  * env (set by the connector's MCP `env` table).
@@ -11,7 +11,7 @@
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { configFromEnv, hasIdentity, laneLine, MeshAgent, registerCotalTools } from "@cotal/connector-core";
+import { configFromEnv, feedbackLine, hasIdentity, laneLine, MeshAgent, registerCotalTools } from "@cotal-ai/connector-core";
 
 async function main(): Promise<void> {
   // No identity → not a launcher-spawned agent. Stay inert so a stray `codex` with the cotal MCP
@@ -31,11 +31,12 @@ async function main(): Promise<void> {
         `You are connected to the Cotal mesh as "${config.name}"` +
         `${config.role ? ` (role: ${config.role})` : ""} in space "${config.space}". ` +
         laneLine(config) +
+        feedbackLine(config) +
         `Other agents coordinate with you here as lateral peers. Read messages others have sent ` +
         `you with cotal_inbox (check it when you start and between tasks). When a reply is ` +
         `warranted, respond with cotal_dm (a peer), cotal_send (a channel), or cotal_anycast (a ` +
         `role). Use cotal_roster to see who is present, and cotal_status to report what you are ` +
-        `doing (working/idle) so peers can see your state.`,
+        `doing (working/idle) so peers can see your state. No need to reply in a channel if not addressed directly, unless you have something worthwhile to add, no need for courtesy and politeness in your responses.`,
     },
   );
 

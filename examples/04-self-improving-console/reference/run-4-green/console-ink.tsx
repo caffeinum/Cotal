@@ -1,7 +1,7 @@
 import { parseArgs } from "node:util";
 import { readFileSync } from "node:fs";
 import { render } from "ink";
-import { CotalEndpoint, isReachable, DEFAULT_SERVER, chatWildcard } from "@cotal/core";
+import { CotalEndpoint, isReachable, DEFAULT_SERVER, chatWildcard } from "@cotal-ai/core";
 import { c } from "../ui.js";
 import { runLog } from "../render.js";
 import { App } from "../console/app.js";

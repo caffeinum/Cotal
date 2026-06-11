@@ -1,4 +1,4 @@
-import { registry, type Command } from "@cotal/core";
+import { registry, type Command } from "@cotal-ai/core";
 import { up } from "./commands/up.js";
 import { join } from "./commands/join.js";
 import { watch } from "./commands/watch.js";
@@ -8,6 +8,8 @@ import { web } from "./commands/web.js";
 import { spawn } from "./commands/spawn.js";
 import { mint } from "./commands/mint.js";
 import { setup } from "./commands/setup.js";
+import { channels } from "./commands/channels.js";
+import { feedback } from "./commands/feedback.js";
 
 /** The minimal mesh CLI: thin NATS clients (up/join/watch), plus `spawn` — a
  *  foreground agent launch that reuses the connector's launch recipe. Self-registers
@@ -77,6 +79,22 @@ const baseCommands: Command[] = [
     group: "Mesh",
     summary: "mint a creds file for a space (auth mode) — mint <name> --profile <agent|observer> [--out <path>]",
     run: mint,
+  },
+  {
+    kind: "command",
+    name: "channels",
+    group: "Mesh",
+    summary:
+      "inspect/set channel registry — channels <list | set <name> [--replay|--no-replay] [--desc <s>] [--instructions <s>] | default --replay|--no-replay>",
+    run: channels,
+  },
+  {
+    kind: "command",
+    name: "feedback",
+    group: "Mesh",
+    summary:
+      "run authenticated beta feedback intake — feedback --keys <keys.json> --creds <creds> [--port <n>]",
+    run: feedback,
   },
 ];
 

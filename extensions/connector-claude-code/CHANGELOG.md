@@ -1,0 +1,28 @@
+# @cotal-ai/connector-claude-code
+
+## 0.1.3
+
+### Patch Changes
+
+- 246c9b9: Add the `cotal_feedback` beta egress: a `COTAL_FEEDBACK_KEY` config plus `feedbackLine()` guidance folded into the Claude/Codex connector instructions, and a `cotal feedback` authenticated intake server (tester keys, JSONL source of truth, republish to an internal `#feedback` channel). Note: the agent-side `cotal_feedback` tool registration is still pending.
+- Updated dependencies [246c9b9]
+- Updated dependencies [246c9b9]
+  - @cotal-ai/connector-core@0.1.3
+
+## 0.1.2
+
+### Patch Changes
+
+- 5f9e171: Publish all packages: add repository field for OIDC provenance, plus in-flight changes (cmux runtime exec-via-env fix, manager runtime selector, .gitignore product/, etc.).
+- Updated dependencies [5f9e171]
+  - @cotal-ai/core@0.1.2
+  - @cotal-ai/connector-core@0.1.2
+
+## 0.1.1
+
+### Patch Changes
+
+- 18c271f: Publish all packages: configure GitHub Actions changesets workflow with npm OIDC trusted publishing.
+- Updated dependencies [18c271f]
+  - @cotal-ai/core@0.1.1
+  - @cotal-ai/connector-core@0.1.1

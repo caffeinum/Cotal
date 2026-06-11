@@ -9,7 +9,7 @@ import {
   mintCreds,
   newIdentity,
   type Profile,
-} from "@cotal/core";
+} from "@cotal-ai/core";
 import { c } from "../ui.js";
 
 /** Out-of-band cred minting: generate an identity, sign a profile-scoped user JWT with the

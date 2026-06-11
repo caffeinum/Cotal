@@ -12,7 +12,7 @@ import {
   type EndpointKind,
   type PresenceStatus,
   type CotalMessage,
-} from "@cotal/core";
+} from "@cotal-ai/core";
 import { c, statusBadge } from "../ui.js";
 
 export async function join(argv: string[]): Promise<void> {

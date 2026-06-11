@@ -31,6 +31,45 @@ model — those don't fit lateral pub/sub.
 - **Hierarchical channels** (NATS-subject style): a channel name is dotted — publish to a
   concrete `team.backend`, subscribe to a subtree with `team.>` (or one level with `team.*`).
   Flat names (`general`) still work. Publishing is always concrete; only subscriptions wildcard.
+- **Channel membership** (who's on a channel) is **server-known, not self-reported**: a peer
+  joins a channel by creating a chat-stream durable consumer, so `consumers.list` *is* the
+  membership — unforgeable, no presence field to lie in. `endpoint.channelMembers(channel)`
+  reads that broker truth and joins it with presence for liveness: a durable whose peer is gone
+  but lingering (reconnect grace) shows as a stale member (`live:false`), not a phantom
+  listener. Privileged read: `consumers.list` needs `$JS.API.CONSUMER.LIST.CHAT_<space>`, which
+  only the allow-all **manager** profile holds today — agents/observer/admin are denied, so it's
+  manager-served (a dashboard profile is a one-line grant away). Observability only, never an
+  agent gate on sending.
+- **Channel registry** (config *about* a channel) lives in a per-space KV bucket
+  (`cotal_channels_<space>`, sibling of presence): per-channel `{ replay?, description?,
+  instructions? }` plus a space-wide default under a reserved key. **Channel-global, not
+  per-subscriber** — the same channel replays (or not) for everyone. Writes are **privileged**
+  (`cotal up --channels <file>` to seed; `cotal channels set` at runtime); everyone reads it via
+  a live KV watch (`endpoint.getChannelConfig` / `channelReplay`, and enriched `listChannels`).
+  `replay` toggles whether a fresh joiner gets history backfilled; `description`/`instructions`
+  reach the model, so the registry is a prompt-injection surface — text is length-bounded at the
+  write path and surfaced to agents as attributed, advisory data (never system-prompt text).
+- **Replay mechanism — tail + backfill.** `deliver_policy` is consumer-wide, so it can't honor
+  per-channel replay; instead the chat durable is a `DeliverPolicy.New` **tail** ("from now on")
+  and history is an explicit **per-channel backfill on join** via JetStream Direct Get (a read
+  verb — no consumer create), gated by the channel's replay policy. A per-channel join watermark
+  (the stream frontier at join) lets the tail ack-drop pre-join messages, so a no-replay channel
+  starts clean and a replay backfill never double-delivers. **How far back** is the registry's
+  `replayWindow` (`"24h"`), realized natively as a Direct-Get `start_time` — not a client-side
+  count. **No-replay is noise control, not confidentiality** — the drop is client-side and every
+  peer can read a channel's history on demand (chat is world-readable, agents hold `DIRECT.GET`),
+  so it must never be documented or relied on as privacy/access-control. Anything confidential
+  uses DM/anycast (private streams, consumer-create-deny), never a no-replay channel. *Why one multi-filter durable and not one consumer per channel (which would let the
+  broker replay natively)? A per-channel consumer is named `chat_<id>_<channel>`, and consumer
+  names can't contain `.`, so that's a single ACL token — and NATS permission wildcards are
+  token-granular, so it can't be scoped to one agent. One fixed-name durable is what keeps the
+  per-agent grant tight AND makes dynamic join just a filter edit (no per-channel grant).*
+- **Dynamic subscription.** A peer joins/leaves channels **mid-session** —
+  `endpoint.joinChannel`/`leaveChannel` mutate the existing chat durable's `filter_subjects` via
+  `consumers.update` (same durable, no teardown; rides the self-scoped create grant). So channel
+  membership is a live view, and join triggers the replay backfill above. On **restart** the
+  durable's filter is **reconciled to the agent's current config** (channels the config gained are
+  backfilled like a join; channels it lost are dropped) — an unchanged config is a pure resume.
 - **Sessions + moderator** (managed groups with admit/remove) — *deferred*, but the design
   leaves room for it.
 
@@ -75,9 +114,10 @@ examples ──→ one-or-more implementations ──→ core ←(peer)── ex
 ```
 
 The migration is done: `demos/` use-cases are now `examples/`, the connector is split into
-`@cotal/connector-core` (shared mesh runtime) plus two thin adapters — `@cotal/connector-claude-code`
-(`claudeConnector`) and `@cotal/connector-codex` (`codexConnector`) — `extensions/` packages that
-**peer-depend** on core and export a `Connector`, and `@cotal/cli` + `@cotal/manager` are
+`@cotal-ai/connector-core` (shared mesh runtime) plus three thin adapters — `@cotal-ai/connector-claude-code`
+(`claudeConnector`), `@cotal-ai/connector-codex` (`codexConnector`), and `@cotal-ai/connector-opencode`
+(`opencodeConnector`) — `extensions/` packages that
+**peer-depend** on core and export a `Connector`, and `@cotal-ai/cli` + `@cotal-ai/manager` are
 `implementations/` packages.
 Assembly lives at the **composition root** — an example (`examples/01/src/manager.ts`) imports
 the manager + the connectors it wants and hands them to the manager (`new Manager({ connectors:
@@ -86,16 +126,17 @@ stay self-contained and never import each other: the `cli` drives the manager pu
 mesh (`start`/`stop`/`ps` control requests), so neither imports the other — only the example
 wires them together.
 
-## Integration surfaces (Claude Code + Codex)
+## Integration surfaces (Claude Code + Codex + OpenCode)
 
-Both target agents expose the same four surfaces, so a single adapter with two backends
-covers them. For **Claude Code** the whole adapter ships as one **plugin**, and three of the
-four surfaces collapse into a **single dual-purpose MCP server**:
+Each target agent exposes the same four surfaces; the adapters share one runtime
+(`@cotal-ai/connector-core`) and differ only in how they bind to their host. For **Claude Code**
+the whole adapter ships as one **plugin**, and three of the four surfaces collapse into a
+**single dual-purpose MCP server**:
 
 | | Claude Code | Codex CLI |
 |---|---|---|
 | **Outbound — ambient** | `http` lifecycle hooks → POST to the local daemon (native http hook, no curl shim) | — (hooks are sandboxed; presence is self-reported via `cotal_status`) |
-| **Outbound — deliberate** | MCP tools `cotal_send`/`cotal_dm`/`cotal_anycast` *(same server as the channel)* | MCP tools (same) |
+| **Outbound — deliberate** | MCP tools `cotal_send`/`cotal_dm`/`cotal_anycast` *(same server as the channel)* plus optional authenticated `cotal_feedback` beta egress | MCP tools (same) |
 | **Inbound — pull** | MCP tool `cotal_inbox` *(same server)* | MCP tool (same) |
 | **Inbound — push** | Two native paths — see below | — (pull-only: `cotal_inbox`) |
 
@@ -108,12 +149,35 @@ Inbound mesh messages arrive in context as
 `<channel source="cotal" from="bob" kind="dm" channel="general">…</channel>`; each meta key
 becomes a tag attribute the agent can read for routing.
 
+`cotal_feedback` is deliberately outside mesh routing: a beta tester's local MCP server posts to an
+HTTPS intake URL with `Authorization: Bearer <tester-key>`. The payload includes `origin` (`human`
+when the user asked the agent to pass feedback along, `agent` when the agent auto-reports a major
+Cotal issue). The intake server maps the key to a tester, writes JSONL as the source of truth, then
+publishes an attributed, untrusted feedback item into our internal Cotal `#feedback` channel for
+triage.
+
 **Codex.** The Codex adapter ships the same `cotal_*` MCP server, injected at launch via `codex -c`
 config overrides (no plugin; the operator's `~/.codex` is never written). Codex is **pull-only**: it
 sandboxes lifecycle hooks (they can't reach a control socket), so there is no hook injection or
 `claude/channel` push — the agent reads peer messages with `cotal_inbox` and reports presence with
 `cotal_status`. Spawned agents run autonomously (`approval_policy="never"` +
-`sandbox_mode="workspace-write"`).
+`sandbox_mode="workspace-write"`). Attention modes (`open`/`dnd`/`focus`) are a push concept, so on
+pull-only Codex they're inert — `cotal_inbox` already drains everything on demand.
+
+**OpenCode.** OpenCode has a native plugin runtime, so its adapter is **not** an MCP server at all:
+a single plugin — injected at launch via `OPENCODE_CONFIG_CONTENT` (inline config merged into the
+operator's, never written to disk) — runs inside the OpenCode process and does all four surfaces. The
+connector launches the real `opencode` **TUI** (foreground, watchable — like Claude Code launches
+`claude`), and the plugin renders the shared `cotal_*` tools as native plugin tools (from
+`cotalToolSpecs`, the same source the MCP adapters render, so the surface can't drift); derives
+presence from OpenCode's event stream (`session.status` busy → working, `session.idle` → idle,
+`permission.asked` → waiting); and **drives the visible session** — it injects each waiting peer
+batch as a turn via the prompt API (`session.promptAsync` on the session the TUI displays, so it
+can't race the TUI input box and the TUI renders it live), acking on `session.idle`, so a human
+watching the TUI sees the agent work and can type into the same session. So unlike Codex it is
+push-capable, and unlike Claude Code it needs no separate hooks or control socket — the plugin holds
+the mesh connection for the session and closes it in `dispose`. Spawned agents run autonomously
+(`permission: "allow"`).
 
 **Two injection paths (different control profiles), composed.**
 
@@ -194,13 +258,14 @@ dependency on them). Selectable backends:
 - **`tmux` / `iTerm2` (opt-in)** — for users already living in a multiplexer who want native
   panes / persistence; auto-detect (if already inside tmux, use it).
 - **`cmux` (integration)** — each agent gets its own [cmux](https://github.com/) tab. This is a
-  true plug-in: the `cmux` runtime lives in **`@cotal/cmux`** and self-registers a `RuntimeProvider`
+  true plug-in: the `cmux` runtime lives in **`@cotal-ai/cmux`** and self-registers a `RuntimeProvider`
   on import, so the manager spawns into tabs without depending on the package — a composition root
-  opts in with one `import "@cotal/cmux"` (the `cotal` binary does). Like tmux you watch it
+  opts in with one `import "@cotal-ai/cmux"` (the `cotal` binary does). Like tmux you watch it
   natively, so `attach` points you at the tab rather than streaming. Teardown is real: the runtime
   keeps the tab's workspace + surface ids, so `stop` types `/exit` for a clean leave then closes the
   tab (graceful) or closes it outright (hard). The manager must run inside a live cmux surface (cmux
-  only authorizes its control socket from a real pane).
+  only authorizes its control socket from a real pane). Drives
+  [`examples/02`](../examples/02-cmux-handoff/README.md).
 - **`byo` (floor)** — the manager doesn't own the process; a human runs `cotal claude --role …`
   in their own terminal and the manager just tracks it via presence.
 - **`host` (upgrade)** — headless via the Agent SDK / Codex app-server for structured control +
@@ -403,6 +468,10 @@ covers three things at once: live delivery, the inbound buffer, and late-join hi
   - control → `cotal.<space>.ctl.<service>.<sender>`  — request/reply to a service
   - Receivers read the sender **from the subject**; the payload `from` is advisory and is
     rejected on mismatch (fail-closed, on every receive path — see *Identity & authorization*).
+  - The message *class* (channel/dm/anycast) is likewise **derived from the delivering subject** and
+    surfaced to listeners as `MessageMeta.kind` — authenticated, **not** read from the forgeable
+    payload `to`/`toService`. A peer publishing a broadcast with payload `{to:victim}` can no longer
+    make it classify as a DM.
   - `*` = one token, `>` = trailing tokens. Subscribers wildcard the sender position
     (`chat.*.<channel>`, `inst.<myId>.*`); an observer taps `cotal.<space>.chat.>`.
 - **Streams (one model, three read patterns):**
@@ -431,6 +500,8 @@ covers three things at once: live delivery, the inbound buffer, and late-join hi
   `idle` / `waiting` / `working` / `offline`. Heartbeat ≈ TTL/3; graceful leave publishes a
   final `offline`; a lapsed heartbeat is swept to `offline`. Offline peers stay in the roster.
   (Instant offline via `$SYS` disconnect events is a documented upgrade — see *Deferred*.)
+  **Attention modes** (`open`/`dnd`/`focus`) are a local, per-agent *delivery preference* — not
+  broadcast as presence or any wire field (the only core/wire change is `MessageMeta.kind` above).
 - **Identity/discovery:** A2A `AgentCard` (`id`=instance, `name`=handle, `role`=service,
   `kind`, `skills`/`tags`) carried in the presence record (our equivalent of `.well-known`).
   We omit A2A's `capabilities` field (protocol flags Cotal doesn't need) to avoid the name

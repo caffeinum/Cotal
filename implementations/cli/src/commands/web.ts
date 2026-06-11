@@ -17,7 +17,7 @@ import {
   mintCreds,
   newIdentity,
   type CotalMessage,
-} from "@cotal/core";
+} from "@cotal-ai/core";
 import { c } from "../ui.js";
 
 const here = dirname(fileURLToPath(import.meta.url));

@@ -7,7 +7,7 @@ import {
   type LaunchSpec,
   type Runtime,
   type RuntimeProvider,
-} from "@cotal/core";
+} from "@cotal-ai/core";
 import * as cmux from "./driver.js";
 
 /** Grace window for a clean exit before a graceful stop force-closes the tab. */
@@ -88,7 +88,7 @@ export class CmuxRuntime implements Runtime {
   }
 }
 
-/** Self-registering runtime provider — `import "@cotal/cmux"` makes the manager's
+/** Self-registering runtime provider — `import "@cotal-ai/cmux"` makes the manager's
  *  `cmux` runtime available, without the manager depending on this package. */
 export const cmuxRuntimeProvider: RuntimeProvider = {
   kind: "runtime",

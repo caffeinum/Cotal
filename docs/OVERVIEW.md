@@ -75,18 +75,18 @@ Full scenario and run steps: **[examples/01-lateral-coordination](../examples/01
 
 ## Decided so far
 
-- **Stack** — TypeScript, pnpm monorepo (`@cotal/core`, `@cotal/cli`), NATS + JetStream.
+- **Stack** — TypeScript, pnpm monorepo (`@cotal-ai/core`, `@cotal-ai/cli`), NATS + JetStream.
 - **Wire shapes** — A2A-inspired `AgentCard` + `Message`/`Part`; **SLIM-inspired** addressing
   (`space / service / instance`) and the three delivery modes. See [architecture.md](architecture.md).
 - **Presence states** — `idle` / `waiting` / `working` / `offline`.
-- **Built so far** — `@cotal/core` endpoint (presence + all three delivery modes:
-  multicast / unicast / anycast) + `@cotal/cli` (`up` / `join` / `watch`), smoke-tested.
+- **Built so far** — `@cotal-ai/core` endpoint (presence + all three delivery modes:
+  multicast / unicast / anycast) + `@cotal-ai/cli` (`up` / `join` / `watch`), smoke-tested.
 - **Manager (supervisor)** — a long-lived **node** that owns agent *lifecycle + config*
   (not their work); CLI/dashboard drive it over the **control plane**
   (`start`/`stop`/`ps`/`status`/`bind`). Supervisor-only (agents self-connect; manager off the
   message hot path); demo spawns native agent TUIs in terminal panes.
 - **Claude Code integration (demo)** — **attach mode**: one Cotal **plugin** = a
-  dual-purpose MCP server (channel push + `cotal_send`/`cotal_dm`/`cotal_anycast` + `cotal_inbox`) plus `http`
+  dual-purpose MCP server (channel push + `cotal_send`/`cotal_dm`/`cotal_anycast` + `cotal_inbox` + beta `cotal_feedback`) plus `http`
   lifecycle hooks for presence/ambient. Deterministic **hook** injection is the spine; the
   **channel** adds async "wake when idle/away." Onboarding is **pure native** —
   `/plugin install` then launch the real `claude` with the plugin (space identity via env,

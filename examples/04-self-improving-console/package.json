@@ -1,5 +1,5 @@
 {
-  "name": "@cotal/example-04-self-improving-console",
+  "name": "@cotal-ai/example-04-self-improving-console",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -9,9 +9,9 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@cotal/cmux": "workspace:*",
-    "@cotal/core": "workspace:*",
-    "@cotal/manager": "workspace:*"
+    "@cotal-ai/cmux": "workspace:*",
+    "@cotal-ai/core": "workspace:*",
+    "@cotal-ai/manager": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.22.4"

@@ -6,7 +6,7 @@ import {
   DEFAULT_SERVER,
   DEFAULT_SPACE,
   type PresenceStatus,
-} from "@cotal/core";
+} from "@cotal-ai/core";
 import { c } from "../ui.js";
 
 /**

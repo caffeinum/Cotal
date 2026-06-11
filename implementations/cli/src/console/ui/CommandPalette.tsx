@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Box, Text, useInput } from "ink";
-import type { MeshSnapshot } from "@cotal/core";
+import type { MeshSnapshot } from "@cotal-ai/core";
 import { COMMANDS } from "../commands.js";
 
 const CAP = 6; // suggestion rows; the palette is a fixed CAP+1 rows tall so the layout doesn't jump

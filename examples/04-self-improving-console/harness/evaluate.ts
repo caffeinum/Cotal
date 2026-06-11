@@ -1,7 +1,7 @@
 /**
  * harness/evaluate.ts <rundir> — judge one swarm run.
  *
- * GREEN = build OK (the worktree's @cotal/cli typechecks) AND ≥1 genuine peer-to-peer
+ * GREEN = build OK (the worktree's @cotal-ai/cli typechecks) AND ≥1 genuine peer-to-peer
  * exchange (a unicast DM whose sender is a worker and recipient is not the orchestrator).
  *
  * Prints a verdict JSON to stdout (the loop appends it to ITERATIONS.md).

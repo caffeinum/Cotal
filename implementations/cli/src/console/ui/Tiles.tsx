@@ -1,5 +1,5 @@
 import { Box, Text } from "ink";
-import type { StatusCounts } from "@cotal/core";
+import type { StatusCounts } from "@cotal-ai/core";
 import { STATUS, ago } from "./theme.js";
 
 /** Golden-signal strip (one row): working/waiting/idle/offline counts + oldest-unattended age.

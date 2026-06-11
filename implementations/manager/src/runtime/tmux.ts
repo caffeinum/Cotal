@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import type { AgentHandle, LaunchSpec, Runtime } from "@cotal/core";
+import type { AgentHandle, LaunchSpec, Runtime } from "@cotal-ai/core";
 
 export function tmuxAvailable(): boolean {
   try {

@@ -1,5 +1,5 @@
-import type { CotalEndpoint, PresenceEvent, FeedEntry } from "@cotal/core";
-import { MeshView } from "@cotal/core";
+import type { CotalEndpoint, PresenceEvent, FeedEntry } from "@cotal-ai/core";
+import { MeshView } from "@cotal-ai/core";
 import { c, color256, statusBadge } from "./ui.js";
 
 // ---- per-agent color (ANSI) ------------------------------------------------

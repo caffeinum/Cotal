@@ -8,7 +8,7 @@
  *   COTAL_SPACE=<space> TRANSCRIPT=<path> tsx harness/observer.ts
  */
 import { appendFileSync } from "node:fs";
-import { CotalEndpoint, DEFAULT_SERVER, deliveryOf, type CotalMessage } from "@cotal/core";
+import { CotalEndpoint, DEFAULT_SERVER, deliveryOf, type CotalMessage } from "@cotal-ai/core";
 
 const space = process.env.COTAL_SPACE || "console";
 const server = process.env.COTAL_SERVERS || DEFAULT_SERVER;

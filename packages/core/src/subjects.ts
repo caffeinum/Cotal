@@ -74,8 +74,10 @@ export function isConcreteChannel(channel: string): boolean {
   return !channel.split(".").some((s) => s.trim() === "*" || s.trim() === ">");
 }
 
-/** Does NATS subject `pattern` (with `*`/`>`) match `subject`? */
-function subjectMatches(pattern: string, subject: string): boolean {
+/** Does NATS subject `pattern` (with `*`/`>`) match `subject`? Also reused for channel-level
+ *  matching ("is a member on `team.>` a member of `team.backend`?") — channels are dotted
+ *  token strings, same rules. */
+export function subjectMatches(pattern: string, subject: string): boolean {
   const p = pattern.split(".");
   const s = subject.split(".");
   for (let i = 0; i < p.length; i++) {
@@ -181,6 +183,17 @@ export function deliveryOf(subject: string): DeliveryMode | null {
 export function presenceBucket(space: string): string {
   return `cotal_presence_${token(space)}`;
 }
+
+/** Name of the KV bucket holding the channel registry (config) for a space — sibling of
+ *  the presence bucket. Key = the concrete channel token (`review`, `team.backend`). */
+export function channelBucket(space: string): string {
+  return `cotal_channels_${token(space)}`;
+}
+
+/** Reserved registry key for the space-wide channel defaults. `=` is a valid KV-key
+ *  character (`/^[-/=.\w]+$/`) but one `token()` can never produce (it maps every char
+ *  outside `[A-Za-z0-9_-]` to `_`), so this key can never collide with a real channel. */
+export const CHANNEL_DEFAULTS_KEY = "=defaults";
 
 // ---- JetStream streams (the durable backing for the three delivery modes) ----
 

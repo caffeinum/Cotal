@@ -12,7 +12,7 @@ import {
   type CotalMessage,
   type EndpointRef,
   type Presence,
-} from "@cotal/core";
+} from "@cotal-ai/core";
 
 // ---- public contract -------------------------------------------------------
 

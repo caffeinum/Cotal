@@ -16,7 +16,7 @@
  *   pnpm cotal console-ink --space demo-replay   # in a real terminal
  */
 import { readFileSync } from "node:fs";
-import { CotalEndpoint, DEFAULT_SERVER } from "@cotal/core";
+import { CotalEndpoint, DEFAULT_SERVER } from "@cotal-ai/core";
 
 const transcript = process.argv[2];
 const space = process.argv[3] ?? "demo-replay";

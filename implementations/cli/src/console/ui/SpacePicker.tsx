@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
-import { listSpaces, deleteSpace, type SpaceInfo } from "@cotal/core";
+import { listSpaces, deleteSpace, type SpaceInfo } from "@cotal-ai/core";
 import { agentColor } from "./theme.js";
 import { Confirm } from "./Confirm.js";
 

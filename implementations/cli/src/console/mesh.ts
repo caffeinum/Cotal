@@ -1,15 +1,15 @@
 // useMesh() — the React binding for the Ink console. A thin adapter over the shared
-// `MeshView` model in @cotal/core: it owns one MeshView over the read-only observer endpoint
+// `MeshView` model in @cotal-ai/core: it owns one MeshView over the read-only observer endpoint
 // (built by the console command), subscribes to its batched "change" snapshots, and pushes
 // them into React state. All the normalization (classification, coalescing, windowing, roster
 // sort, rates, derived signals) lives in MeshView — see docs/protocol-view.md.
 
 import { useEffect, useRef, useState } from "react";
-import type { CotalEndpoint, MeshSnapshot, MeshViewOptions } from "@cotal/core";
-import { MeshView } from "@cotal/core";
+import type { CotalEndpoint, MeshSnapshot, MeshViewOptions } from "@cotal-ai/core";
+import { MeshView } from "@cotal-ai/core";
 
 // Re-exported so the UI components keep importing the model shape from one place.
-export type { FeedEntry, MeshViewOptions, FeedDelivery } from "@cotal/core";
+export type { FeedEntry, MeshViewOptions, FeedDelivery } from "@cotal-ai/core";
 export type MeshState = MeshSnapshot;
 
 /** Focusable panes across the console (normal panels + the DM and topology lenses). */

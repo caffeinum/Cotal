@@ -24,7 +24,7 @@ REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 SPACE="todo"
 
 TSX="$REPO_ROOT/node_modules/.bin/tsx"
-# cmux is driven through the @cotal/cmux integration's CLI — no raw `cmux` here.
+# cmux is driven through the @cotal-ai/cmux integration's CLI — no raw `cmux` here.
 CMUX="$TSX $REPO_ROOT/extensions/cmux/src/cli.ts"
 cmux_check() {
   $CMUX check || { echo "✗ can't reach cmux — run this from inside a cmux terminal." >&2; exit 1; }
@@ -121,7 +121,7 @@ todo-api / todo-web / todo-docs into their own tabs:
 
   ./launch.sh --drive
 
-That opens the workspace via the @cotal/cmux driver (here's the layout if you
+That opens the workspace via the @cotal-ai/cmux driver (here's the layout if you
 want to tweak it):
 
   tsx extensions/cmux/src/cli.ts open cotal-todo '$(build_layout)'

@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 import { Box, Text } from "ink";
-import type { Presence } from "@cotal/core";
+import type { Presence } from "@cotal-ai/core";
 import type { FeedEntry } from "../mesh.js";
 import { agentColor, STATUS, ago, fmtTime, wrapText } from "./theme.js";
 

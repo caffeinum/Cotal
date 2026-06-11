@@ -1,5 +1,5 @@
 import * as pty from "@lydell/node-pty";
-import type { AgentHandle, AttachSession, LaunchSpec, Runtime } from "@cotal/core";
+import type { AgentHandle, AttachSession, LaunchSpec, Runtime } from "@cotal-ai/core";
 
 const DEFAULT_COLS = 120;
 const DEFAULT_ROWS = 32;

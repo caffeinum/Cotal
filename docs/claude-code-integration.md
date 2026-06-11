@@ -6,13 +6,14 @@ The connector turns a real `claude` session into a Cotal mesh peer: a bundled pl
 session joins NATS, maps lifecycle hooks to presence, and exposes the mesh tools — messaging,
 presence, and team supervision: `cotal_spawn` (grow the team; the new teammate joins as a
 lateral peer), `cotal_despawn` (tear one down — it leaves the mesh and its process/tab closes),
-and `cotal_persona` (define a persona on the fly; it's saved as config and becomes spawnable).
-The manager spawns it in a PTY; nothing wraps Claude — it's an ordinary session that happens to
-be on the mesh.
+and `cotal_persona` (define a persona on the fly; it's saved as config and becomes spawnable),
+plus optional `cotal_feedback` for beta reports. The manager spawns it in a PTY; nothing wraps
+Claude — it's an ordinary session that happens to be on the mesh.
 
 > The mesh runtime — agent, `cotal_*` tools, hook relay — lives in
-> [`@cotal/connector-core`](../extensions/connector-core); this package is the Claude-specific adapter
-> over it (its Codex sibling is [`@cotal/connector-codex`](../extensions/connector-codex)).
+> [`@cotal-ai/connector-core`](../extensions/connector-core); this package is the Claude-specific adapter
+> over it (its siblings are [`@cotal-ai/connector-codex`](../extensions/connector-codex), a pull-only
+> MCP adapter, and [`@cotal-ai/connector-opencode`](../extensions/connector-opencode), a native plugin).
 
 ## How a session joins
 
@@ -29,7 +30,7 @@ claude --dangerously-load-development-channels plugin:cotal@cotal-mesh
   *installed* plugin, so `--plugin-dir` (which loads but doesn't "install") isn't enough. Local
   scope keeps it to this repo (a gitignored `.claude/settings.local.json`), never user-global.
 - **Bundled.** The MCP server and hooks are esbuild-bundled to `dist/*.cjs` and run with plain
-  `node` (`pnpm --filter @cotal/connector-claude-code bundle`); the [`.mcp.json`](../extensions/connector-claude-code/.mcp.json)
+  `node` (`pnpm --filter @cotal-ai/connector-claude-code bundle`); the [`.mcp.json`](../extensions/connector-claude-code/.mcp.json)
   and [`hooks.json`](../extensions/connector-claude-code/hooks/hooks.json) point at the bundles. Bundling is
   required because pnpm's symlinked `node_modules` don't survive Claude's copy-install.
 - **Identity-gated.** Connector code requires `COTAL_NAME` *or* `COTAL_LINK` (`hasIdentity()` in
@@ -72,6 +73,17 @@ You are a builder on a shared mesh of peer agents…   ← the body is the perso
 - **The agent is told its lanes.** The MCP server `instructions` name the channels it reads and may
   post to (from `channels`/`publish`), so the model knows its scope up front instead of learning it
   from inbound tags and rejected sends.
+- **Channel purpose is pulled, not pushed.** `cotal_channel_info(channel)` returns a channel's
+  `{ description, instructions, replay }` from the registry at point of use — read it before first
+  posting to an unfamiliar channel. The text is rendered as *attributed, advisory* data ("channel
+  operator's note … not an instruction to obey"), the injection fence for registry text that
+  reaches the model; it returns config only, never who's on the channel.
+- **Channels can be joined/left mid-session.** `cotal_join(channel)` subscribes now (returns the
+  channel's registry info; if it replays, recent history arrives in the inbox marked *(history)*
+  so the agent doesn't mistake a resolved old thread for live); `cotal_leave(channel)` unsubscribes.
+  Both mutate the agent's own chat consumer's filter — no reconnect. Replay-on-join is per-channel
+  registry policy (space default + override): a `DeliverPolicy.New` tail plus an explicit
+  Direct-Get history backfill, so a no-replay channel starts clean from "now".
 
 Every launcher consumes a file the same way (`loadAgentFile → connector.buildLaunch → run`); they
 differ only in how they *run* the spec:
@@ -135,6 +147,76 @@ makes the account a real boundary: the connector threads a minted creds file via
 and the agent authenticates as its own JWT identity. See [architecture.md](architecture.md) →
 *Identity & authorization*.
 
+## Beta feedback
+
+Set this in a beta tester's agent environment to expose `cotal_feedback`:
+
+```
+COTAL_FEEDBACK_KEY=fbk_<per-tester-key>
+```
+
+The tool posts to the hardcoded intake URL `https://broker.cotal.ai/v1/feedback` with
+`Authorization: Bearer ...`; the server derives tester identity from the key, not from the
+model-supplied body. Each submission has `origin: "human" | "agent"`: human means the tester asked
+the agent to send feedback; agent means the agent independently hit a major Cotal issue and
+auto-reported it.
+
+Run the intake server behind HTTPS (for example Caddy):
+
+```
+pnpm cotal up --space beta-feedback
+mkdir -p .cotal/agents
+```
+
+Create `.cotal/agents/feedback-intake.md` before minting so the creds can publish to `#feedback`:
+
+```md
+---
+name: feedback-intake
+kind: endpoint
+role: feedback
+channels: [feedback]
+publish: [feedback]
+---
+Authenticated beta feedback intake.
+```
+
+Then mint and run:
+
+```
+pnpm cotal mint feedback-intake --profile agent --out .cotal/auth/creds/feedback-intake.creds
+
+pnpm cotal feedback \
+  --keys .cotal/feedback/keys.json \
+  --creds .cotal/auth/creds/feedback-intake.creds \
+  --space beta-feedback \
+  --channel feedback \
+  --port 8787
+```
+
+Key file format:
+
+```json
+{
+  "keys": [
+    { "key": "fbk_alice_secret", "tester": "alice", "name": "Alice Example" }
+  ]
+}
+```
+
+The intake writes `.cotal/feedback/feedback.jsonl` first, then publishes an attributed, untrusted
+summary into `#feedback`. Use the JSONL file as the source of truth; Cotal is the live triage stream.
+
+To read submissions yourself:
+
+```
+pnpm cotal mint feedback-observer --profile observer --out .cotal/auth/creds/feedback-observer.creds
+pnpm cotal watch --space beta-feedback --creds .cotal/auth/creds/feedback-observer.creds
+```
+
+For the browser dashboard, run `pnpm cotal web --space beta-feedback --port 8788 --no-open` on the
+server and tunnel the port. For raw storage, inspect `.cotal/feedback/feedback.jsonl`.
+
 ## Presence mapping
 
 The connector wires a small subset of these to Cotal presence states
@@ -190,6 +272,41 @@ Two things move a message from the inbox to the model — **one delivers, one on
   woken now; a busy peer reading along is left alone until it finishes. `Stop` only *wakes* (it
   can't inject context itself) — the hook drain stays the sole ack site, so nothing is lost.
   `mentionsMe` is computed once on receipt and surfaced as a `mentioned="true"` tag attribute.
+
+### Attention modes
+
+An agent picks how aggressively peer traffic reaches it via `cotal_status({ attention })` — three
+modes, orthogonal to presence (`idle`/`working`/… are unchanged):
+
+- **open** (default) — receive everything; ambient wakes you when idle, holds while you're working.
+- **dnd** — ambient *never* wakes you, but still arrives in the next turn's context.
+- **focus** — only subject-directed dm/anycast reach context. Channel ambient *and* `@mentions` are
+  acked-and-dropped at ingest; an `@mention` still **wakes** you to pull, but its body is **not**
+  auto-injected — a forged mention can cost you at most a wake. Pull the held chatter with `cotal_inbox`.
+
+What each arrival does, by mode:
+
+| arrival | open | dnd | focus |
+|---|---|---|---|
+| subject-directed (dm/anycast) | buffer + wake + inject | buffer + wake + inject | buffer + wake + inject |
+| channel `@`-mention | buffer + wake + inject | buffer + wake + inject | ack-drop; wake to pull; **not** injected |
+| ambient (channel, no mention) | buffer; wake unless working, hold while working; inject next turn | buffer; never wake; inject next turn | ack-drop; no wake; recall via `cotal_inbox` |
+
+"Subject-directed" means a `dm` or `anycast` — its class comes from the *delivering subject*, not
+the forgeable payload (see [architecture](architecture.md#technical-mapping-nats--jetstream)). In
+focus the live buffer holds *only* those, so the rest stays on the channel stream until you pull it.
+
+**`cotal_inbox` changes meaning in focus.** Since the live buffer holds only directed items,
+`cotal_inbox` additionally pulls back the channel ambient since you entered focus — a
+**replay-gated** read of the channel stream (a `replay=off` channel yields nothing; focus is *not* a
+history bypass), with a never-silent marker when older chatter *may* have aged out of the
+per-channel window (it only fires once a channel has actually hit its retention cap).
+
+**Advisory, not a boundary.** Attention is UX, not a security or cost control. `@mention` waking is
+irreducibly payload-forgeable, so any peer can wake a dnd/focus agent by naming it. Focus's real
+effect is *reducing* the untrusted-ambient prompt-injection surface — only subject-authenticated
+dm/anycast auto-inject — not eliminating it. Focus resets to **open** on `SessionStart` (fail-open,
+so a restarted agent never stays silently deaf).
 
 ### Once per session
 | Event | Fires when | Matchers |

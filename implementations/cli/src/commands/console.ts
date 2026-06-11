@@ -12,7 +12,7 @@ import {
   loadSpaceAuth,
   mintCreds,
   newIdentity,
-} from "@cotal/core";
+} from "@cotal-ai/core";
 import { c } from "../ui.js";
 import { runLog } from "../render.js";
 import { Root, makeObserver } from "../console/root.js";

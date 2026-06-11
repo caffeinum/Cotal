@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Box, useApp, useFocus, useInput, useStdout } from "ink";
-import type { CotalEndpoint } from "@cotal/core";
+import type { CotalEndpoint } from "@cotal-ai/core";
 import { useMesh } from "./mesh.js";
 import { Roster } from "./ui/Roster.js";
 import { Channels } from "./ui/Channels.js";

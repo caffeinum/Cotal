@@ -3,7 +3,7 @@
 // (sequence / matrix / map); render-agnostic and stateless — `now` is injectable,
 // so the fold is deterministic and the recency kernel needs no stored EWMA state.
 
-import type { Presence, PresenceStatus } from "@cotal/core";
+import type { Presence, PresenceStatus } from "@cotal-ai/core";
 import type { FeedDelivery, FeedEntry } from "../../mesh.js";
 
 export type TopoNodeKind = "agent" | "channel" | "service";

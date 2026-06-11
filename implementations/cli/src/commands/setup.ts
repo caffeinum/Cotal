@@ -32,7 +32,7 @@ export async function setup(): Promise<void> {
   const bundle = join(root, "extensions", "connector-claude-code", "dist", "mcp.cjs");
   if (!existsSync(bundle)) {
     console.log(c.dim("Building the connector bundle…"));
-    execFileSync("pnpm", ["--filter", "@cotal/connector-claude-code", "bundle"], {
+    execFileSync("pnpm", ["--filter", "@cotal-ai/connector-claude-code", "bundle"], {
       cwd: root,
       stdio: "inherit",
     });

@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { registry, type Connector, type LaunchOpts, type LaunchSpec } from "@cotal/core";
+import { registry, type Connector, type LaunchOpts, type LaunchSpec } from "@cotal-ai/core";
 
 /** The MCP server runs straight from source via tsx (Codex has no plugin copy-install, so
  *  there's no build step) — both paths resolved relative to this file. */

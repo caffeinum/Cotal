@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useFocus, useInput } from "ink";
-import type { Presence } from "@cotal/core";
+import type { Presence } from "@cotal-ai/core";
 import { agentColor, STATUS, ago } from "./theme.js";
 
 function RosterRow({ p, selected }: { p: Presence; selected: boolean }) {

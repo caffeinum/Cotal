@@ -135,14 +135,19 @@ The source of truth is the code: [`packages/core/src/types.ts`](packages/core/sr
 A pnpm + TypeScript ESM monorepo, four tiers with one-way deps —
 `examples → implementations → packages ← (peer) extensions`:
 
-- **`packages/*`** — the **protocol**: `@cotal/core` (endpoint, subjects, types, registry).
-- **`extensions/*`** — **pluggable adapters** that self-register through core's registry:
-  the MCP-bridge connectors (Claude Code, Codex), agent-framework peers (OpenAI Agents,
-  Vercel AI), and the `cmux` runtime.
-- **`implementations/*`** — **opinionated surfaces**: `@cotal/cli` and the `@cotal/manager`
-  supervisor.
-- **`examples/*`** — **use-cases** that only configure + orchestrate; protocol changes go
-  into `core`, generalized.
+- **`packages/*`** — the **protocol** (the standard): `@cotal-ai/core` (endpoint, subjects,
+  types, the extension registry).
+- **`extensions/*`** — **pluggable adapters** that peer-depend on core and self-register
+  through its registry: `@cotal-ai/connector-core` (the shared MCP-bridge runtime — mesh agent
+  + `cotal_*` tools incl. `cotal_spawn` + hook relay), `@cotal-ai/connector-claude-code`,
+  `@cotal-ai/connector-codex`, and `@cotal-ai/connector-opencode` (thin adapters over it), and
+  `@cotal-ai/cmux` (a driver over the cmux CLI plus the self-registering `cmux` runtime).
+- **`implementations/*`** — **opinionated surfaces** over core: `@cotal-ai/cli` (`cotal` —
+  `up`/`join`/`watch`/`console`/`web`/`spawn`/`mint`) and `@cotal-ai/manager` (the agent
+  supervisor — `start`/`stop`/`ps`/`attach`, spawning through a `pty`/`tmux`/`cmux` runtime).
+- **`examples/*`** — **use-cases** (composition roots). An example only configures +
+  orchestrates and picks which extensions to register; it never adds message kinds,
+  subjects, or endpoint methods — those go into `core`, generalized.
 
 See [CLAUDE.md](CLAUDE.md) and [architecture](docs/architecture.md) for the full breakdown.
 

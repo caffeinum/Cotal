@@ -10,7 +10,7 @@ import {
   registry,
   type Command,
   type ControlReply,
-} from "@cotal/core";
+} from "@cotal-ai/core";
 import { Manager } from "./manager.js";
 import { findWorkspaceRoot, type RuntimeMode } from "./runtime/index.js";
 import { attachClient } from "./attach-client.js";

@@ -176,7 +176,7 @@ stream that the UI is a thin renderer over** — AG-UI (lifecycle / text / tool-
 **"the wire contract is the standard; libraries are thin clients."**
 
 → **Cotal.** UX affordances should not be client-side hacks bolted onto each surface.
-Define them once as **message kinds / conventions in `@cotal/core`** — intent, progress,
+Define them once as **message kinds / conventions in `@cotal-ai/core`** — intent, progress,
 needs-input, claim/ack, snapshot+delta presence — so the CLI `watch`, the TUI `console`,
 the `web` dashboard, and any future GUI all render the same semantics consistently. This
 is both the cleanest engineering and the most faithful to Cotal's thesis.
@@ -234,7 +234,7 @@ primitive. Recommendations are tagged **[now]** (small, fits current surfaces),
 ### Transparency & control (mostly protocol work)
 
 - **R5 — UX as core message kinds. [later, foundational]** Per Principle F, add to
-  `@cotal/core` a small typed vocabulary the whole ecosystem renders:
+  `@cotal-ai/core` a small typed vocabulary the whole ecosystem renders:
   - **intent / plan** — "I'm about to do X" broadcast before consequential action.
   - **progress / activity delta** — streamed step/status updates (snapshot + delta, the
     AG-UI pattern, to stay cheap on the hot path).

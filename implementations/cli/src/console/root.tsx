@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { CotalEndpoint, chatWildcard } from "@cotal/core";
+import { CotalEndpoint, chatWildcard } from "@cotal-ai/core";
 import { App } from "./app.js";
 import { SpacePicker } from "./ui/SpacePicker.js";
 

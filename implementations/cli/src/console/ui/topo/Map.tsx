@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Box, Text, useInput } from "ink";
-import type { Presence } from "@cotal/core";
+import type { Presence } from "@cotal-ai/core";
 import { agentColor, STATUS } from "../theme.js";
 import { heatLevel, nodeLabel, type TopoGraph, type TopoNode } from "./model.js";
 import { blankGrid, stamp, toSegments, type CellStyle } from "./raster.js";

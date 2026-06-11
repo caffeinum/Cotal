@@ -1,4 +1,4 @@
-import type { PresenceStatus } from "@cotal/core";
+import type { PresenceStatus } from "@cotal-ai/core";
 
 // Per-agent color — a stable hash into a readable palette that avoids the status
 // hues (green/yellow/red) so an agent's name never reads as a status. These are the

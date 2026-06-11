@@ -1,7 +1,7 @@
 # Licensing
 
 Cotal is **Apache-2.0** (see [LICENSE](LICENSE)) — all of it: the wire protocol,
-`@cotal/core`, every extension, and the CLI.
+`@cotal-ai/core`, every extension, and the CLI.
 
 **Why permissive.** A protocol is only worth something if people adopt it.
 Apache-2.0 lets anyone embed Cotal in their own agents (proprietary included) or

@@ -1,4 +1,4 @@
-import type { PresenceStatus } from "@cotal/core";
+import type { PresenceStatus } from "@cotal-ai/core";
 
 // Per-agent color: a stable name→hex hash. These are render.ts's 256-color palette
 // indices converted to hex, so names read the same as the classic dashboard — and they

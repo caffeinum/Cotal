@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import {
@@ -14,8 +14,10 @@ import {
   mintCreds,
   newIdentity,
   setupSpaceStreams,
+  seedChannelRegistry,
   type SpaceAuth,
-} from "@cotal/core";
+  type ChannelRegistryFile,
+} from "@cotal-ai/core";
 import { c } from "../ui.js";
 
 export async function up(argv: string[]): Promise<void> {
@@ -27,6 +29,7 @@ export async function up(argv: string[]): Promise<void> {
       "store-dir": { type: "string" },
       space: { type: "string" },
       open: { type: "boolean" }, // disable auth — run an open dev mesh
+      channels: { type: "string" }, // seed the channel registry from this JSON file
     },
   });
   const server = values.server ?? DEFAULT_SERVER;
@@ -41,8 +44,12 @@ export async function up(argv: string[]): Promise<void> {
   // minted creds. `--open` runs the unauthenticated dev mesh instead.
   const useAuth = !values.open;
   const space = values.space ?? DEFAULT_SPACE;
+  const seedFile = loadChannelsFile(values.channels);
   const setup = useAuth ? await authSetup(storeDir, server, space) : undefined;
-  const args = setup ? ["-c", setup.confPath] : ["-js", "-sd", storeDir];
+  // Auth mode's port comes from the generated config; open mode must pass it explicitly, else
+  // nats-server ignores --server's port and binds the default 4222.
+  const port = Number(new URL(server).port) || 4222;
+  const args = setup ? ["-c", setup.confPath] : ["-js", "-sd", storeDir, "-p", String(port)];
 
   console.log(
     c.dim(
@@ -72,8 +79,35 @@ export async function up(argv: string[]): Promise<void> {
     }
     await setupSpaceStreams({ servers: server, space, creds: setup.creds });
     console.log(c.dim("Pre-created CHAT/DM/TASK streams for the space."));
+    if (seedFile) {
+      await seedChannelRegistry({ servers: server, space, creds: setup.creds, file: seedFile });
+      console.log(c.dim("Seeded the channel registry."));
+    }
+  } else if (seedFile) {
+    // Open mode: the bucket is created lazily — wait for the server, then seed it (no creds).
+    for (let i = 0; i < 50; i++) {
+      if (await isReachable(server)) break;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    await seedChannelRegistry({ servers: server, space, file: seedFile });
+    console.log(c.dim("Seeded the channel registry."));
   }
   await new Promise<void>(() => {});
+}
+
+/** Load the declarative channels-config file to seed the registry. An explicit `--channels`
+ *  path that's missing is a hard error; the default `.cotal/channels.json` is optional (absent
+ *  ⇒ nothing to seed). */
+function loadChannelsFile(explicit?: string): ChannelRegistryFile | undefined {
+  const path = resolve(explicit ?? ".cotal/channels.json");
+  if (!existsSync(path)) {
+    if (explicit) {
+      console.error(c.red(`channels file not found: ${path}`));
+      process.exit(1);
+    }
+    return undefined;
+  }
+  return JSON.parse(readFileSync(path, "utf8")) as ChannelRegistryFile;
 }
 
 /** Ensure the space's trust material exists, render a server config, and mint a privileged

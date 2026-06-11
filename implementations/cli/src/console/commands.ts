@@ -2,7 +2,7 @@
 // the CLI `Command` registry, which is argv/process-exit shaped). The catalog drives both execution
 // and the palette's autocomplete. Write commands publish over the mesh via the observer endpoint;
 // they are gated on `canWrite` (open mode, or a privileged --creds).
-import type { CotalEndpoint, MeshSnapshot } from "@cotal/core";
+import type { CotalEndpoint, MeshSnapshot } from "@cotal-ai/core";
 
 export interface CommandCtx {
   ep: CotalEndpoint;

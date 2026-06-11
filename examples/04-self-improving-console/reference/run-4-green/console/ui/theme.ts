@@ -1,7 +1,7 @@
 // Shared visual vocabulary for the Ink console. Colors here are Ink color values
 // (hex or named) for <Text color=…>, not ANSI escapes — Ink owns the rendering.
 
-import type { PresenceStatus } from "@cotal/core";
+import type { PresenceStatus } from "@cotal-ai/core";
 
 // Readable palette that avoids the status hues (green/yellow/red), so an agent's
 // name never reads as a status. Mirrors render.ts's 256-color picks as hex.

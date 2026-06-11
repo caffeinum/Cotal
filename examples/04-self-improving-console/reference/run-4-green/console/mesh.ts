@@ -6,8 +6,8 @@
 // Interface settled peer-to-peer with tui-designer; treat `MeshState` as the contract.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { deliveryOf } from "@cotal/core";
-import type { CotalEndpoint, Presence, CotalMessage } from "@cotal/core";
+import { deliveryOf } from "@cotal-ai/core";
+import type { CotalEndpoint, Presence, CotalMessage } from "@cotal-ai/core";
 
 // ---- public contract -------------------------------------------------------
 

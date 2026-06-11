@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { Box, Text, useFocus } from "ink";
-import type { Presence } from "@cotal/core";
+import type { Presence } from "@cotal-ai/core";
 import type { FeedEntry, FocusId } from "../../mesh.js";
 import { foldTopo } from "./model.js";
 import { Sequence } from "./Sequence.js";
