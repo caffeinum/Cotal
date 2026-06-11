@@ -17,10 +17,11 @@
  * per-launch `OPENCODE_SERVER_PASSWORD` in the child env; the poke and the attach TUI present it as
  * HTTP basic auth. Bind stays loopback; no CORS / mDNS.
  */
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import { once } from "node:events";
 import { randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 
 const BIN = process.env.COTAL_OPENCODE_BIN?.trim() || "opencode";
 
@@ -37,13 +38,53 @@ async function freePort(): Promise<number> {
   return port;
 }
 
+/** SIGTERM the serve, then SIGKILL if it's still alive 3s later — a lingering serve keeps the
+ *  agent's data dir (SQLite) open and wedges every later same-name spawn. Resolves once it's dead. */
+async function killServe(serve: ChildProcess): Promise<void> {
+  if (serve.exitCode !== null || serve.signalCode !== null) return;
+  serve.kill("SIGTERM");
+  const dead = await Promise.race([
+    once(serve, "exit").then(() => true),
+    new Promise<boolean>((r) => setTimeout(() => r(false), 3000)),
+  ]);
+  if (!dead) {
+    serve.kill("SIGKILL");
+    await once(serve, "exit");
+  }
+}
+
 async function main(): Promise<void> {
   const port = process.env.COTAL_OPENCODE_PORT?.trim() || String(await freePort());
   const url = `http://127.0.0.1:${port}`;
+  // Own data dir per agent: opencode keeps sessions in one SQLite file under XDG_DATA_HOME,
+  // and concurrent serves sharing it stall session-create on the write lock (the "agent
+  // session never came up" failure). Per-peer session state is the right scoping anyway;
+  // provider config/auth lives under XDG_CONFIG_HOME, untouched.
+  const name = process.env.COTAL_NAME?.trim() || "agent";
+  const dataHome = `${process.cwd()}/.cotal/opencode/${name}`;
+
+  // Two serves on one data dir share the SQLite file and stall each other — refuse up front.
+  const pidFile = `${dataHome}/serve.pid`;
+  if (existsSync(pidFile)) {
+    const pid = Number(readFileSync(pidFile, "utf8"));
+    let alive = false;
+    try {
+      process.kill(pid, 0);
+      alive = true;
+    } catch {
+      /* stale pidfile */
+    }
+    if (alive) throw new Error(`agent "${name}" is already running (opencode serve pid ${pid}) — kill it first`);
+    rmSync(pidFile);
+  }
+
   const serve = spawn(BIN, ["serve", "--hostname", "127.0.0.1", "--port", port], {
-    env: { ...process.env, OPENCODE_SERVER_PASSWORD: SECRET },
+    env: { ...process.env, OPENCODE_SERVER_PASSWORD: SECRET, XDG_DATA_HOME: dataHome },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  mkdirSync(dataHome, { recursive: true });
+  writeFileSync(pidFile, String(serve.pid));
+  serve.on("exit", () => rmSync(pidFile, { force: true }));
 
   // Scan the server's output for the plugin's session handshake; forward boot logs to our stderr
   // until the TUI takes over the terminal (after that, drop them so they can't corrupt its display).
@@ -66,31 +107,33 @@ async function main(): Promise<void> {
     if (!attached) process.exit(code ?? (signal ? 1 : 0)); // died before the TUI came up
   });
 
-  // Poke the server (lazy plugin load → mesh join + session create). Polling — not a one-shot keyed
-  // off a log banner — means a slow start can't leave the agent silently un-joined.
+  // Poke the server until the plugin's session handshake lands (lazy plugin load → mesh join +
+  // session create). Poking must NOT stop at the first 2xx: early in boot the server can answer
+  // /session before the project instance has bootstrapped, and only a later request triggers the
+  // bootstrap that loads the plugin.
   const auth = `Basic ${Buffer.from(`opencode:${SECRET}`).toString("base64")}`;
   void (async () => {
-    for (let i = 0; i < 50; i++) {
+    for (let i = 0; i < 300 && !sessionId; i++) {
       try {
-        const res = await fetch(`${url}/session`, { headers: { authorization: auth } });
-        if (res.ok) return;
+        await fetch(`${url}/session`, { headers: { authorization: auth } });
       } catch {
         /* not up yet — retry */
       }
       await new Promise((r) => setTimeout(r, 200));
     }
-    process.stderr.write("[cotal-connector] serve: no 2xx from the poke after ~10s — plugin may not have loaded\n");
   })();
 
   // Wait for the agent's session, then attach a foreground TUI to it.
   const id = await new Promise<string | undefined>((resolve) => {
     if (sessionId) return resolve(sessionId);
     onSession = resolve;
-    setTimeout(() => resolve(sessionId), 20_000);
+    setTimeout(() => resolve(sessionId), 60_000);
   });
   if (!id) {
-    process.stderr.write("[cotal-connector] serve: agent session never came up (~20s) — aborting\n");
-    serve.kill("SIGTERM");
+    process.stderr.write(
+      "[cotal-connector] serve: agent session never came up (~60s) — aborting. Check the boot log above for plugin/mesh errors (.cotal/opencode/<name>/opencode/log/)\n",
+    );
+    await killServe(serve);
     process.exit(1);
   }
 
@@ -102,8 +145,10 @@ async function main(): Promise<void> {
   // face viewer (face-term). COTAL_FACE_BIN must point at face-term.mjs — no fallback.
   const facePersona = process.env.COTAL_FACE_PERSONA?.trim();
   const faceBin = process.env.COTAL_FACE_BIN?.trim();
-  if (facePersona && !faceBin)
+  if (facePersona && !faceBin) {
+    await killServe(serve); // don't orphan the server — it holds the agent's data dir
     throw new Error("COTAL_FACE_PERSONA is set but COTAL_FACE_BIN is not — point it at face-term.mjs");
+  }
   const [cmd, args] = facePersona
     ? [
         process.execPath,
@@ -121,8 +166,8 @@ async function main(): Promise<void> {
       serve.kill(sig);
     });
   tui.on("exit", (code, signal) => {
-    serve.kill("SIGTERM"); // TUI closed → tear down the server
-    process.exit(code ?? (signal ? 1 : 0));
+    // TUI closed → tear down the server, for real (SIGKILL fallback), before exiting.
+    void killServe(serve).then(() => process.exit(code ?? (signal ? 1 : 0)));
   });
 }
 
