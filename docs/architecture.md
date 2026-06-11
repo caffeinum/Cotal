@@ -180,7 +180,9 @@ the mesh connection for the session and closes it in `dispose`. Spawned agents r
 (`permission: "allow"`). The foreground viewer is swappable: an agent file's optional `face:` id
 makes the launcher attach an animated avatar viewer to the session instead of the chat TUI
 (`COTAL_FACE_BIN` must point at a face-term-compatible script; it watches the same event stream and
-can still send prompts into the session).
+can still send prompts into the session). A face-hosted agent is also told to embed `[[face:X]]`
+emotion tags in its send text — the viewer reads them from the tool-call input to animate the
+avatar, and the send tools strip them before publishing, so they never reach the wire.
 
 **Two injection paths (different control profiles), composed.**
 

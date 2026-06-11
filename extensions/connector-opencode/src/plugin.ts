@@ -52,7 +52,24 @@ export const cotal: Plugin = async ({ client }) => {
   agent.start(); // background connect with retry — never blocks startup
 
   const def = process.env.COTAL_AGENT_FILE?.trim() ? loadAgentFile(process.env.COTAL_AGENT_FILE.trim()) : undefined;
-  const persona = def?.persona;
+  // Face-hosted (`face:` in the agent file → the shim attaches the face viewer): teach the agent
+  // to steer its avatar's expression with inline [[face:X]] tags in the text it passes to the
+  // cotal send tools. The viewer reads them from the tool-call input; the tool layer strips them
+  // before the wire, so peers never see them.
+  const facePrompt = process.env.COTAL_FACE_PERSONA?.trim()
+    ? "You speak through an animated pixel-art avatar of yourself. Hard formatting rule: the text " +
+      "you pass to the cotal send tools (cotal_send / cotal_dm) must START with an emotion tag " +
+      "[[face:X]], where X is one of: neutral, happy, sad, angry, surprised — pick the one matching " +
+      "your mood, and insert another tag mid-text whenever your mood shifts. Example: " +
+      '"[[face:angry]] That race condition cost me three days. [[face:happy]] But watch it run now." ' +
+      "Never mention or explain the tags — they are stripped before peers see your message."
+    : undefined;
+  const persona = [def?.persona, facePrompt].filter(Boolean).join("\n\n") || undefined;
+  // System-position rules get ignored by some models — repeat the format rule in every injected
+  // turn (a fresh user-turn instruction is followed far more reliably).
+  const faceReminder = facePrompt
+    ? "(avatar: begin your cotal_send/cotal_dm text with [[face:X]] — neutral|happy|sad|angry|surprised — and add another tag when your mood shifts)"
+    : undefined;
 
   // This agent OWNS one session, created at boot. The serve shim attaches the foreground TUI to it
   // (`opencode attach --session <id>`), so what the human watches IS the session we drive — no
@@ -123,6 +140,7 @@ export const cotal: Plugin = async ({ client }) => {
         if (brief) parts.unshift({ type: "text", text: brief });
       }
       if (parts.length === 0) return;
+      if (faceReminder) parts.push({ type: "text", text: faceReminder });
       const body: { parts: typeof parts; system?: string } = { parts };
       if (!primed && persona) body.system = persona; // persona once, as system (no --append-system-prompt)
       busy = true;

@@ -36,6 +36,12 @@ function statusGlyph(s: PresenceStatus): string {
   return s === "working" ? "●" : s === "waiting" ? "◐" : s === "idle" ? "○" : "·";
 }
 
+/** Viewer-only `[[face:X]]` emotion tags — a face-hosted agent embeds them in its send text and
+ *  the face viewer reads them from the tool-call input (the event stream); the wire gets clean
+ *  text, so peers and the console never see them. */
+const FACE_TAG_RE = /\[\[\s*face\s*:\s*[a-zA-Z]+\s*\]\]\s?/gi;
+const stripFaceTags = (text: string): string => text.replace(FACE_TAG_RE, "");
+
 /** One-line meaning of each attention mode, echoed back on set/read so the agent always sees the
  *  effect of a mode it may have set turns ago (self-visibility is the escape hatch for `focus`). */
 const ATTENTION_DESC: Record<"open" | "dnd" | "focus", string> = {
@@ -170,7 +176,7 @@ export function cotalToolSpecs(config: AgentConfig): CotalToolSpec[] {
       },
       async run(agent, _config, { text: msg, channel, mentions }: { text: string; channel?: string; mentions?: string[] }) {
         try {
-          const m = await agent.send(msg, channel, mentions);
+          const m = await agent.send(stripFaceTags(msg), channel, mentions);
           return ok(`Sent to #${m.channel}${m.mentions?.length ? ` (mentioned @${m.mentions.join(", @")})` : ""}.`);
         } catch (e) {
           return err(`Couldn't send: ${(e as Error).message}`);
@@ -187,7 +193,7 @@ export function cotalToolSpecs(config: AgentConfig): CotalToolSpec[] {
       },
       async run(agent, _config, { to, text: msg }: { to: string; text: string }) {
         try {
-          const { peer } = await agent.dm(to, msg);
+          const { peer } = await agent.dm(to, stripFaceTags(msg));
           return ok(`DM sent to ${peer.card.name}.`);
         } catch (e) {
           return err(`Couldn't DM: ${(e as Error).message}`);
@@ -205,7 +211,7 @@ export function cotalToolSpecs(config: AgentConfig): CotalToolSpec[] {
       },
       async run(agent, _config, { role, text: msg }: { role: string; text: string }) {
         try {
-          await agent.anycast(role, msg);
+          await agent.anycast(role, stripFaceTags(msg));
           return ok(`Sent to one @${role}.`);
         } catch (e) {
           return err(`Couldn't send: ${(e as Error).message}`);
