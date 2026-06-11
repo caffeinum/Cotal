@@ -9,6 +9,7 @@ import { spawn } from "./commands/spawn.js";
 import { mint } from "./commands/mint.js";
 import { setup } from "./commands/setup.js";
 import { channels } from "./commands/channels.js";
+import { purge } from "./commands/purge.js";
 import { feedback } from "./commands/feedback.js";
 
 /** The minimal mesh CLI: thin NATS clients (up/join/watch), plus `spawn` — a
@@ -87,6 +88,13 @@ const baseCommands: Command[] = [
     summary:
       "inspect/set channel registry — channels <list | set <name> [--replay|--no-replay] [--desc <s>] [--instructions <s>] | default --replay|--no-replay>",
     run: channels,
+  },
+  {
+    kind: "command",
+    name: "purge",
+    group: "Mesh",
+    summary: "wipe a space's channel history (CHAT stream; --dm for DM inboxes too) — [--space <s>]",
+    run: purge,
   },
   {
     kind: "command",

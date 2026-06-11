@@ -121,6 +121,32 @@ export function taskDurableConfig(
   };
 }
 
+/** Purge a space's CHAT stream (and optionally DM) — wipes the channel backlog/history while
+ *  leaving streams and consumers in place, so live agents keep working and late joiners simply
+ *  backfill nothing. Privileged like {@link setupSpaceStreams}; omit creds on an open dev mesh.
+ *  Returns purged message counts. */
+export async function purgeSpaceStreams(opts: {
+  servers: string;
+  space: string;
+  creds?: string;
+  dm?: boolean;
+}): Promise<{ chat: number; dm?: number }> {
+  const nc = await connect({
+    servers: opts.servers,
+    authenticator: opts.creds
+      ? credsAuthenticator(new TextEncoder().encode(opts.creds))
+      : undefined,
+  });
+  try {
+    const jsm = await jetstreamManager(nc);
+    const chat = (await jsm.streams.purge(chatStream(opts.space))).purged;
+    const dm = opts.dm ? (await jsm.streams.purge(dmStream(opts.space))).purged : undefined;
+    return { chat, dm };
+  } finally {
+    await nc.drain();
+  }
+}
+
 /** Connect with the given (privileged) creds, create the space's streams, and disconnect.
  *  Used by `cotal up` to pre-create streams once at setup. */
 export async function setupSpaceStreams(opts: {

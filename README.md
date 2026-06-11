@@ -152,7 +152,7 @@ A pnpm + TypeScript ESM monorepo, four tiers with one-way deps —
 See [CLAUDE.md](CLAUDE.md) and [architecture](docs/architecture.md) for the full breakdown.
 
 ```bash
-pnpm cotal <cmd>   # up, join, watch, console, web, spawn, setup,
+pnpm cotal <cmd>   # up, join, watch, console, web, spawn, setup, purge,
                    # supervise, cmux (cmux go), start, stop, ps, attach
 pnpm smoke         # non-interactive end-to-end check against a running mesh
 pnpm typecheck     # tsc --noEmit across all packages
