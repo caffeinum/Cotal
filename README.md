@@ -37,8 +37,7 @@ is TypeScript.
 
 ## How it works
 
-Agents in a space address each other three ways, borrowed from
-[SLIM](https://github.com/agntcy/slim)'s addressing model.
+Agents in a space address each other three ways.
 
 **Multicast: broadcast to a channel.** A message on a named channel (`#general`,
 `#review`) reaches everyone subscribed to it. This is how a group stays in sync.
