@@ -5,9 +5,9 @@
 
 **The open standard for agent coordination.**
 
-One protocol, any topology — peer-to-peer, supervised, hierarchical, hybrid.
+One protocol, any topology: peer-to-peer, supervised, hierarchical, hybrid.
 
-<!-- TODO(asset): CI badge — point at the public typecheck+smoke workflow once it's live -->
+<!-- TODO(asset): CI badge: point at the public typecheck+smoke workflow once it's live -->
 [![CI](https://img.shields.io/badge/CI-pending-lightgrey)](https://github.com/Cotal-AI/Cotal/actions)
 [![npm](https://img.shields.io/npm/v/@cotal-ai/core?label=%40cotal-ai%2Fcore)](https://www.npmjs.com/package/@cotal-ai/core)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
@@ -15,7 +15,7 @@ One protocol, any topology — peer-to-peer, supervised, hierarchical, hybrid.
 
 </div>
 
-<!-- TODO(asset): hero animation slot — current favorite: an orchestration tree (controller, sub-agents reporting up) morphing into a shared space where the same agents talk laterally. ~5–15s seamless GIF, one focal point. assets/hero.gif -->
+<!-- TODO(asset): hero animation slot. Current favorite: an orchestration tree (controller, sub-agents reporting up) morphing into a shared space where the same agents talk laterally. ~5-15s seamless loop, one focal point. assets/hero.gif -->
 
 ## What is Cotal
 
@@ -43,19 +43,19 @@ Agents in a space address each other three ways, borrowed from
 **Multicast: broadcast to a channel.** A message on a named channel (`#general`,
 `#review`) reaches everyone subscribed to it. This is how a group stays in sync.
 
-<!-- TODO(asset): multicast animation — one agent posts to a channel, all subscribers light up. assets/multicast.gif -->
+<!-- TODO(asset): multicast animation. One agent posts to a channel, all subscribers light up. assets/multicast.gif -->
 
 **Unicast: message one peer.** Addressed to a specific instance and delivered durably:
 a message to a busy or offline agent waits on the stream until it is read; nothing is
 lost.
 
-<!-- TODO(asset): unicast animation — one agent sends directly to another; the message waits in the recipient's inbox until read. assets/unicast.gif -->
+<!-- TODO(asset): unicast animation. One agent sends directly to another; the message waits in the recipient's inbox until read. assets/unicast.gif -->
 
 **Anycast: reach any one of a role.** Address a *service* ("whoever is a reviewer")
 and exactly one available instance picks the work up. Delegation and load-balancing
 without naming a worker.
 
-<!-- TODO(asset): anycast animation — a request to "reviewer" routed to one of several role instances. assets/anycast.gif -->
+<!-- TODO(asset): anycast animation. A request to "reviewer" routed to one of several role instances. assets/anycast.gif -->
 
 Underneath all three: **presence**. Every agent publishes a live state (`idle` /
 `waiting` / `working` / `offline`) and its [A2A](https://a2a-protocol.org)
@@ -87,7 +87,7 @@ Two peers in one shared space, in three steps.
 > `brew install nats-server`. `cotal up` starts a local one, or reuses one already
 > listening on `:4222`.
 
-<!-- TODO(bin): publish the `cotal` bin before this section goes live — no package ships a `bin` field yet. Until then the honest invocation is `pnpm cotal <cmd>` from a clone. -->
+<!-- TODO(bin): publish the `cotal` bin before this section goes live; no package ships a `bin` field yet. Until then the honest invocation is `pnpm cotal <cmd>` from a clone. -->
 
 ```bash
 # 1. start a local mesh (NATS + JetStream, open dev mode)
@@ -102,7 +102,7 @@ npx cotal join --space demo --name bob --role reviewer
 
 Bob's terminal greets him with who's already there:
 
-<!-- TODO(asset): VHS terminal GIF — assets/quickstart.tape committed, rendered to assets/quickstart.gif; replace this block with the rendered recording so it can't drift from the real CLI. -->
+<!-- TODO(asset): VHS terminal GIF. assets/quickstart.tape committed, rendered to assets/quickstart.gif; replace this block with the rendered recording so it can't drift from the real CLI. -->
 
 ```
 Joined demo as bob/reviewer on #general.
@@ -153,7 +153,7 @@ mechanism you can check against the code:
   reviewer" routes through a shared work queue, so specialization is part of the
   addressing rather than glued on top.
 
-### Ecosystem — what runs today
+### Ecosystem: what runs today
 
 | Package | What it is |
 |---|---|
@@ -182,9 +182,9 @@ More scenarios in [`examples/`](examples/).
 
 ## Documentation
 
-- [docs/OVERVIEW.md](docs/OVERVIEW.md) — what Cotal does and the core primitives.
-- [docs/architecture.md](docs/architecture.md) — how it's built: subjects, streams,
-  auth, and the wire contract.
+- [docs/OVERVIEW.md](docs/OVERVIEW.md): what Cotal does and the core primitives.
+- [docs/architecture.md](docs/architecture.md): how it's built (subjects, streams,
+  auth, and the wire contract).
 
 ## FAQ
 
@@ -225,12 +225,12 @@ or open an issue.
 
 ## Team
 
-<!-- TODO(asset): team photos — assets/team/*.jpg or GitHub avatars -->
+<!-- TODO(asset): team photos (assets/team/*.jpg or GitHub avatars) -->
 
 | | |
 |---|---|
-| <!-- TODO(asset): photo --> | **David Farah** — <!-- TODO: one-line role --><br><!-- TODO: email --> |
-| <!-- TODO(asset): photo --> | **<!-- TODO: name -->** — <!-- TODO: one-line role --><br><!-- TODO: email --> |
+| <!-- TODO(asset): photo --> | **David Farah**, <!-- TODO: one-line role --><br><!-- TODO: email --> |
+| <!-- TODO(asset): photo --> | **Sven Jonscher**, <!-- TODO: one-line role --><br><!-- TODO: email --> |
 
 Building something on Cotal, or want to? Email us. We read everything.
 
