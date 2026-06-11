@@ -98,7 +98,19 @@ async function main(): Promise<void> {
   delete tuiEnv.OPENCODE_CONFIG_CONTENT; // a viewer, not a peer — must NOT load the plugin again
   for (const k of Object.keys(tuiEnv)) if (k.startsWith("COTAL_")) delete tuiEnv[k];
   attached = true;
-  const tui = spawn(BIN, ["attach", url, "--session", id, "--password", SECRET], {
+  // COTAL_FACE_PERSONA (from the agent file's `face:`) swaps the chat TUI for the animated
+  // face viewer (face-term). COTAL_FACE_BIN must point at face-term.mjs — no fallback.
+  const facePersona = process.env.COTAL_FACE_PERSONA?.trim();
+  const faceBin = process.env.COTAL_FACE_BIN?.trim();
+  if (facePersona && !faceBin)
+    throw new Error("COTAL_FACE_PERSONA is set but COTAL_FACE_BIN is not — point it at face-term.mjs");
+  const [cmd, args] = facePersona
+    ? [
+        process.execPath,
+        [faceBin!, "--persona", facePersona, "--server", url, "--session", id, "--password", SECRET],
+      ]
+    : [BIN, ["attach", url, "--session", id, "--password", SECRET]];
+  const tui = spawn(cmd, args, {
     env: tuiEnv,
     stdio: "inherit",
   });

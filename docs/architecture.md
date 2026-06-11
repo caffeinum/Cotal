@@ -177,7 +177,10 @@ can't race the TUI input box and the TUI renders it live), acking on `session.id
 watching the TUI sees the agent work and can type into the same session. So unlike Codex it is
 push-capable, and unlike Claude Code it needs no separate hooks or control socket — the plugin holds
 the mesh connection for the session and closes it in `dispose`. Spawned agents run autonomously
-(`permission: "allow"`).
+(`permission: "allow"`). The foreground viewer is swappable: an agent file's optional `face:` id
+makes the launcher attach an animated avatar viewer to the session instead of the chat TUI
+(`COTAL_FACE_BIN` must point at a face-term-compatible script; it watches the same event stream and
+can still send prompts into the session).
 
 **Two injection paths (different control profiles), composed.**
 

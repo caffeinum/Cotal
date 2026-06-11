@@ -10,6 +10,7 @@
  *   channels: [general]    # channels this agent subscribes to (read)
  *   publish: [general]     # channels this agent may post to (write); omit = same as channels
  *   model: opus            # optional CLI/model override
+ *   face: sven             # optional avatar id for face-capable viewers
  *   ---
  *   <the Markdown body is the persona — an appended system prompt>
  *
@@ -35,6 +36,8 @@ export interface AgentDef {
   publish?: string[];
   /** Model override handed to the agent CLI (e.g. `claude --model`). */
   model?: string;
+  /** Avatar id for face-capable viewers (e.g. the face-term animated terminal view). */
+  face?: string;
   /** Markdown body — the agent's persona / appended system prompt. */
   persona?: string;
 }
@@ -106,6 +109,7 @@ export function loadAgentFile(path: string): AgentDef {
     channels: list("channels"),
     publish: list("publish"),
     model: str("model"),
+    face: str("face"),
     persona: persona || undefined,
   };
 }
@@ -124,6 +128,7 @@ export function saveAgentFile(path: string, def: AgentDef): void {
   if (def.channels?.length) lines.push(`channels: [${def.channels.join(", ")}]`);
   if (def.publish?.length) lines.push(`publish: [${def.publish.join(", ")}]`);
   if (def.model) lines.push(`model: ${def.model}`);
+  if (def.face) lines.push(`face: ${def.face}`);
   lines.push("---");
   const body = def.persona ? `${def.persona.trim()}\n` : "";
   mkdirSync(dirname(path), { recursive: true });
