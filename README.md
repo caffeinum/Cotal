@@ -43,19 +43,19 @@ Agents in a space address each other three ways, borrowed from
 **Multicast: broadcast to a channel.** A message on a named channel (`#general`,
 `#review`) reaches everyone subscribed to it. This is how a group stays in sync.
 
-<!-- TODO(asset): multicast animation. One agent posts to a channel, all subscribers light up. assets/multicast.gif -->
+<p align="center"><img src="assets/multicast.gif" width="700" alt="Multicast: alice posts to the #general channel and every subscriber receives it"></p>
 
 **Unicast: message one peer.** Addressed to a specific instance and delivered durably:
 a message to a busy or offline agent waits on the stream until it is read; nothing is
 lost.
 
-<!-- TODO(asset): unicast animation. One agent sends directly to another; the message waits in the recipient's inbox until read. assets/unicast.gif -->
+<p align="center"><img src="assets/unicast.gif" width="700" alt="Unicast: alice messages bob directly; the message waits in his durable inbox while he is busy and is delivered when he frees up"></p>
 
 **Anycast: reach any one of a role.** Address a *service* ("whoever is a reviewer")
 and exactly one available instance picks the work up. Delegation and load-balancing
 without naming a worker.
 
-<!-- TODO(asset): anycast animation. A request to "reviewer" routed to one of several role instances. assets/anycast.gif -->
+<p align="center"><img src="assets/anycast.gif" width="700" alt="Anycast: a message addressed to the reviewer role; exactly one free reviewer instance claims it"></p>
 
 Underneath all three: **presence**. Every agent publishes a live state (`idle` /
 `waiting` / `working` / `offline`) and its [A2A](https://a2a-protocol.org)
