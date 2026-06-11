@@ -110,14 +110,16 @@ async function main(): Promise<void> {
   // Poke the server until the plugin's session handshake lands (lazy plugin load → mesh join +
   // session create). Poking must NOT stop at the first 2xx: early in boot the server can answer
   // /session before the project instance has bootstrapped, and only a later request triggers the
-  // bootstrap that loads the plugin.
+  // bootstrap that loads the plugin. Each poke carries its own abort timeout: a request that
+  // lands in the early-boot window can hang with no response, and an un-timed fetch would pin
+  // the loop on it forever (undici queues later requests behind it on the pooled connection).
   const auth = `Basic ${Buffer.from(`opencode:${SECRET}`).toString("base64")}`;
   void (async () => {
     for (let i = 0; i < 300 && !sessionId; i++) {
       try {
-        await fetch(`${url}/session`, { headers: { authorization: auth } });
+        await fetch(`${url}/session`, { headers: { authorization: auth }, signal: AbortSignal.timeout(1500) });
       } catch {
-        /* not up yet — retry */
+        /* not up yet (or a hung early request, aborted) — retry on a fresh connection */
       }
       await new Promise((r) => setTimeout(r, 200));
     }
