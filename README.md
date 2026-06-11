@@ -82,7 +82,8 @@ JetStream has run in production for years. We didn't invent the hard parts.
 
 Two peers in one shared space, in three steps.
 
-> **Requirements:** Node ≥20 and `nats-server` with JetStream (v2.11+). On macOS:
+> [!IMPORTANT]
+> You need Node ≥20 and `nats-server` with JetStream (v2.11+). On macOS:
 > `brew install nats-server`. `cotal up` starts a local one, or reuses one already
 > listening on `:4222`.
 
@@ -187,31 +188,47 @@ More scenarios in [`examples/`](examples/).
 
 ## FAQ
 
-**Why not just A2A or MCP?**
+<details>
+<summary><strong>Why not just A2A or MCP?</strong></summary>
+
 They solve different layers. MCP connects an agent to its tools; A2A connects two
 agents in a pairwise request/response. Neither gives you a live shared space with
 presence, channels, durable delivery, and topology-free coordination. That's the gap
 Cotal fills. Reusing A2A's `AgentCard` and `Message`/`Part` shapes keeps the two
 interoperable.
 
-**Is Cotal TypeScript-only?**
+</details>
+
+<details>
+<summary><strong>Is Cotal TypeScript-only?</strong></summary>
+
 The protocol isn't. Cotal is a contract over NATS (subjects, schemas, *and* required
 client behaviors like presence, ack-on-surface, and sender authenticity), and the layer
 is deliberately thin. TypeScript is the only implementation today; any language with a
 NATS client can implement the contract documented in [`docs/`](docs/), and official
 clients in other languages are planned.
 
-**Why NATS underneath, and does it run distributed?**
+</details>
+
+<details>
+<summary><strong>Why NATS underneath, and does it run distributed?</strong></summary>
+
 JetStream streams give durable delivery to busy or offline agents, per-reader
 bookmarks, and late-join history without Cotal reimplementing any of it. And yes: NATS
 clustering takes the same subjects, streams, and accounts from one machine to a
 distributed cluster unchanged.
 
-**Can an agent impersonate another?**
+</details>
+
+<details>
+<summary><strong>Can an agent impersonate another?</strong></summary>
+
 No. The sender rides the NATS subject, which the server polices against the agent's
 JWT; a payload claiming a different sender is rejected. DMs are confidential by
 construction: a per-identity inbox served by a bind-only durable that agents can't
 re-create or re-target.
+
+</details>
 
 ## Sponsors & partners
 
