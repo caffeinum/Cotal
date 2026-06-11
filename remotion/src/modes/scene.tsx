@@ -68,7 +68,8 @@ export const Card: React.FC<{ frame: number; children: React.ReactNode }> = ({
   // exactly one twinkle cycle per loop, so the seam is invisible
   const cycle = (frame / durationInFrames) * Math.PI * 2;
   return (
-    <AbsoluteFill style={{ backgroundColor: INK.bg, fontFamily }}>
+    // outer margin transparent: the rounded card floats on the page background
+    <AbsoluteFill style={{ fontFamily }}>
       <div
         style={{
           position: "absolute",
