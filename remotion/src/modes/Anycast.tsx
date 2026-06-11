@@ -3,23 +3,21 @@
 
 import React from "react";
 import { useCurrentFrame } from "remotion";
-import { C } from "../_shared";
 import {
-  ACCENT,
   AgentNode,
   bez,
   Card,
+  Dot,
   fade,
+  GOLD,
   Labels,
   lerp,
   prog,
-  Token,
+  Pulse,
   wirePath,
   Wires,
   type Pt,
 } from "./scene";
-
-const accent = ACCENT.anycast;
 
 const ALICE: Pt = { x: 250, y: 268 };
 const JUNCTION: Pt = { x: 720, y: 268 };
@@ -36,29 +34,26 @@ const MEMBERS = [
 const CLAIMER = 1;
 
 const SEG1: [Pt, Pt] = [
-  { x: ALICE.x + 48, y: ALICE.y },
-  { x: JUNCTION.x - 10, y: JUNCTION.y },
+  { x: ALICE.x + 44, y: ALICE.y },
+  { x: JUNCTION.x - 8, y: JUNCTION.y },
 ];
 const outCtrl = (r: Pt): [Pt, Pt] => [
   { x: JUNCTION.x + 140, y: JUNCTION.y },
   { x: r.x - 220, y: r.y },
 ];
-const OUT_END = (r: Pt): Pt => ({ x: r.x - 50, y: r.y });
+const OUT_END = (r: Pt): Pt => ({ x: r.x - 46, y: r.y });
 
-const WIRE_PATHS = [
-  wirePath(SEG1[0], lerp(...SEG1, 0.4), lerp(...SEG1, 0.6), SEG1[1]),
-  ...GROUP.map((r) => wirePath(JUNCTION, ...outCtrl(r), OUT_END(r))),
-];
+const PATH1 = wirePath(SEG1[0], lerp(...SEG1, 0.4), lerp(...SEG1, 0.6), SEG1[1]);
+const OUT_PATHS = GROUP.map((r) => wirePath(JUNCTION, ...outCtrl(r), OUT_END(r)));
 
-// timeline
 const T = {
   sendStart: 18,
-  sendEnd: 52, // token reaches the role junction
-  probeEnd: 78, // candidate wires shimmer while one instance is picked
+  sendEnd: 52,
+  probeEnd: 78,
   claimStart: 78,
   claimEnd: 104,
   flashEnd: 130,
-  carolBack: 162, // carol finishes; group returns to start state
+  carolBack: 162,
 };
 
 export const ModeAnycast: React.FC = () => {
@@ -68,57 +63,48 @@ export const ModeAnycast: React.FC = () => {
   const t2 = prog(frame, T.claimStart, T.claimEnd);
 
   const probing = frame >= T.sendEnd && frame < T.probeEnd;
-  const shimmer = probing ? 0.25 + 0.25 * Math.sin(((frame - T.sendEnd) / 9) * Math.PI * 2) : 0;
+  const breath = probing ? 0.5 + 0.5 * Math.sin(((frame - T.sendEnd) / 20) * Math.PI * 2) : 0;
 
   const flash = frame >= T.claimEnd ? Math.max(0, 1 - fade(frame, T.claimEnd, T.flashEnd)) : 0;
   const carolStatus: "idle" | "working" =
     frame >= T.claimEnd && frame < T.carolBack ? "working" : "idle";
-
-  const lit1 = t1 > 0 && t1 < 1 ? 0.8 : 0;
-  const litClaim = t2 > 0 && t2 < 1 ? 0.8 : 0;
+  const emit =
+    frame >= T.sendStart ? Math.max(0, 1 - fade(frame, T.sendStart, T.sendStart + 20)) : 0;
+  const dimOthers = probing || (t2 > 0 && t2 < 1) || flash > 0 ? 0.5 : 0;
 
   return (
-    <Card>
-      <Wires
-        paths={WIRE_PATHS}
-        lit={[lit1, shimmer, Math.max(shimmer, litClaim), shimmer]}
-        accent={accent}
-      />
+    <Card frame={frame}>
+      <Wires paths={[PATH1, ...OUT_PATHS]} />
 
-      {/* role bracket around the group, label as a legend on the border */}
+      {/* role bracket, label as a legend on the border */}
       <div
         style={{
           position: "absolute",
           left: GROUP[0]!.x - 125,
-          top: GROUP[0]!.y - 68,
+          top: GROUP[0]!.y - 64,
           width: 250,
-          height: GROUP[2]!.y - GROUP[0]!.y + 204,
-          borderRadius: 28,
-          border: "1.5px dashed #2e405a",
+          height: GROUP[2]!.y - GROUP[0]!.y + 192,
+          borderRadius: 24,
+          border: "1px solid #20262f",
         }}
       />
       <div
         style={{
           position: "absolute",
           left: GROUP[0]!.x - 125,
-          top: GROUP[0]!.y - 82,
+          top: GROUP[0]!.y - 77,
           width: 250,
           textAlign: "center",
-          fontSize: 21,
-          color: accent,
-          opacity: 0.9,
+          fontSize: 19,
+          letterSpacing: 1,
+          color: GOLD,
+          opacity: 0.85,
         }}
       >
-        <span style={{ background: "#0b0f14", padding: "0 12px", borderRadius: 6 }}>@reviewer</span>
+        <span style={{ background: "#090b0e", padding: "0 12px", borderRadius: 6 }}>@reviewer</span>
       </div>
 
-      <AgentNode
-        at={ALICE}
-        name="alice"
-        role="planner"
-        status="working"
-        flash={frame >= T.sendStart ? Math.max(0, 1 - fade(frame, T.sendStart, T.sendStart + 20)) : 0}
-      />
+      <AgentNode at={ALICE} name="alice" role="planner" status="working" flash={emit} />
       {MEMBERS.map((m, i) => (
         <AgentNode
           key={m.name}
@@ -127,20 +113,20 @@ export const ModeAnycast: React.FC = () => {
           role="reviewer"
           status={i === CLAIMER ? carolStatus : m.busy ? "working" : "idle"}
           flash={i === CLAIMER ? flash : 0}
-          dimmed={i !== CLAIMER && (probing || litClaim > 0 || flash > 0) ? 0.5 : 0}
+          dimmed={i !== CLAIMER ? dimOthers : 0}
         />
       ))}
 
-      <Token pos={(t) => lerp(...SEG1, t)} t={t1} accent={accent} visible={t1 > 0 && t1 < 1} />
-      {probing && <Token pos={() => JUNCTION} t={1} accent={accent} visible size={12} />}
-      <Token
+      <Pulse d={PATH1} pos={(t) => lerp(...SEG1, t)} t={t1} visible={t1 > 0 && t1 < 1} />
+      {probing && <Dot at={JUNCTION} breath={breath} />}
+      <Pulse
+        d={OUT_PATHS[CLAIMER]!}
         pos={(t) => bez(JUNCTION, ...outCtrl(GROUP[CLAIMER]!), OUT_END(GROUP[CLAIMER]!), t)}
         t={t2}
-        accent={accent}
         visible={t2 > 0 && t2 < 1}
       />
 
-      <Labels mode="anycast" accent={accent} subject="cotal.demo.svc.reviewer.alice" />
+      <Labels mode="anycast" subject="cotal.demo.svc.reviewer.alice" />
     </Card>
   );
 };

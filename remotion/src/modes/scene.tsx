@@ -1,27 +1,27 @@
 // Shared scene system for the three README mode animations.
-// Clean product look: dark card, glowing message tokens, soft pulses.
-// Distinct from the ASCII header variants; only the palette is shared.
+// Brand language of assets/header.gif: near-black, one gold accent,
+// hairline strokes, lowercase mono, restraint. No neon, no rainbow.
 
 import React from "react";
-import { AbsoluteFill, Easing, interpolate } from "remotion";
-import { C, fontFamily } from "../_shared";
+import { AbsoluteFill, Easing, interpolate, random, useVideoConfig } from "remotion";
+import { fontFamily } from "../_shared";
 
-export const ACCENT = {
-  multicast: C.cyan,
-  unicast: C.magenta,
-  anycast: C.yellow,
-} as const;
+// --- palette -------------------------------------------------------------------
 
-export const AGENTC: Record<string, string> = {
-  alice: C.blue,
-  bob: C.orange,
-  carol: C.magenta,
-  dave: C.green,
+export const GOLD = "#d9b36a";
+export const INK = {
+  bg: "#060708",
+  card: "#0a0c0f",
+  line: "#262d39", // hairline strokes, wires at rest
+  ring: "#3a4150", // node rings
+  fill: "#10131a", // node fill
+  name: "#c6cdd9",
+  text: "#8b94a3",
+  dim: "#4d5562",
 };
 
 export type Pt = { x: number; y: number };
 
-// Cubic bezier point (for curved wires + token travel).
 export function bez(p0: Pt, c1: Pt, c2: Pt, p1: Pt, t: number): Pt {
   const u = 1 - t;
   return {
@@ -34,7 +34,6 @@ export function lerp(p0: Pt, p1: Pt, t: number): Pt {
   return { x: p0.x + (p1.x - p0.x) * t, y: p0.y + (p1.y - p0.y) * t };
 }
 
-// Eased progress of `frame` through [from, to]; clamped 0..1.
 export function prog(frame: number, from: number, to: number): number {
   return interpolate(frame, [from, to], [0, 1], {
     extrapolateLeft: "clamp",
@@ -43,7 +42,6 @@ export function prog(frame: number, from: number, to: number): number {
   });
 }
 
-// Linear (unclamped easing) version for fades.
 export function fade(frame: number, from: number, to: number): number {
   return interpolate(frame, [from, to], [0, 1], {
     extrapolateLeft: "clamp",
@@ -51,42 +49,71 @@ export function fade(frame: number, from: number, to: number): number {
   });
 }
 
-// --- backdrop ----------------------------------------------------------------
+// --- backdrop --------------------------------------------------------------------
 
-export const Card: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <AbsoluteFill style={{ backgroundColor: "#05080c", fontFamily }}>
-    <div
-      style={{
-        position: "absolute",
-        inset: 16,
-        borderRadius: 24,
-        background: "radial-gradient(ellipse 70% 90% at 50% 45%, #0d1420 0%, #0b0f14 60%, #090c11 100%)",
-        border: "1px solid #1c2736",
-        overflow: "hidden",
-      }}
-    >
-      {children}
-    </div>
-  </AbsoluteFill>
-);
+// Sparse constellation, seeded (deterministic across renders), barely there.
+const STARS = Array.from({ length: 46 }, (_, i) => ({
+  x: random(`sx${i}`) * 1368,
+  y: random(`sy${i}`) * 568,
+  r: 0.8 + random(`sr${i}`) * 1.1,
+  a: 0.04 + random(`sa${i}`) * 0.08,
+  ph: random(`sp${i}`) * Math.PI * 2,
+}));
 
-// Mode name top-left + real wire subject bottom-left.
-export const Labels: React.FC<{ mode: string; accent: string; subject: string }> = ({
-  mode,
-  accent,
-  subject,
-}) => (
+export const Card: React.FC<{ frame: number; children: React.ReactNode }> = ({
+  frame,
+  children,
+}) => {
+  const { durationInFrames } = useVideoConfig();
+  // exactly one twinkle cycle per loop, so the seam is invisible
+  const cycle = (frame / durationInFrames) * Math.PI * 2;
+  return (
+    <AbsoluteFill style={{ backgroundColor: INK.bg, fontFamily }}>
+      <div
+        style={{
+          position: "absolute",
+          inset: 16,
+          borderRadius: 20,
+          background:
+            `radial-gradient(ellipse 60% 80% at 82% 115%, rgba(217,179,106,0.07) 0%, rgba(217,179,106,0) 60%), ` +
+            `radial-gradient(ellipse 80% 100% at 50% 40%, #0c0e12 0%, ${INK.card} 55%, #08090c 100%)`,
+          border: "1px solid #1a1f29",
+          overflow: "hidden",
+        }}
+      >
+        {STARS.map((s, i) => (
+          <div
+            key={i}
+            style={{
+              position: "absolute",
+              left: s.x,
+              top: s.y,
+              width: s.r * 2,
+              height: s.r * 2,
+              borderRadius: "50%",
+              background: "#cfd6e2",
+              opacity: s.a * (0.75 + 0.25 * Math.sin(cycle + s.ph)),
+            }}
+          />
+        ))}
+        {children}
+      </div>
+    </AbsoluteFill>
+  );
+};
+
+// Mode name top-left + real wire subject bottom-left. Lowercase, quiet.
+export const Labels: React.FC<{ mode: string; subject: string }> = ({ mode, subject }) => (
   <>
     <div
       style={{
         position: "absolute",
-        top: 34,
-        left: 44,
-        fontSize: 26,
-        letterSpacing: 7,
-        textTransform: "uppercase",
-        color: accent,
-        opacity: 0.92,
+        top: 36,
+        left: 46,
+        fontSize: 22,
+        letterSpacing: 6,
+        color: GOLD,
+        opacity: 0.85,
       }}
     >
       {mode}
@@ -95,9 +122,9 @@ export const Labels: React.FC<{ mode: string; accent: string; subject: string }>
       style={{
         position: "absolute",
         bottom: 30,
-        left: 44,
-        fontSize: 21,
-        color: C.dim,
+        left: 46,
+        fontSize: 18,
+        color: INK.dim,
         letterSpacing: 0.5,
       }}
     >
@@ -106,39 +133,40 @@ export const Labels: React.FC<{ mode: string; accent: string; subject: string }>
   </>
 );
 
-// --- nodes --------------------------------------------------------------------
+// --- nodes -------------------------------------------------------------------------
 
-export const NODE_R = 40;
+export const NODE_R = 36;
 
 export const AgentNode: React.FC<{
   at: Pt;
   name: string;
   role: string;
   status: "idle" | "working";
-  // 0..1 receive flash: brightens ring + fires an expanding pulse
-  flash?: number;
-  dimmed?: number; // 0..1, fades the whole node
+  flash?: number; // 0..1 receive/emit pulse
+  dimmed?: number; // 0..1
 }> = ({ at, name, role, status, flash = 0, dimmed = 0 }) => {
-  const color = AGENTC[name] ?? C.white;
-  const statusColor = status === "working" ? C.green : C.gray;
-  const statusGlyph = status === "working" ? "●" : "○";
+  const ring = flash > 0.05 ? GOLD : INK.ring;
   return (
-    <div style={{ position: "absolute", left: at.x - NODE_R, top: at.y - NODE_R, opacity: 1 - 0.55 * dimmed }}>
-      {/* receive pulse ring */}
+    <div
+      style={{
+        position: "absolute",
+        left: at.x - NODE_R,
+        top: at.y - NODE_R,
+        opacity: 1 - 0.45 * dimmed,
+      }}
+    >
       {flash > 0 && (
         <div
           style={{
             position: "absolute",
-            left: NODE_R,
-            top: NODE_R,
+            left: 0,
+            top: 0,
             width: NODE_R * 2,
             height: NODE_R * 2,
-            marginLeft: -NODE_R,
-            marginTop: -NODE_R,
             borderRadius: "50%",
-            border: `2px solid ${color}`,
-            transform: `scale(${1 + 1.1 * (1 - flash)})`,
-            opacity: flash * 0.7,
+            border: `1.5px solid ${GOLD}`,
+            transform: `scale(${1 + 0.65 * (1 - flash)})`,
+            opacity: flash * 0.55,
           }}
         />
       )}
@@ -147,119 +175,150 @@ export const AgentNode: React.FC<{
           width: NODE_R * 2,
           height: NODE_R * 2,
           borderRadius: "50%",
-          background: "#0e1622",
-          border: `2.5px solid ${color}`,
-          boxShadow: `0 0 ${14 + 30 * flash}px ${2 + 9 * flash}px ${color}${flash > 0.05 ? "55" : "2e"}`,
+          background: INK.fill,
+          border: `1.5px solid ${ring}`,
+          boxShadow: flash > 0.05 ? `0 0 24px 2px rgba(217,179,106,${0.22 * flash})` : "none",
+        }}
+      />
+      {/* status: a quiet dot on the ring; gold = working, hollow = idle */}
+      <div
+        style={{
+          position: "absolute",
+          top: 2,
+          left: NODE_R * 2 - 13,
+          width: 9,
+          height: 9,
+          borderRadius: "50%",
+          background: status === "working" ? GOLD : "transparent",
+          border: status === "working" ? "none" : `1.5px solid ${INK.dim}`,
         }}
       />
       <div
         style={{
           position: "absolute",
-          top: NODE_R * 2 + 12,
-          left: -60,
-          width: NODE_R * 2 + 120,
+          top: NODE_R * 2 + 13,
+          left: -70,
+          width: NODE_R * 2 + 140,
           textAlign: "center",
-          lineHeight: 1.45,
+          fontSize: 19,
+          letterSpacing: 0.5,
         }}
       >
-        <span style={{ color, fontSize: 21 }}>{name}</span>
-        <span style={{ color: C.dim, fontSize: 21 }}>/{role}</span>
-        <div style={{ fontSize: 17, color: statusColor }}>
-          {statusGlyph} {status}
-        </div>
+        <span style={{ color: INK.name }}>{name}</span>
+        <span style={{ color: INK.dim }}>/{role}</span>
       </div>
     </div>
   );
 };
 
-export const ChannelPill: React.FC<{ at: Pt; label: string; glow?: number; accent: string }> = ({
+export const ChannelPill: React.FC<{ at: Pt; label: string; glow?: number }> = ({
   at,
   label,
   glow = 0,
-  accent,
 }) => (
   <div
     style={{
       position: "absolute",
-      left: at.x - 88,
-      top: at.y - 30,
-      width: 176,
-      height: 60,
-      borderRadius: 30,
-      background: "#0e1622",
-      border: `2px solid ${glow > 0.05 ? accent : "#2a3a50"}`,
-      boxShadow: glow > 0.05 ? `0 0 ${30 * glow}px ${6 * glow}px ${accent}33` : "none",
+      left: at.x - 80,
+      top: at.y - 26,
+      width: 160,
+      height: 52,
+      borderRadius: 26,
+      background: INK.fill,
+      border: `1.5px solid ${glow > 0.05 ? GOLD : INK.ring}`,
+      boxShadow: glow > 0.05 ? `0 0 22px 2px rgba(217,179,106,${0.2 * glow})` : "none",
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
-      fontSize: 25,
-      color: glow > 0.4 ? C.white : C.text,
+      fontSize: 21,
+      letterSpacing: 0.5,
+      color: glow > 0.4 ? INK.name : INK.text,
     }}
   >
     {label}
   </div>
 );
 
-// --- wires + tokens -------------------------------------------------------------
+// --- wires + the light that runs along them ------------------------------------------
 
-// A dim static wire as an SVG path string.
 export function wirePath(p0: Pt, c1: Pt, c2: Pt, p1: Pt): string {
   return `M ${p0.x} ${p0.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${p1.x} ${p1.y}`;
 }
 
-export const Wires: React.FC<{ paths: string[]; lit?: number[]; accent: string }> = ({
-  paths,
-  lit = [],
-  accent,
-}) => (
-  <svg style={{ position: "absolute", inset: 0 }} width={1400} height={600}>
+export const Wires: React.FC<{ paths: string[]; lit?: number[] }> = ({ paths, lit = [] }) => (
+  <svg style={{ position: "absolute", inset: 0 }} width={1368} height={568}>
     {paths.map((d, i) => (
       <path
         key={i}
         d={d}
-        stroke={(lit[i] ?? 0) > 0.05 ? accent : "#33455e"}
-        strokeOpacity={0.45 + 0.45 * (lit[i] ?? 0)}
-        strokeWidth={2}
+        stroke={INK.line}
+        strokeOpacity={0.9 + 0.1 * (lit[i] ?? 0)}
+        strokeWidth={1.5}
         fill="none"
       />
     ))}
   </svg>
 );
 
-// Glowing message token with a trailing comet tail.
-// pos(t) maps 0..1 progress to a point; t is the eased head progress.
-export const Token: React.FC<{
+// A pulse of light running along a wire: a tapered dash sliding down the path,
+// with a small bright head. No comet balls.
+export const Pulse: React.FC<{
+  d: string;
   pos: (t: number) => Pt;
-  t: number;
-  accent: string;
+  t: number; // eased 0..1
   visible: boolean;
-  size?: number;
-}> = ({ pos, t, accent, visible, size = 13 }) => {
+}> = ({ d, pos, t, visible }) => {
   if (!visible) return null;
-  const ghosts = [0, 0.045, 0.09, 0.14, 0.2];
+  const TAIL = 0.16;
+  const head = pos(t);
+  // dash window [t - TAIL, t], clamped by offset motion
+  const off = -(t - TAIL);
   return (
     <>
-      {ghosts.map((back, i) => {
-        const gt = Math.max(0, t - back);
-        const p = pos(gt);
-        const k = 1 - i / ghosts.length;
-        return (
-          <div
-            key={i}
-            style={{
-              position: "absolute",
-              left: p.x - size * k,
-              top: p.y - size * k,
-              width: size * 2 * k,
-              height: size * 2 * k,
-              borderRadius: "50%",
-              background: accent,
-              opacity: i === 0 ? 1 : 0.28 * k,
-              boxShadow: i === 0 ? `0 0 22px 7px ${accent}66` : "none",
-            }}
-          />
-        );
-      })}
+      <svg style={{ position: "absolute", inset: 0 }} width={1368} height={568}>
+        <path
+          d={d}
+          pathLength={1}
+          stroke={GOLD}
+          strokeOpacity={0.28}
+          strokeWidth={2.5}
+          strokeLinecap="round"
+          strokeDasharray={`${TAIL} 1`}
+          strokeDashoffset={off}
+          fill="none"
+        />
+        <path
+          d={d}
+          pathLength={1}
+          stroke={GOLD}
+          strokeOpacity={0.85}
+          strokeWidth={2.5}
+          strokeLinecap="round"
+          strokeDasharray={`${TAIL * 0.4} 1`}
+          strokeDashoffset={-(t - TAIL * 0.4)}
+          fill="none"
+        />
+      </svg>
+      <Dot at={head} />
     </>
+  );
+};
+
+// The message itself: a small gold dot (head of a pulse, or parked).
+export const Dot: React.FC<{ at: Pt; breath?: number }> = ({ at, breath = 0 }) => {
+  const r = 5.5 + 1.2 * breath;
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: at.x - r,
+        top: at.y - r,
+        width: r * 2,
+        height: r * 2,
+        borderRadius: "50%",
+        background: GOLD,
+        boxShadow: `0 0 ${12 + 5 * breath}px 2px rgba(217,179,106,0.5)`,
+      }}
+    />
   );
 };
