@@ -105,6 +105,7 @@ into per-peer conversations — only pairs that actually talked, never the n² c
 | golden-signal counts | `signals.counts` | ✓ tiles strip | — | ✓ tiles |
 | needs-you / blocked | `signals.waiting` | ✓ rail (`n`) | — | ✓ NEEDS-YOU rail |
 | direct-message lens | `signals.dms` | ✓ lens (`d`) | — | ✓ DM view |
+| topology lens (who-talks-to-whom) | `feed` + `agents` (derived) | ✓ lens (`t`, 3 variants) | — | — |
 | message / agent **detail** | `feed` / `agents` | ✓ select → detail | — | ✓ row / thread |
 | **search / filter** | client | ✓ `/` | (grep) | ✓ mode chips |
 | msgs/s, connected, dmVisible | `rates` / `status` | ✓ status bar | — | ✓ conn pill |
@@ -113,6 +114,9 @@ Both interactive surfaces now render every model field. The console adds the sig
 tiles strip (always on), a NEEDS-YOU rail toggled with `n` (a side column when the terminal is wide,
 else a full-screen overlay), and a DM lens toggled with `d` (peer roll-up + thread; shows
 "DMs hidden" under chat-only creds). The stream is line-oriented, so the signals stay out of it.
+The topology lens (`t`) folds the feed + roster into a who-talks-to-whom graph client-side and
+renders it three switchable ways (`v` / `1-3`): swimlane sequence, adjacency heat matrix, and a
+ring node-link map with channels/roles as hub nodes.
 
 ## Future — not yet on the wire
 

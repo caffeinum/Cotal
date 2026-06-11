@@ -12,8 +12,8 @@ import { MeshView } from "@cotal/core";
 export type { FeedEntry, MeshViewOptions, FeedDelivery } from "@cotal/core";
 export type MeshState = MeshSnapshot;
 
-/** Focusable panes across the console (normal panels + the DM lens). */
-export type FocusId = "roster" | "feed" | "needsyou" | "dmpeers" | "dmthread";
+/** Focusable panes across the console (normal panels + the DM and topology lenses). */
+export type FocusId = "roster" | "feed" | "needsyou" | "dmpeers" | "dmthread" | "topo";
 
 export function useMesh(ep: CotalEndpoint, opts?: MeshViewOptions): MeshSnapshot {
   const viewRef = useRef<MeshView | null>(null);

@@ -8,7 +8,7 @@ export interface CommandCtx {
   ep: CotalEndpoint;
   snapshot: MeshSnapshot;
   activeChannel: string;
-  setMode: (m: "normal" | "dm") => void;
+  setMode: (m: "normal" | "dm" | "topo") => void;
   setActiveChannel: (c: string) => void;
   toggleRail: () => void;
   openHelp: () => void;
@@ -110,6 +110,7 @@ export const COMMANDS: ConsoleCommand[] = [
     },
   },
   { name: "dms", summary: "toggle the DM lens", run: (ctx) => ctx.setMode("dm") },
+  { name: "topo", summary: "toggle the topology lens", run: (ctx) => ctx.setMode("topo") },
   { name: "needs-you", summary: "toggle the needs-you rail", run: (ctx) => ctx.toggleRail() },
   { name: "spaces", summary: "back to the space overview", run: (ctx) => ctx.back?.() },
   { name: "help", summary: "show keybindings", run: (ctx) => ctx.openHelp() },

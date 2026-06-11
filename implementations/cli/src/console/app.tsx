@@ -8,6 +8,7 @@ import { Roster } from "./ui/Roster.js";
 import { Feed } from "./ui/Feed.js";
 import { NeedsYou } from "./ui/NeedsYou.js";
 import { Dm } from "./ui/Dm.js";
+import { Topo, type TopoVariant } from "./ui/topo/Topo.js";
 import { StatusBar } from "./ui/StatusBar.js";
 import { Help } from "./ui/Help.js";
 import { Search } from "./ui/Search.js";
@@ -53,7 +54,8 @@ export function App({
   const [detail, setDetail] = useState<DetailTarget | null>(null);
   const [search, setSearch] = useState({ active: false, query: "" });
   const [focusedId, setFocusedId] = useState<FocusId>("feed");
-  const [mode, setMode] = useState<"normal" | "dm">("normal");
+  const [mode, setMode] = useState<"normal" | "dm" | "topo">("normal");
+  const [topoVariant, setTopoVariant] = useState<TopoVariant>(0);
   const [railOpen, setRailOpen] = useState(false);
   const [palette, setPalette] = useState({ active: false, query: "" });
   const [confirm, setConfirm] = useState<ConfirmTarget | null>(null);
@@ -76,9 +78,9 @@ export function App({
     size.rows - 3 /* tabs */ - tilesRow - 1 /* status */ - searchRow - paletteRows - noticeRow - composeRow,
   );
   // The needs-you rail is a side column only on a genuinely wide terminal; otherwise `n` opens it
-  // full-screen so it never squeezes the feed unreadably. It never coexists with the DM lens.
-  const railAsColumn = railOpen && !narrow && size.cols >= 100 && mode !== "dm";
-  const railOverlay = railOpen && mode !== "dm" && !railAsColumn;
+  // full-screen so it never squeezes the feed unreadably. It never coexists with the DM/topo lens.
+  const railAsColumn = railOpen && !narrow && size.cols >= 100 && mode === "normal";
+  const railOverlay = railOpen && mode === "normal" && !railAsColumn;
   const railW = railAsColumn ? Math.min(34, Math.max(24, Math.floor(size.cols * 0.28))) : 0;
   const bodyW = size.cols - railW;
   let roster: { w: number; h: number };
@@ -100,6 +102,7 @@ export function App({
     if (overlay || confirm) return;
     if (railOverlay) focus("needsyou");
     else if (mode === "dm") focus("dmpeers");
+    else if (mode === "topo") focus("topo");
     else focus(normalFocus);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [helpOpen, detail, mode, railOpen, confirm]);
@@ -213,7 +216,7 @@ export function App({
       if (input === ":") return setPalette({ active: true, query: "" });
       if (key.escape) {
         // lazygit-style "back": pop one level per press, then return to the space overview.
-        if (mode === "dm") return setMode("normal");
+        if (mode === "dm" || mode === "topo") return setMode("normal");
         if (railOverlay) return setRailOpen(false);
         if (search.query) return setSearch({ active: false, query: "" });
         if (onBack) return onBack();
@@ -222,6 +225,10 @@ export function App({
       if (input === "q") return exit();
       if (onBack && input === "b" && mode === "normal") return onBack(); // quick back to the overview
       if (input === "d" && !key.ctrl) return setMode((m) => (m === "dm" ? "normal" : "dm")); // Ctrl-d = scroll
+      if (input === "t") return setMode((m) => (m === "topo" ? "normal" : "topo"));
+      if (input === "v" && mode === "topo") return setTopoVariant((v) => ((v + 1) % 3) as TopoVariant);
+      if (mode === "topo" && input >= "1" && input <= "3")
+        return setTopoVariant((Number(input) - 1) as TopoVariant);
       if (input === "n") return setRailOpen((v) => !v);
       if (key.leftArrow || input === "h") return focusPrevious();
       if (key.rightArrow || input === "l") return focusNext();
@@ -269,6 +276,18 @@ export function App({
           narrow={narrow}
           blocked={blocked}
           onFocus={onFocus}
+        />
+      ) : mode === "topo" ? (
+        <Topo
+          feed={mesh.feed}
+          agents={mesh.agents}
+          variant={topoVariant}
+          width={size.cols}
+          height={bodyH}
+          blocked={blocked}
+          onFocus={onFocus}
+          onOpenAgent={openAgent}
+          onOpenMessage={openMessage}
         />
       ) : (
         <Box flexDirection={narrow ? "column" : "row"} height={bodyH}>

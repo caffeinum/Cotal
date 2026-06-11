@@ -27,17 +27,26 @@ export function Help({
             ["← → / Tab", "switch peer list ↔ thread"],
             ["Esc", "leave DM lens"],
           ]
-        : [
-            ["↑↓ / j k", "move selection"],
-            ["Enter", "open agent detail"],
-            ["D", "kill agent (confirm)"],
-          ];
+        : focusedId === "topo"
+          ? [
+              ["v / 1 2 3", "cycle / pick variant (sequence · matrix · map)"],
+              ["↑↓ / j k", "scroll · move cursor · select node"],
+              ["h l", "matrix column cursor"],
+              ["Enter", "open message / agent detail"],
+              ["Esc", "leave topology lens"],
+            ]
+          : [
+              ["↑↓ / j k", "move selection"],
+              ["Enter", "open agent detail"],
+              ["D", "kill agent (confirm)"],
+            ];
   const global: [string, string][] = [
     ["Tab / ← → / h l", "switch panel"],
     ["[ / ]", "prev / next channel"],
     ["1 – 9", "jump to channel tab"],
     ["n", "toggle needs-you rail"],
     ["d", "direct-message lens"],
+    ["t", "topology lens (v / 1-3 variants)"],
     [":", "command palette (send / call / ask)"],
     ["c", "compose to channel / DM selected agent"],
     ["r", "reply to current message"],
