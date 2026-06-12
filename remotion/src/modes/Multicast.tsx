@@ -20,12 +20,12 @@ import {
 } from "./scene";
 
 // Centered on the stage: alice and the cluster equidistant from the card middle.
-const ALICE: Pt = { x: 118, y: 318 };
-const PILL: Pt = { x: 425, y: 318 };
+const ALICE: Pt = { x: 118, y: 300 };
+const PILL: Pt = { x: 425, y: 300 };
 const RECV: Pt[] = [
-  { x: 726, y: 152 },
-  { x: 726, y: 318 },
-  { x: 726, y: 484 },
+  { x: 726, y: 134 },
+  { x: 726, y: 300 },
+  { x: 726, y: 466 },
 ];
 // Shared cast + presence, identical across all three cards: bob and dave busy,
 // carol free. Only the message flow differs, so the three glance as one space.

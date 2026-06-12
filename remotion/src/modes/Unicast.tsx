@@ -24,11 +24,11 @@ import {
 
 // Same cluster as the other cards; bob (top) is the addressee, carol/dave below
 // are present but unaddressed. The inbox sits on the alice -> bob route.
-const ALICE: Pt = { x: 118, y: 318 };
-const BOB: Pt = { x: 726, y: 152 };
-const CAROL: Pt = { x: 726, y: 318 };
-const DAVE: Pt = { x: 726, y: 484 };
-const INBOX: Pt = { x: 442, y: 238 };
+const ALICE: Pt = { x: 118, y: 300 };
+const BOB: Pt = { x: 726, y: 134 };
+const CAROL: Pt = { x: 726, y: 300 };
+const DAVE: Pt = { x: 726, y: 466 };
+const INBOX: Pt = { x: 442, y: 220 };
 
 const SEG1: [Pt, Pt] = [
   { x: ALICE.x + 50, y: ALICE.y - 13 },

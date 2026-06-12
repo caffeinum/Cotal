@@ -22,12 +22,12 @@ import {
 } from "./scene";
 
 // Shared stage: alice left, the reviewer pool clustered right, junction center.
-const ALICE: Pt = { x: 118, y: 318 };
-const JUNCTION: Pt = { x: 425, y: 318 };
+const ALICE: Pt = { x: 118, y: 300 };
+const JUNCTION: Pt = { x: 425, y: 300 };
 const GROUP: Pt[] = [
-  { x: 726, y: 152 }, // bob, busy
-  { x: 726, y: 318 }, // carol, free -> claims
-  { x: 726, y: 484 }, // dave, busy
+  { x: 726, y: 134 }, // bob, busy
+  { x: 726, y: 300 }, // carol, free -> claims
+  { x: 726, y: 466 }, // dave, busy
 ];
 const MEMBERS = [
   { name: "bob", busy: true },
@@ -88,7 +88,7 @@ export const ModeAnycast: React.FC = () => {
         style={{
           position: "absolute",
           left: 632,
-          top: 90,
+          top: 72,
           width: 188,
           height: 492,
           borderRadius: 26,
@@ -99,7 +99,7 @@ export const ModeAnycast: React.FC = () => {
         style={{
           position: "absolute",
           left: 632,
-          top: 77,
+          top: 59,
           width: 188,
           textAlign: "center",
           fontSize: 21,
