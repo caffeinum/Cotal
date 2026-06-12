@@ -24,19 +24,19 @@ import {
 
 // Same cluster as the other cards; bob (top) is the addressee, carol/dave below
 // are present but unaddressed. The inbox sits on the alice -> bob route.
-const ALICE: Pt = { x: 168, y: 310 };
-const BOB: Pt = { x: 692, y: 175 };
-const CAROL: Pt = { x: 692, y: 310 };
-const DAVE: Pt = { x: 692, y: 445 };
-const INBOX: Pt = { x: 440, y: 240 };
+const ALICE: Pt = { x: 118, y: 318 };
+const BOB: Pt = { x: 726, y: 152 };
+const CAROL: Pt = { x: 726, y: 318 };
+const DAVE: Pt = { x: 726, y: 484 };
+const INBOX: Pt = { x: 442, y: 238 };
 
 const SEG1: [Pt, Pt] = [
-  { x: ALICE.x + 39, y: ALICE.y - 10 },
-  { x: INBOX.x - 29, y: INBOX.y + 7 },
+  { x: ALICE.x + 50, y: ALICE.y - 13 },
+  { x: INBOX.x - 38, y: INBOX.y + 9 },
 ];
 const SEG2: [Pt, Pt] = [
-  { x: INBOX.x + 29, y: INBOX.y - 7 },
-  { x: BOB.x - 37, y: BOB.y + 9 },
+  { x: INBOX.x + 38, y: INBOX.y - 9 },
+  { x: BOB.x - 48, y: BOB.y + 12 },
 ];
 
 const PATH1 = wirePath(SEG1[0], lerp(...SEG1, 0.4), lerp(...SEG1, 0.6), SEG1[1]);
@@ -88,11 +88,11 @@ export const ModeUnicast: React.FC = () => {
       <div
         style={{
           position: "absolute",
-          left: INBOX.x - 28,
-          top: INBOX.y - 28,
-          width: 56,
-          height: 56,
-          borderRadius: 16,
+          left: INBOX.x - 36,
+          top: INBOX.y - 36,
+          width: 72,
+          height: 72,
+          borderRadius: 20,
           border: `1.5px solid ${parked ? GOLD : INK.ring}`,
           background: INK.fill,
           boxShadow: parked
@@ -103,11 +103,11 @@ export const ModeUnicast: React.FC = () => {
       <div
         style={{
           position: "absolute",
-          left: INBOX.x - 60,
-          top: INBOX.y + 40,
-          width: 120,
+          left: INBOX.x - 70,
+          top: INBOX.y + 48,
+          width: 140,
           textAlign: "center",
-          fontSize: 16,
+          fontSize: 20,
           color: INK.dim,
           letterSpacing: 0.3,
         }}

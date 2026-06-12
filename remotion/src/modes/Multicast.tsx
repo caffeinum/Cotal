@@ -20,12 +20,12 @@ import {
 } from "./scene";
 
 // Centered on the stage: alice and the cluster equidistant from the card middle.
-const ALICE: Pt = { x: 168, y: 310 };
-const PILL: Pt = { x: 430, y: 310 };
+const ALICE: Pt = { x: 118, y: 318 };
+const PILL: Pt = { x: 425, y: 318 };
 const RECV: Pt[] = [
-  { x: 692, y: 175 },
-  { x: 692, y: 310 },
-  { x: 692, y: 445 },
+  { x: 726, y: 152 },
+  { x: 726, y: 318 },
+  { x: 726, y: 484 },
 ];
 // Shared cast + presence, identical across all three cards: bob and dave busy,
 // carol free. Only the message flow differs, so the three glance as one space.
@@ -35,14 +35,14 @@ const NAMES = [
   { name: "dave", role: "builder", status: "working" },
 ] as const;
 
-const IN_START: Pt = { x: ALICE.x + 40, y: ALICE.y };
-const IN_END: Pt = { x: PILL.x - 78, y: PILL.y };
-const OUT_START: Pt = { x: PILL.x + 78, y: PILL.y };
+const IN_START: Pt = { x: ALICE.x + 52, y: ALICE.y };
+const IN_END: Pt = { x: PILL.x - 100, y: PILL.y };
+const OUT_START: Pt = { x: PILL.x + 100, y: PILL.y };
 const outCtrl = (r: Pt): [Pt, Pt] => [
-  { x: OUT_START.x + 70, y: OUT_START.y },
-  { x: r.x - 100, y: r.y },
+  { x: OUT_START.x + 80, y: OUT_START.y },
+  { x: r.x - 115, y: r.y },
 ];
-const OUT_END = (r: Pt): Pt => ({ x: r.x - 42, y: r.y });
+const OUT_END = (r: Pt): Pt => ({ x: r.x - 54, y: r.y });
 
 const IN_PATH = wirePath(IN_START, lerp(IN_START, IN_END, 0.4), lerp(IN_START, IN_END, 0.6), IN_END);
 const OUT_PATHS = RECV.map((r) => wirePath(OUT_START, ...outCtrl(r), OUT_END(r)));

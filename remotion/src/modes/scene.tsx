@@ -96,10 +96,10 @@ export const Labels: React.FC<{ mode: string; caption: string; subject: string }
     <div
       style={{
         position: "absolute",
-        top: 30,
+        top: 28,
         left: 38,
-        fontSize: 21,
-        letterSpacing: 5,
+        fontSize: 26,
+        letterSpacing: 6,
         color: GOLD,
       }}
     >
@@ -108,9 +108,9 @@ export const Labels: React.FC<{ mode: string; caption: string; subject: string }
     <div
       style={{
         position: "absolute",
-        top: 64,
+        top: 68,
         left: 40,
-        fontSize: 15,
+        fontSize: 19,
         letterSpacing: 0.3,
         color: INK.text,
       }}
@@ -120,9 +120,9 @@ export const Labels: React.FC<{ mode: string; caption: string; subject: string }
     <div
       style={{
         position: "absolute",
-        bottom: 26,
+        bottom: 24,
         left: 38,
-        fontSize: 15,
+        fontSize: 18,
         color: INK.dim,
         letterSpacing: 0.5,
       }}
@@ -135,8 +135,8 @@ export const Labels: React.FC<{ mode: string; caption: string; subject: string }
 // --- nodes -------------------------------------------------------------------------
 
 // Rounded-square nodes. NODE_R is the half-size (box is NODE_R*2 on a side).
-export const NODE_R = 33;
-const NODE_RADIUS = 17;
+export const NODE_R = 45;
+const NODE_RADIUS = 22;
 
 export const AgentNode: React.FC<{
   at: Pt;
@@ -186,7 +186,7 @@ export const AgentNode: React.FC<{
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          fontSize: 25,
+          fontSize: 33,
           color: flash > 0.4 ? GOLD : INK.dim,
         }}
       >
@@ -196,10 +196,10 @@ export const AgentNode: React.FC<{
       <div
         style={{
           position: "absolute",
-          top: 9,
-          left: NODE_R * 2 - 18,
-          width: 9,
-          height: 9,
+          top: 11,
+          left: NODE_R * 2 - 23,
+          width: 12,
+          height: 12,
           borderRadius: "50%",
           background: status === "working" ? GOLD : "transparent",
           border: status === "working" ? "none" : `1.5px solid ${INK.dim}`,
@@ -208,11 +208,11 @@ export const AgentNode: React.FC<{
       <div
         style={{
           position: "absolute",
-          top: NODE_R * 2 + 12,
-          left: -70,
-          width: NODE_R * 2 + 140,
+          top: NODE_R * 2 + 13,
+          left: -80,
+          width: NODE_R * 2 + 160,
           textAlign: "center",
-          fontSize: 17,
+          fontSize: 22,
           letterSpacing: 0.3,
         }}
       >
@@ -231,11 +231,11 @@ export const ChannelPill: React.FC<{ at: Pt; label: string; glow?: number }> = (
   <div
     style={{
       position: "absolute",
-      left: at.x - 72,
-      top: at.y - 24,
-      width: 144,
-      height: 48,
-      borderRadius: 24,
+      left: at.x - 92,
+      top: at.y - 31,
+      width: 184,
+      height: 62,
+      borderRadius: 31,
       background: INK.fill,
       border: `1.5px solid ${glow > 0.05 ? GOLD : INK.ring}`,
       boxShadow: glow > 0.05
@@ -244,7 +244,7 @@ export const ChannelPill: React.FC<{ at: Pt; label: string; glow?: number }> = (
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
-      fontSize: 19,
+      fontSize: 24,
       letterSpacing: 0.5,
       color: glow > 0.4 ? INK.name : INK.text,
     }}
@@ -264,7 +264,7 @@ export function wirePath(p0: Pt, c1: Pt, c2: Pt, p1: Pt): string {
 export const Wires: React.FC<{ paths: string[]; glow?: number[] }> = ({ paths, glow = [] }) => (
   <svg style={{ position: "absolute", inset: 0 }} width={STAGE.w} height={STAGE.h}>
     {paths.map((d, i) => (
-      <path key={`r${i}`} d={d} stroke={INK.line} strokeOpacity={0.95} strokeWidth={1.5} fill="none" />
+      <path key={`r${i}`} d={d} stroke={INK.line} strokeOpacity={0.95} strokeWidth={2} fill="none" />
     ))}
     {paths.map((d, i) =>
       (glow[i] ?? 0) > 0.01 ? (
@@ -273,7 +273,7 @@ export const Wires: React.FC<{ paths: string[]; glow?: number[] }> = ({ paths, g
           d={d}
           stroke={GOLD}
           strokeOpacity={0.55 * (glow[i] ?? 0)}
-          strokeWidth={1.5}
+          strokeWidth={2}
           fill="none"
         />
       ) : null,
@@ -299,7 +299,7 @@ export const Beam: React.FC<{
           pathLength={1}
           stroke={GOLD}
           strokeOpacity={0.16}
-          strokeWidth={5}
+          strokeWidth={6.5}
           strokeLinecap="round"
           strokeDasharray={`${t} 1`}
           fill="none"
@@ -309,7 +309,7 @@ export const Beam: React.FC<{
           pathLength={1}
           stroke={GOLD}
           strokeOpacity={0.9}
-          strokeWidth={2}
+          strokeWidth={2.6}
           strokeLinecap="round"
           strokeDasharray={`${t} 1`}
           fill="none"
@@ -368,7 +368,7 @@ export const Pulse: React.FC<{
 // signature "broadcast" beat. p is eased 0..1; render one or two staggered.
 export const Ripple: React.FC<{ at: Pt; p: number }> = ({ at, p }) => {
   if (p <= 0 || p >= 1) return null;
-  const r = 26 + 150 * p;
+  const r = 32 + 190 * p;
   return (
     <div
       style={{
@@ -387,7 +387,7 @@ export const Ripple: React.FC<{ at: Pt; p: number }> = ({ at, p }) => {
 
 // The message itself: a small gold dot (head of a pulse, or parked).
 export const Dot: React.FC<{ at: Pt; breath?: number }> = ({ at, breath = 0 }) => {
-  const r = 5.5 + 1.2 * breath;
+  const r = 7 + 1.5 * breath;
   return (
     <div
       style={{

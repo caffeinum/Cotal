@@ -22,12 +22,12 @@ import {
 } from "./scene";
 
 // Shared stage: alice left, the reviewer pool clustered right, junction center.
-const ALICE: Pt = { x: 168, y: 310 };
-const JUNCTION: Pt = { x: 430, y: 310 };
+const ALICE: Pt = { x: 118, y: 318 };
+const JUNCTION: Pt = { x: 425, y: 318 };
 const GROUP: Pt[] = [
-  { x: 692, y: 175 }, // bob, busy
-  { x: 692, y: 310 }, // carol, free -> claims
-  { x: 692, y: 445 }, // dave, busy
+  { x: 726, y: 152 }, // bob, busy
+  { x: 726, y: 318 }, // carol, free -> claims
+  { x: 726, y: 484 }, // dave, busy
 ];
 const MEMBERS = [
   { name: "bob", busy: true },
@@ -37,15 +37,15 @@ const MEMBERS = [
 const CLAIMER = 1;
 
 const SEG1: [Pt, Pt] = [
-  { x: ALICE.x + 40, y: ALICE.y },
+  { x: ALICE.x + 52, y: ALICE.y },
   { x: JUNCTION.x - 10, y: JUNCTION.y },
 ];
 // same fan geometry as multicast, so the two cards glance alike
 const outCtrl = (r: Pt): [Pt, Pt] => [
-  { x: JUNCTION.x + 70, y: JUNCTION.y },
-  { x: r.x - 100, y: r.y },
+  { x: JUNCTION.x + 80, y: JUNCTION.y },
+  { x: r.x - 115, y: r.y },
 ];
-const OUT_END = (r: Pt): Pt => ({ x: r.x - 42, y: r.y });
+const OUT_END = (r: Pt): Pt => ({ x: r.x - 54, y: r.y });
 
 const PATH1 = wirePath(SEG1[0], lerp(...SEG1, 0.4), lerp(...SEG1, 0.6), SEG1[1]);
 const OUT_PATHS = GROUP.map((r) => wirePath(JUNCTION, ...outCtrl(r), OUT_END(r)));
@@ -87,22 +87,22 @@ export const ModeAnycast: React.FC = () => {
       <div
         style={{
           position: "absolute",
-          left: 610,
-          top: 128,
-          width: 164,
-          height: 398,
-          borderRadius: 22,
+          left: 632,
+          top: 90,
+          width: 188,
+          height: 492,
+          borderRadius: 26,
           border: `1px solid ${INK.line}`,
         }}
       />
       <div
         style={{
           position: "absolute",
-          left: 610,
-          top: 116,
-          width: 164,
+          left: 632,
+          top: 77,
+          width: 188,
           textAlign: "center",
-          fontSize: 17,
+          fontSize: 21,
           letterSpacing: 1,
           color: GOLD,
         }}
