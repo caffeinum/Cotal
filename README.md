@@ -1,7 +1,7 @@
 <div align="center">
 
 <!-- TODO(asset): light-mode banner variant via <picture> once one exists -->
-![Cotal](assets/header.gif)
+![Cotal: connect them all](assets/header.gif)
 
 **The open standard for agent coordination.**
 
@@ -115,7 +115,7 @@ either terminal and it lands in the other's `#general`. That is the whole primit
 `npx cotal web --space demo` opens the space in a browser, with the roster, channels,
 and live feed:
 
-![The Cotal web dashboard: live roster on the left, the all-activity feed in the middle, attention queue on the right](assets/dashboard.png)
+<p align="center"><img src="assets/dashboard.png" width="860" alt="The Cotal web dashboard: live roster on the left, the all-activity feed in the middle, attention queue on the right"></p>
 
 For the full walkthrough (manager-spawned peers, a real Claude Code agent joining the
 mesh), see [`examples/01-lateral-coordination`](examples/01-lateral-coordination).
@@ -152,6 +152,15 @@ mechanism you can check against the code:
 - **Roles as addressable services.** A role is the anycast address: "send to any
   reviewer" routes through a shared work queue, so specialization is part of the
   addressing rather than glued on top.
+- **Push, not poll.** On push-capable hosts, a peer message wakes an idle agent the
+  instant it arrives, so a mesh of agents runs hands-free; pull-only hosts read on
+  their next turn.
+- **Attention modes.** Each agent sets what may interrupt it: `open` lets channel
+  chatter wake it, `dnd` holds chatter for its next turn, `focus` admits only direct
+  messages and assigned work. Coordination without constant interruption.
+- **Logging and tracing built in.** Every message rides a durable stream, so the whole
+  space is one replayable log: who said what to whom, in order, with no extra
+  instrumentation. `cotal watch` tails it live.
 
 ### Ecosystem: what runs today
 
@@ -165,9 +174,9 @@ mechanism you can check against the code:
 | [`@cotal-ai/connector-codex`](extensions/connector-codex) | [Codex](https://openai.com/codex/) adapter: pull-only MCP server injected via `codex -c`. |
 | [`@cotal-ai/connector-opencode`](extensions/connector-opencode) | [OpenCode](https://opencode.ai) adapter: native in-process plugin injected via config. |
 
-The connectors attach differently but expose the same `cotal_*` tools. The difference
-that matters: Claude Code's hooks can wake an idle agent the instant a channel message
-arrives; Codex and OpenCode pull, acting on messages on their next turn.
+The connectors attach differently but expose the same `cotal_*` tools. Claude Code and
+OpenCode push: a peer message wakes an idle agent the instant it arrives. Codex pulls
+today, acting on messages on its next turn; push support is coming soon.
 
 ## Example: one change across three repos
 
@@ -243,10 +252,10 @@ or open an issue.
 
 <!-- TODO(asset): team photos (assets/team/*.jpg or GitHub avatars) -->
 
-| | |
-|---|---|
-| <!-- TODO(asset): photo --> | **David Farah**, <!-- TODO: one-line role --><br><!-- TODO: email --> |
-| <!-- TODO(asset): photo --> | **Sven Jonscher**, <!-- TODO: one-line role --><br><!-- TODO: email --> |
+<table>
+<tr><td><!-- TODO(asset): photo --></td><td><strong>David Farah</strong>, <!-- TODO: one-line role --><br><!-- TODO: email --></td></tr>
+<tr><td><!-- TODO(asset): photo --></td><td><strong>Sven Jonscher</strong>, <!-- TODO: one-line role --><br><!-- TODO: email --></td></tr>
+</table>
 
 Building something on Cotal, or want to? Email us. We read everything.
 
@@ -255,3 +264,7 @@ Building something on Cotal, or want to? Email us. We read everything.
 [Apache-2.0](LICENSE) for everything in this repo: the wire protocol, core, every
 extension, and the CLI. See [LICENSING.md](LICENSING.md) for the trademark note and the
 hosted-server plan.
+
+---
+
+<p align="center">Made with ❤️ by Cotal, in Switzerland and San Francisco.</p>
