@@ -7,6 +7,7 @@ import { web } from "./commands/web.js";
 import { spawn } from "./commands/spawn.js";
 import { mint } from "./commands/mint.js";
 import { channels } from "./commands/channels.js";
+import { history } from "./commands/history.js";
 import { feedback } from "./commands/feedback.js";
 
 /** The minimal mesh CLI: thin NATS clients (up/join/watch), plus `spawn` — a
@@ -71,6 +72,13 @@ const baseCommands: Command[] = [
     summary:
       "inspect/set channel registry — channels <list | set <name> [--replay|--no-replay] [--desc <s>] [--instructions <s>] | default --replay|--no-replay>",
     run: channels,
+  },
+  {
+    kind: "command",
+    name: "history",
+    group: "Mesh",
+    summary: "clear retained message history — history clear --force [--dms] [--space <s>]",
+    run: history,
   },
   {
     kind: "command",

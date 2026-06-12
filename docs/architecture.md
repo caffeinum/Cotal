@@ -474,6 +474,9 @@ covers three things at once: live delivery, the inbound buffer, and late-join hi
     load-balance; the task is removed once acked. Under auth this durable is **pre-created
     per-role by the provisioner** and agents bind it (same create-time-filter reason as DM —
     prevents cross-role work-stealing).
+  - **Admin cleanup:** `cotal history clear --force` purges retained `CHAT_<space>` history;
+    `--dms` also purges `DM_<space>`. `TASK_<space>` is deliberately untouched because it is
+    queued work, not replay history.
   - **Acks** are explicit and happen when a message is actually surfaced/injected (not on
     pull), so a crash before injection redelivers (`AckExplicit` + `AckWait`).
 - **Presence:** NATS **KV bucket per space** (key = instance id), bucket-level TTL + a

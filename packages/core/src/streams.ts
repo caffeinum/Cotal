@@ -31,6 +31,11 @@ const PRESENCE_TTL_MS = 6_000;
  *  recall: only the last {@link MAX_MSGS_PER_SUBJECT} per sender-subject are recallable. */
 export const MAX_MSGS_PER_SUBJECT = 1000;
 
+export interface ClearSpaceHistoryResult {
+  chat: number;
+  dm?: number;
+}
+
 /**
  * Create (idempotently) the three backing streams for a space — CHAT (multicast backlog +
  * history), DM (per-instance inboxes), TASK (anycast work queue).
@@ -140,6 +145,29 @@ export async function setupSpaceStreams(opts: {
     const kvm = new Kvm(nc);
     await kvm.create(presenceBucket(opts.space), { ttl: PRESENCE_TTL_MS });
     await kvm.create(channelBucket(opts.space));
+  } finally {
+    await nc.drain();
+  }
+}
+
+/** Purge retained message history for a running space. This intentionally leaves TASK alone:
+ *  anycast is queued work, not replay history. */
+export async function clearSpaceHistory(opts: {
+  servers: string;
+  space: string;
+  creds?: string;
+  includeDms?: boolean;
+}): Promise<ClearSpaceHistoryResult> {
+  const nc = await connect({
+    servers: opts.servers,
+    ...(opts.creds ? { authenticator: credsAuthenticator(new TextEncoder().encode(opts.creds)) } : {}),
+  });
+  try {
+    const jsm = await jetstreamManager(nc);
+    const chat = (await jsm.streams.purge(chatStream(opts.space))).purged;
+    if (!opts.includeDms) return { chat };
+    const dm = (await jsm.streams.purge(dmStream(opts.space))).purged;
+    return { chat, dm };
   } finally {
     await nc.drain();
   }
