@@ -2,7 +2,10 @@ import { userInfo } from "node:os";
 import { readFileSync } from "node:fs";
 import { DEFAULT_SERVER, loadAgentFile, parseJoinLink, type AgentDef, type EndpointKind } from "@cotal-ai/core";
 
+/** Keyed beta intake — used when a `COTAL_FEEDBACK_KEY` is configured. */
 export const FEEDBACK_URL = "https://broker.cotal.ai/v1/feedback";
+/** Public hosted intake — used without a key; requires a contact email. */
+export const PUBLIC_FEEDBACK_URL = "https://cotal.ai/v1/feedback";
 
 /**
  * How a connector instance presents itself on the mesh. Everything is read from
@@ -32,8 +35,11 @@ export interface AgentConfig {
   user?: string;
   pass?: string;
   tls: boolean;
-  /** Optional beta-feedback key. The intake URL is fixed at {@link FEEDBACK_URL}. */
+  /** Optional beta-feedback key — routes feedback to the keyed intake at {@link FEEDBACK_URL};
+   *  without it, feedback goes to the public {@link PUBLIC_FEEDBACK_URL}. */
   feedbackKey?: string;
+  /** Optional intake URL override (`COTAL_FEEDBACK_URL`) for self-hosted intakes. */
+  feedbackUrl?: string;
 }
 
 function splitList(v: string | undefined): string[] {
@@ -87,6 +93,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AgentConfig
     pass: link?.pass,
     tls: env.COTAL_TLS?.trim() === "1" || link?.tls || false,
     feedbackKey: env.COTAL_FEEDBACK_KEY?.trim() || undefined,
+    feedbackUrl: env.COTAL_FEEDBACK_URL?.trim() || undefined,
   };
 }
 
@@ -104,14 +111,18 @@ export function laneLine(config: AgentConfig): string {
     : `You read ${fmt(subs)}; you may post only to ${fmt(pubs)} (posts to other channels are rejected). `;
 }
 
-/** Optional beta-feedback guidance folded into connector instructions. */
+/** Beta-feedback guidance folded into connector instructions. */
 export function feedbackLine(config: AgentConfig): string {
-  if (!config.feedbackKey) return "";
+  const dest = config.feedbackKey
+    ? ""
+    : `Without a feedback key it goes to the public cotal.ai intake and needs a contact email — ` +
+      `the tool will tell you to ask the user for one if it can't find it. `;
   return (
-    `Beta feedback is enabled: use cotal_feedback with origin="human" when the user asks you to ` +
+    `Use cotal_feedback with origin="human" when the user asks you to ` +
     `send feedback or gives you feedback to pass along. If you independently hit a major Cotal ` +
     `issue — for example repeated Cotal tool failures, inability to connect, lost/incorrect mesh ` +
     `messages, or a workflow-blocking bug — send cotal_feedback yourself with origin="agent". ` +
-    `Do not send minor noise or secrets; include diagnostics only when they help debug the Cotal issue. `
+    `Do not send minor noise or secrets; include diagnostics only when they help debug the Cotal issue. ` +
+    dest
   );
 }

@@ -40,7 +40,7 @@ async function main(): Promise<void> {
     },
   );
 
-  registerCotalTools(server, agent, config);
+  registerCotalTools(server, agent, config, "codex");
 
   const shutdown = async () => {
     try {

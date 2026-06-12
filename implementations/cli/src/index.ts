@@ -77,7 +77,7 @@ const baseCommands: Command[] = [
     name: "feedback",
     group: "Mesh",
     summary:
-      "run authenticated beta feedback intake — feedback --keys <keys.json> --creds <creds> [--port <n>]",
+      'send feedback — feedback "<summary>" [--type <t>] [--email <e>] — or run the intake server: feedback --keys <keys.json> --creds <creds> [--port <n>]',
     run: feedback,
   },
 ];
