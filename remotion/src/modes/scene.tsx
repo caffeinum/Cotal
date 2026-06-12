@@ -15,14 +15,14 @@ const INSET = 16;
 
 export const GOLD = "#c79a4a";
 export const INK = {
-  bg: "#f4f1ea", // page / card cream
-  card: "#f4f1ea",
-  line: "#dad4c8", // hairline strokes, wires at rest
-  ring: "#cfc7b5", // node rings
-  fill: "#fbf9f4", // node fill (a touch lighter than the card, reads raised)
+  bg: "#f0efeb", // page / card: neutral beige, no gold cast
+  card: "#f0efeb",
+  line: "#dcd9d2", // hairline strokes, wires at rest
+  ring: "#c9c5bc", // node rings
+  fill: "#fafaf7", // node fill (a touch lighter than the card, reads raised)
   name: "#222222",
-  text: "#5b5750",
-  dim: "#a59d8c",
+  text: "#5b5852",
+  dim: "#a09b91",
 };
 
 export type Pt = { x: number; y: number };
@@ -68,13 +68,12 @@ export const Card: React.FC<{ frame: number; children: React.ReactNode }> = ({
           position: "absolute",
           inset: INSET,
           borderRadius: 26,
-          // faint engineering graph-paper dots, warm vignette, cream base
+          // faint engineering graph-paper dots on a neutral beige base
           backgroundImage:
-            `radial-gradient(circle, rgba(60,52,32,0.05) 1px, transparent 1.4px), ` +
-            `radial-gradient(ellipse 70% 90% at 80% 112%, rgba(199,154,74,0.07) 0%, rgba(199,154,74,0) 60%)`,
-          backgroundSize: "24px 24px, 100% 100%",
+            `radial-gradient(circle, rgba(55,52,46,0.05) 1px, transparent 1.4px)`,
+          backgroundSize: "24px 24px",
           backgroundColor: INK.card,
-          border: "1px solid #e7e0d0",
+          border: "1px solid #e2dfd8",
           boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)",
           overflow: "hidden",
         }}
