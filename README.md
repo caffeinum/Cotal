@@ -241,12 +241,28 @@ re-create or re-target.
 
 ## Sponsors & partners
 
-We're looking for design partners building multi-agent systems. [Reach out](#team).
+<table>
+<tr>
+<td align="center" width="50%">
+<!-- TODO(asset): Web-A logo + website (David provides); swap the text for the linked logo -->
+<strong>Web-A</strong>
+<br>The web-for-agents initiative.
+</td>
+<td align="center" width="50%">
+<a href="https://frontiertower.io"><picture>
+<source media="(prefers-color-scheme: dark)" srcset="assets/partners/frontier-tower.svg">
+<img src="assets/partners/frontier-tower-light.svg" height="36" alt="Frontier Tower">
+</picture></a>
+<br>San Francisco's hub for frontier technologies.
+</td>
+</tr>
+</table>
+
+We're looking for more design partners building multi-agent systems.
+[Reach out](#team).
 
 Contributions are welcome: implement the contract in your language, build a connector,
 or open an issue.
-
-<!-- TODO(asset): sponsor logos once partners are named -->
 
 ## Team
 
