@@ -25,6 +25,11 @@ import {
   type InboxItem,
   type HookHandle,
 } from "@cotal-ai/connector-core";
+import { TranscriptMirror, transcriptChannel } from "./transcript.js";
+
+/** Mirrors this session's transcript to `tr-<name>` — set in main() iff COTAL_TRANSCRIPT
+ *  is on (buildLaunch sets it for managed sessions; personal sessions never mirror). */
+let mirror: TranscriptMirror | undefined;
 
 /**
  * Last tool Claude tried to use, captured on PreToolUse. When a permission Notification
@@ -51,6 +56,7 @@ const claudeHandle: HookHandle = async (agent, ev) => {
   try {
     switch (event) {
       case "SessionStart": {
+        mirror?.adopt(ev.transcript_path); // mirror from HERE — a resumed session never rebroadcasts
         await agent.setStatus("idle");
         await agent.setAttention("open"); // F3: reset to fail-open on every (re)start — a crashed/restarted agent must not stay silently deaf
         // Boot push: a one-line note per subscribed channel (if the registry has loaded),
@@ -60,12 +66,14 @@ const claudeHandle: HookHandle = async (agent, ev) => {
       }
       case "UserPromptSubmit":
         pendingTool = undefined; // new turn — the previous block (if any) is resolved
+        mirror?.flush(ev.transcript_path);
         await agent.setStatus("working");
         return withContext(formatInjection(agent.drainInbox()));
       case "PreToolUse":
         // Remember what Claude is about to do; if it needs permission, the Notification
         // below turns this into the "blocked on" detail. Auto-approved tools just overwrite it.
         pendingTool = toolDetail(ev.tool_name, ev.tool_input);
+        mirror?.flush(ev.transcript_path); // near-live mirror: each tool boundary ships the turn so far
         return {};
       case "Notification": {
         // Claude Code's Notification carries the human-readable reason the session is
@@ -83,6 +91,7 @@ const claudeHandle: HookHandle = async (agent, ev) => {
       case "Stop":
       case "StopFailure": // turn died on an API error — Stop won't fire, so reset here too
         pendingTool = undefined; // turn ended — don't let a stale tool attach to an idle-wait notification
+        mirror?.flush(ev.transcript_path);
         await agent.setStatus("idle");
         // Now idle: if ambient channel chatter was held while we were busy, ask the channel to
         // wake one turn so its UserPromptSubmit drains+acks the batch. (Ack sites are two:
@@ -95,6 +104,7 @@ const claudeHandle: HookHandle = async (agent, ev) => {
         if (pending > 0) agent.requestWake();
         return {};
       case "SessionEnd":
+        mirror?.flush(ev.transcript_path); // best-effort — the process may exit before it lands
         await agent.setStatus("offline");
         return {};
       default:
@@ -116,6 +126,9 @@ async function main(): Promise<void> {
   const config = configFromEnv();
   const agent = new MeshAgent(config);
   agent.start(); // background connect with retry — never blocks tool serving
+
+  if (/^(1|true|yes|on)$/i.test(process.env.COTAL_TRANSCRIPT ?? ""))
+    mirror = new TranscriptMirror(agent, transcriptChannel(config.name));
 
   // Local control plane for the lifecycle hooks (presence + message injection).
   const socketPath = controlSocketPath(config.space, config.name);

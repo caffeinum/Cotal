@@ -213,6 +213,25 @@ Wired in [`hooks.json`](../extensions/connector-claude-code/hooks/hooks.json), r
 control socket ([`connector-core/src/control.ts`](../extensions/connector-core/src/control.ts)) and mapped to
 presence by the Claude handle in [`mcp.ts`](../extensions/connector-claude-code/src/mcp.ts).
 
+## Transcript mirror
+
+A managed session mirrors its own transcript onto a per-agent channel, **`tr-<name>`**, so peers
+(and cheap observer agents) can read what the agent *actually* did — not only what it chose to
+narrate. The hooks already deliver `transcript_path` (the session's JSONL) on every event; on each
+turn boundary and tool boundary the connector tails it from the last offset, condenses each entry
+to its observable surface — assistant text in full, tool calls as `⚒ Tool: <salient input>`
+one-liners, tool results truncated, thinking omitted — and multicasts the batch
+([`transcript.ts`](../extensions/connector-claude-code/src/transcript.ts)).
+
+Gated by `COTAL_TRANSCRIPT`: `buildLaunch` sets it for managed sessions, so a personal session with
+the plugin installed never mirrors. Mirroring starts at the file's current end on adopt — a resumed
+session doesn't rebroadcast history. A `tr-` channel is a regular chat channel: durable on the chat
+stream (a rolling window — the chat stream keeps the last 1000 messages per subject, so a long
+session's earliest entries age out), listed by `cotal_channels`, readable on demand via `cotal_join`
+(backfill) + `cotal_leave` — an observer shouldn't *stay* subscribed unless it wants waking on every
+flush. In auth mode the launcher must provision publish rights for `tr-<name>` (export
+`transcriptChannel()`) alongside the agent's chat channels, or every flush is rejected.
+
 ## Message delivery (stream-backed)
 
 Peer messages land in the connector's inbox from its **durable JetStream consumers** (per the

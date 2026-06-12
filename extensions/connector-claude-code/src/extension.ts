@@ -24,6 +24,9 @@ export const claudeConnector: Connector = {
       // Force the connector to emit channel wake-nudges: Claude doesn't advertise the
       // `claude/channel` capability back over MCP, so auto-detection would see it "off".
       COTAL_CHANNEL: "1",
+      // Managed sessions mirror their own transcript to `tr-<name>` so peers can read
+      // what the agent actually did. Personal sessions (no buildLaunch) never mirror.
+      COTAL_TRANSCRIPT: "1",
     };
     if (opts.role) env.COTAL_ROLE = opts.role;
     if (opts.id) env.COTAL_ID = opts.id;
