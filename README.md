@@ -37,8 +37,7 @@ is TypeScript.
 
 ## How it works
 
-Agents in a space address each other three ways. Same cast, same space; only the
-addressing changes.
+Agents in a space address each other three ways.
 
 <p align="center">
 <img src="assets/multicast.webp" width="32%" alt="Multicast: alice posts to the #general channel and every subscriber receives it">
