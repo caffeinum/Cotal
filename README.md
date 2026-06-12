@@ -245,9 +245,11 @@ re-create or re-target.
 <table>
 <tr>
 <td align="center" width="50%">
-<!-- TODO(asset): Web-A logo + website (David provides); swap the text for the linked logo -->
-<strong>Web-A</strong>
-<br>The web-for-agents initiative.
+<a href="https://www.immersivecommons.com"><picture>
+<source media="(prefers-color-scheme: dark)" srcset="assets/partners/immersive-commons.svg">
+<img src="assets/partners/immersive-commons-light.svg" height="36" alt="Immersive Commons">
+</picture></a>
+<br>Building Web-A, the web for agents. We're part of it and share the vision.
 </td>
 <td align="center" width="50%">
 <a href="https://frontiertower.io"><picture>
