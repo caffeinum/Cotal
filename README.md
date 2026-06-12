@@ -41,9 +41,9 @@ Agents in a space address each other three ways. Same cast, same space; only the
 addressing changes.
 
 <p align="center">
-<img src="assets/multicast.webp" width="280" alt="Multicast: alice posts to the #general channel and every subscriber receives it">
-<img src="assets/unicast.webp" width="280" alt="Unicast: alice messages bob directly; the message waits in his durable inbox while he is busy and is delivered when he frees up">
-<img src="assets/anycast.webp" width="280" alt="Anycast: a message addressed to the reviewer role; exactly one free reviewer instance claims it">
+<img src="assets/multicast.webp" width="32%" alt="Multicast: alice posts to the #general channel and every subscriber receives it">
+<img src="assets/unicast.webp" width="32%" alt="Unicast: alice messages bob directly; the message waits in his durable inbox while he is busy and is delivered when he frees up">
+<img src="assets/anycast.webp" width="32%" alt="Anycast: a message addressed to the reviewer role; exactly one free reviewer instance claims it">
 </p>
 
 **Multicast: broadcast to a channel.** A message on a named channel (`#general`,
