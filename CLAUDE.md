@@ -21,10 +21,10 @@ pnpm + TypeScript ESM monorepo — four dependency tiers, one-way deps, Node ≥
 - **`packages/*` — the protocol** (generic, the standard).
   - **@cotal-ai/core** — endpoint, subjects, message types; the NATS client layer + extension contracts (`Connector`, `Command`) and the `Registry` they self-register into.
 - **`extensions/*` — pluggable adapters** (peer-depend core; self-register on import).
-  - **@cotal-ai/connector-core** — shared MCP-bridge runtime (mesh agent, `cotal_*` tools incl. `cotal_spawn`, hook relay); the two adapters are thin clients over it.
+  - **@cotal-ai/connector-core** — shared MCP-bridge runtime (mesh agent, `cotal_*` tools incl. `cotal_spawn`, hook relay); the adapters are thin clients over it.
   - **@cotal-ai/connector-claude-code** — Claude Code adapter (installed plugin + `claude/channel` push).
   - **@cotal-ai/connector-codex** — Codex adapter (pull-only MCP server injected via `codex -c`; no plugin, no hooks).
-  - **@cotal-ai/openai-agents**, **@cotal-ai/vercel-ai** — agent-framework adapters: a native peer that embeds a Cotal endpoint (reusing connector-core's `MeshAgent`) and answers mesh traffic via the SDK's own loop. See [docs/agent-frameworks.md](docs/agent-frameworks.md).
+  - **@cotal-ai/connector-opencode** — OpenCode adapter (native in-process plugin injected via `OPENCODE_CONFIG_CONTENT`; renders the shared `cotal_*` tool specs as plugin tools).
   - **@cotal-ai/cmux** — thin driver over the [cmux](https://github.com/) CLI (open a workspace/tab, send keys); used by the manager's `cmux` runtime and example launch scripts.
 - **`implementations/*` — opinionated surfaces** over core (self-contained; never import each other).
   - **@cotal-ai/cli** — mesh CLI: `up`, `join`, `watch`, `console` (thin NATS clients) plus `spawn` — a foreground agent launch reusing the connector's launch recipe.
@@ -49,15 +49,12 @@ pnpm typecheck     # tsc --noEmit across all packages
 pnpm build         # tsc build across all packages
 ```
 
-## Current focus: Demo 1
+## Status
 
-We are building **Demo 1** — a showcase of what Cotal can do: role-specialized endpoints
-join one shared space and coordinate laterally (presence, all three addressing modes,
-live state, observability, graceful leave, late join) on a local NATS/JetStream mesh.
-The **walking skeleton** (manual CLI peers) and the **control plane** (manager + `pty`
-runtime + `attach`) are in; wiring the coding-agent adapters end-to-end lands next. Keep
-work aimed at making Demo 1 demonstrable — see
-[examples/01-lateral-coordination/README.md](examples/01-lateral-coordination/README.md).
+Demo 1 (the lateral-coordination showcase, [examples/01](examples/01-lateral-coordination/README.md))
+is **done** — mesh, control plane, and the coding-agent connectors run end-to-end.
+Current work is public-facing: the README ([design doc](docs/plans/readme.md)), docs,
+and the hosted onboarding funnel.
 
 ## Research & web tools
 
