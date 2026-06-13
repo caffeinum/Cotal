@@ -16,7 +16,7 @@ export interface Step {
    *  skips the step. Non-TTY runs without asking. For steps that change the user's
    *  system (e.g. installing the Claude Code plugin). */
   confirm?: string;
-  /** The step draws its own live pane — the runner shows no spinner, just the result line. */
+  /** The step draws its own live pane; the runner shows no spinner, just the result line. */
   live?: boolean;
   /** Paths/URLs Claude should read when this step fails. */
   context?: string[];
@@ -29,18 +29,18 @@ export interface Step {
  *
  *  `yes` is non-interactive accept-all (agents/CI): optional and `confirm` steps run
  *  without prompting (so e.g. demo agents are written), and a failure aborts with the
- *  log path instead of opening the recovery menu/handoff — even on a TTY. */
+ *  log path instead of opening the recovery menu/handoff, even on a TTY. */
 export async function runSteps(steps: Step[], log: SetupLog, opts: { yes?: boolean } = {}): Promise<boolean> {
   const interactive = process.stdin.isTTY && !opts.yes;
   for (const step of steps) {
     if (step.optional && !opts.yes && (!interactive || !(await ask(`${step.title}?`)))) {
-      p.log.info(dim(`skipped — ${step.title}`));
+      p.log.info(dim(`skipped: ${step.title}`));
       log.line(`${step.name}: skipped (declined)`);
       continue;
     }
     // Consent before a system-changing step (interactive only); a "no" skips it.
     if (step.confirm && interactive && !(await ask(step.confirm))) {
-      p.log.info(dim(`skipped — ${step.title}`));
+      p.log.info(dim(`skipped: ${step.title}`));
       log.line(`${step.name}: skipped (declined consent)`);
       continue;
     }
@@ -56,18 +56,18 @@ async function runOne(step: Step, log: SetupLog, interactive: boolean): Promise<
     spin?.start(step.title);
     try {
       const detail = await step.run();
-      const line = `${step.title}${detail ? dim(` — ${detail}`) : ""}`;
+      const line = `${step.title}${detail ? dim(` · ${detail}`) : ""}`;
       if (spin) spin.stop(line);
       else p.log.success(line);
-      log.line(`${step.name}: ok${detail ? ` — ${detail}` : ""}`);
+      log.line(`${step.name}: ok${detail ? ` · ${detail}` : ""}`);
       return true;
     } catch (e) {
       const err = e as Error;
-      if (spin) spin.stop(`${step.title} — failed`);
+      if (spin) spin.stop(`${step.title}: failed`);
       p.log.error(err.message);
-      log.line(`${step.name}: FAILED — ${err.message}`);
+      log.line(`${step.name}: FAILED · ${err.message}`);
 
-      // Non-interactive (CI, piped, or --yes): no recovery loop — abort with the log path.
+      // Non-interactive (CI, piped, or --yes): no recovery loop; abort with the log path.
       if (!interactive) {
         p.log.message(dim(`See ${log.path}`));
         return false;

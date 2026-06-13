@@ -22,12 +22,13 @@ On failure, an interactive run offers a Claude handoff ([`lib/assist.ts`](../imp
 The **connector picker** (`pickConnectors`) multiselects Claude / Codex / OpenCode (detected
 pre-checked). Only **Claude** runs an install (its wake channel binds to an *installed* plugin);
 **Codex/OpenCode auto-wire at spawn** (they inject MCP/plugin via `buildLaunch`, never writing
-the user's config) so the picker just marks them ready. The two experts (david — the engineer,
-sven — the guide) are written by default.
+the user's config) so the picker just marks them ready. Two experts (david, the engineer; sven,
+the guide) plus the operator's own driving session (`me`) are written by default; `me` also
+backs `cotal cmux go`'s `spawn me`.
 
 **`--yes`** forces non-interactive accept-all even on a TTY: optional + `confirm` steps
 run (so demo agents are written), the demo finale is skipped, and a failure aborts with
-the log path and a non-zero exit. This is the agent/CI contract — keep it working.
+the log path and a non-zero exit. This is the agent/CI contract; keep it working.
 
 ## Invariants
 

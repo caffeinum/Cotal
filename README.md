@@ -87,11 +87,12 @@ cotal
 
 One command, guided setup. The **first run** walks you through it: checks
 prerequisites, starts a local web for agents (the `nats-server` binary ships with the
-package — bring your own on PATH and it wins), installs the Claude Code plugin (it asks
-first), and drops in two Cotal experts you can chat with — **david** (how it works) and
-**sven** (what to build) — with a live view as it boots. If a step fails it offers to hand
-you off to an interactive Claude session that knows what went wrong, then resumes. Inside
-[cmux](https://github.com/), the finale opens both experts in split panes with a dashboard.
+package; bring your own on PATH and it wins), lets you pick connectors (Claude installs a
+plugin, Codex/OpenCode auto-wire at spawn), and adds two experts plus your own session:
+**david** the engineer (how it works), **sven** the guide (what to build), and **me**, the
+session you drive. If a step fails it offers an interactive Claude session that knows what
+went wrong, then resumes. The finale opens a Claude you drive, with david and sven helping
+in the background.
 
 **Every run after** is a quick `cotal · ready` status: it makes sure a web is up in the
 current folder and prints your next steps. Run `cotal setup --full` to re-run the full

@@ -6,13 +6,13 @@ const HIDE = "\x1b[?25l";
 const SHOW = "\x1b[?25h";
 
 /**
- * A fixed-height rolling tail under a spinner header — so a slow step shows live
+ * A fixed-height rolling tail under a spinner header, so a slow step shows live
  * progress instead of a frozen spinner. Modeled on nanoclaw's windowed-runner.
  *
  * Purely transient: `start` opens the pane, `push` feeds it lines, `clear` wipes it
  * and restores the cursor. The caller (the step runner) emits the permanent ✓/✗ line,
  * so the pane never competes with clack's log output. On a non-TTY (CI/piped) every
- * method is a no-op and lines are dropped — the runner's plain status line is enough.
+ * method is a no-op and lines are dropped; the runner's plain status line is enough.
  */
 export class LivePane {
   private readonly tty = Boolean(process.stdout.isTTY);

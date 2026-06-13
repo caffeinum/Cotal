@@ -30,7 +30,7 @@ export interface MachineStatus {
   agents: { claude: boolean; codex: boolean; opencode: boolean };
 }
 
-/** Machine-level readiness — the once-per-machine setup pieces. */
+/** Machine-level readiness: the once-per-machine setup pieces. */
 export async function machineStatus(): Promise<MachineStatus> {
   let nats: MachineStatus["nats"] = "missing";
   try {

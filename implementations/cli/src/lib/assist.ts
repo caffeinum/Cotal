@@ -7,7 +7,7 @@ export interface AssistContext {
   /** Failed step slug (as shown to the user and written to the log). */
   step: string;
   error: Error;
-  /** Local paths and doc URLs Claude should read for context — referenced in the
+  /** Local paths and doc URLs Claude should read for context: referenced in the
    *  prompt, never inlined, so it works without a repo clone. */
   context: string[];
   logPath: string;
@@ -23,7 +23,7 @@ export function assistAvailable(): boolean {
 }
 
 // All handoffs in one setup run share a single Claude session: the first spawn pins
-// a generated UUID (--session-id), later spawns --resume it — so Claude keeps the
+// a generated UUID (--session-id), later spawns --resume it, so Claude keeps the
 // context of earlier failures. stdio is inherited, so pinning our own id is the only
 // way to find the session again.
 let sessionId: string | undefined;
@@ -33,7 +33,7 @@ let sessionId: string | undefined;
 export async function runHandoff(ctx: AssistContext): Promise<void> {
   const sessionArgs = sessionId ? ["--resume", sessionId] : ["--session-id", (sessionId = randomUUID())];
   p.note(
-    `Failed step: ${ctx.step}\n${ctx.error.message}\n\nType ${dim("/exit")} when you're done — setup resumes here.`,
+    `Failed step: ${ctx.step}\n${ctx.error.message}\n\nType ${dim("/exit")} when you're done; setup resumes here.`,
     "Handing off to Claude",
   );
   const child = spawn("claude", [buildPrompt(ctx), "--permission-mode", "auto", ...sessionArgs], {
@@ -42,7 +42,7 @@ export async function runHandoff(ctx: AssistContext): Promise<void> {
   await new Promise<void>((resolve) => {
     child.on("exit", () => resolve());
     child.on("error", () => {
-      p.log.error("Couldn't launch Claude — continuing without it.");
+      p.log.error("Couldn't launch Claude; continuing without it.");
       resolve();
     });
   });
@@ -60,7 +60,7 @@ function buildPrompt(ctx: AssistContext): string {
     "Read these for context as needed (don't assume their contents):",
     ...[ctx.logPath, ...ctx.context].map((f) => `  - ${f}`),
     "",
-    "Be concise. When the issue is fixed, remind me to type /exit — I'll land back",
+    "Be concise. When the issue is fixed, remind me to type /exit, and I'll land back",
     "in the setup flow, which will offer to retry the failed step.",
   ].join("\n");
 }
