@@ -11,6 +11,13 @@ export interface MeshStatus {
   auth: boolean; // auth mode (trust material on disk) vs open
 }
 
+/** The space this folder operates on: its `.cotal/auth` space if set up, else the default.
+ *  A folder has exactly one space (its auth) — commands resolve it through here so they always
+ *  match the folder's mesh instead of assuming the global default. */
+export function resolveSpace(cwd: string): string {
+  return loadSpaceAuth(authDir(cwd))?.space ?? DEFAULT_SPACE;
+}
+
 /** Cheap, connectionless-ish snapshot of the mesh for this folder: is a server up,
  *  and what space/auth does the local `.cotal/` describe. */
 export async function meshStatus(cwd: string): Promise<MeshStatus> {

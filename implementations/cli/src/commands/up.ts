@@ -14,7 +14,6 @@ import { parseArgs } from "node:util";
 import {
   isReachable,
   DEFAULT_SERVER,
-  DEFAULT_SPACE,
   authDir,
   createSpaceAuth,
   loadSpaceAuth,
@@ -27,6 +26,7 @@ import {
   type SpaceAuth,
   type ChannelRegistryFile,
 } from "@cotal-ai/core";
+import { resolveSpace } from "../lib/status.js";
 import { c } from "../ui.js";
 import { resolveNatsServer } from "../lib/nats-bin.js";
 
@@ -65,7 +65,7 @@ export async function up(argv: string[]): Promise<void> {
   const storeDir = resolve(values["store-dir"] ?? ".cotal/nats");
   mkdirSync(storeDir, { recursive: true });
   const useAuth = !values.open;
-  const space = values.space ?? DEFAULT_SPACE;
+  const space = values.space ?? resolveSpace(process.cwd());
   const seedFile = loadChannelsFile(values.channels);
   const setup = useAuth ? await authSetup(storeDir, server, space) : undefined;
   const port = Number(new URL(server).port) || 4222;
@@ -116,7 +116,7 @@ export async function startMeshDetached(opts: DetachOpts = {}): Promise<{ server
   const storeDir = resolve(opts.storeDir ?? ".cotal/nats");
   mkdirSync(storeDir, { recursive: true });
   const useAuth = !opts.open;
-  const space = opts.space ?? DEFAULT_SPACE;
+  const space = opts.space ?? resolveSpace(process.cwd());
   const seedFile = loadChannelsFile(opts.channels);
   const setup = useAuth ? await authSetup(storeDir, server, space) : undefined;
   const port = Number(new URL(server).port) || 4222;

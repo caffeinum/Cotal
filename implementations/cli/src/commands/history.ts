@@ -4,11 +4,11 @@ import {
   authDir,
   clearSpaceHistory,
   DEFAULT_SERVER,
-  DEFAULT_SPACE,
   loadSpaceAuth,
   mintCreds,
   newIdentity,
 } from "@cotal-ai/core";
+import { resolveSpace } from "../lib/status.js";
 import { c } from "../ui.js";
 
 /** Administrative history operations. Purges JetStream backlog only; live in-process
@@ -33,7 +33,7 @@ export async function history(argv: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const space = values.space ?? DEFAULT_SPACE;
+  const space = values.space ?? resolveSpace(process.cwd());
   const server = values.server ?? DEFAULT_SERVER;
   const creds = values.creds ? readFileSync(values.creds, "utf8") : await managerCreds();
   const result = await clearSpaceHistory({

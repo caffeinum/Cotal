@@ -4,7 +4,6 @@ import { join, dirname } from "node:path";
 import { parseArgs } from "node:util";
 import {
   DEFAULT_SERVER,
-  DEFAULT_SPACE,
   agentFilePath,
   authDir,
   loadAgentFile,
@@ -17,6 +16,7 @@ import {
   type AgentDef,
   type Connector,
 } from "@cotal-ai/core";
+import { resolveSpace } from "../lib/status.js";
 
 /**
  * `cotal spawn <name-or-path>` — launch an agent in the FOREGROUND of this
@@ -68,7 +68,7 @@ export async function spawn(argv: string[]): Promise<void> {
   // --name / --role override the file (name defaults from the file's frontmatter).
   const name = values.name ?? def.name;
   const role = values.role ?? def.role;
-  const space = values.space ?? DEFAULT_SPACE;
+  const space = values.space ?? resolveSpace(process.cwd());
   const server = values.server ?? DEFAULT_SERVER;
 
   // Auth mode (`.cotal/auth` present): mint a stable identity + scoped creds for this agent

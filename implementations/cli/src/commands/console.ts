@@ -6,13 +6,13 @@ import { render } from "ink";
 import {
   isReachable,
   DEFAULT_SERVER,
-  DEFAULT_SPACE,
   chatWildcard,
   authDir,
   loadSpaceAuth,
   mintCreds,
   newIdentity,
 } from "@cotal-ai/core";
+import { resolveSpace } from "../lib/status.js";
 import { c } from "../ui.js";
 import { runLog } from "../render.js";
 import { Root, makeObserver } from "../console/root.js";
@@ -75,7 +75,7 @@ export async function console_(argv: string[]): Promise<void> {
   // No TTY (piped/headless) or --plain → the passive line stream; Ink needs a real terminal, and a
   // stream can't host the picker, so it falls back to the default space.
   if (values.plain || process.stdout.isTTY !== true) {
-    const s = space ?? DEFAULT_SPACE;
+    const s = space ?? resolveSpace(process.cwd());
     await runLog(makeObserver(s, server, creds, operator), s, creds ? chatWildcard(s) : undefined);
     return;
   }

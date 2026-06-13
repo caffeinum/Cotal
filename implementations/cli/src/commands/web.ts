@@ -9,7 +9,6 @@ import {
   CotalEndpoint,
   isReachable,
   DEFAULT_SERVER,
-  DEFAULT_SPACE,
   deliveryOf,
   parseSubject,
   spaceWildcard,
@@ -18,6 +17,7 @@ import {
   mintCreds,
   newIdentity,
 } from "@cotal-ai/core";
+import { resolveSpace } from "../lib/status.js";
 import { c } from "../ui.js";
 import { selfArgv } from "../lib/self-exec.js";
 
@@ -50,7 +50,7 @@ export async function web(argv: string[]): Promise<void> {
       creds: { type: "string" },
     },
   });
-  const space = values.space ?? DEFAULT_SPACE;
+  const space = values.space ?? resolveSpace(process.cwd());
   const server = values.server ?? DEFAULT_SERVER;
   const port = values.port ? Number(values.port) : WEB_PORT;
   // The dashboard is always an admin god-view (no read-only viewer mode) so it can show DMs
@@ -227,7 +227,7 @@ export function startWebDetached(o: { space?: string; server?: string } = {}): {
     "--port",
     String(WEB_PORT),
     "--space",
-    o.space ?? DEFAULT_SPACE,
+    o.space ?? resolveSpace(process.cwd()),
     ...(o.server ? ["--server", o.server] : []),
   ];
   const child = spawn(node, args, { detached: true, stdio: ["ignore", fd, fd] });

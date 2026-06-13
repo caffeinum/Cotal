@@ -7,6 +7,8 @@ import {
   isReachable,
   DEFAULT_SERVER,
   DEFAULT_SPACE,
+  authDir,
+  loadSpaceAuth,
   registry,
   type Command,
   type ControlReply,
@@ -17,6 +19,12 @@ import { attachClient } from "./attach-client.js";
 import { c } from "./ui.js";
 
 type Values = Record<string, string | undefined>;
+
+/** The space to operate on: explicit `--space`, else this folder's `.cotal/auth` space, else the
+ *  default — so a manually-run manager matches the folder's mesh instead of assuming the default. */
+function spaceFor(v: Values): string {
+  return v.space ?? loadSpaceAuth(authDir(process.cwd()))?.space ?? DEFAULT_SPACE;
+}
 
 function parse(argv: string[]): Values {
   const { values, positionals } = parseArgs({
@@ -94,7 +102,7 @@ async function start(argv: string[]): Promise<void> {
     console.error(c.red("--name is required"));
     process.exit(1);
   }
-  const reply = await ask(v.space ?? DEFAULT_SPACE, v.server ?? DEFAULT_SERVER, "start", {
+  const reply = await ask(spaceFor(v), v.server ?? DEFAULT_SERVER, "start", {
     name: v.name,
     role: v.role,
     agent: v.agent,
@@ -114,7 +122,7 @@ async function stop(argv: string[]): Promise<void> {
     console.error(c.red("--name is required"));
     process.exit(1);
   }
-  const reply = await ask(v.space ?? DEFAULT_SPACE, v.server ?? DEFAULT_SERVER, "stop", {
+  const reply = await ask(spaceFor(v), v.server ?? DEFAULT_SERVER, "stop", {
     name: v.name,
   }, v.creds);
   failIfNotOk(reply);
@@ -123,7 +131,7 @@ async function stop(argv: string[]): Promise<void> {
 
 async function ps(argv: string[]): Promise<void> {
   const v = parse(argv);
-  const reply = await ask(v.space ?? DEFAULT_SPACE, v.server ?? DEFAULT_SERVER, "ps", undefined, v.creds);
+  const reply = await ask(spaceFor(v), v.server ?? DEFAULT_SERVER, "ps", undefined, v.creds);
   failIfNotOk(reply);
   const rows =
     (reply.data as Array<{
@@ -162,7 +170,7 @@ async function attach(argv: string[]): Promise<void> {
     console.error(c.red("--name is required"));
     process.exit(1);
   }
-  const reply = await ask(v.space ?? DEFAULT_SPACE, v.server ?? DEFAULT_SERVER, "attach", {
+  const reply = await ask(spaceFor(v), v.server ?? DEFAULT_SERVER, "attach", {
     name: v.name,
   }, v.creds);
   failIfNotOk(reply);
@@ -177,7 +185,7 @@ async function attach(argv: string[]): Promise<void> {
  *  composition root (the `cotal` binary does). Stays alive until SIGINT/SIGTERM. */
 async function runManager(argv: string[], runtime: RuntimeMode): Promise<void> {
   const v = parse(argv);
-  const space = v.space ?? DEFAULT_SPACE;
+  const space = spaceFor(v);
   const server = v.server ?? DEFAULT_SERVER;
   if (!(await isReachable(server))) {
     console.error(c.red(`Can't reach NATS at ${server}. Run: cotal up`));
@@ -211,7 +219,7 @@ async function runManager(argv: string[], runtime: RuntimeMode): Promise<void> {
  *  open a workspace with the console + a ready driving session. Orchestrates, then exits. */
 async function runDrive(argv: string[]): Promise<void> {
   const v = parse(argv);
-  const space = v.space ?? DEFAULT_SPACE;
+  const space = spaceFor(v);
   const name = v.name ?? "me";
   const server = v.server ?? DEFAULT_SERVER;
   // name/space get interpolated into the cmux pane's `bash -lc '…'` command; keep them bare

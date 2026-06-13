@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import * as p from "@clack/prompts";
-import { DEFAULT_SERVER, DEFAULT_SPACE, isReachable, registry, type Connector } from "@cotal-ai/core";
+import { DEFAULT_SERVER, isReachable, registry, type Connector } from "@cotal-ai/core";
 import { cmux } from "@cotal-ai/cmux";
 import { brand, brandBold, dim, ok, note, splash } from "../lib/theme.js";
 import { LivePane } from "../lib/live-window.js";
@@ -13,7 +13,7 @@ import { abortIfCancel } from "../lib/cancel.js";
 import { openSetupLog } from "../lib/setup-log.js";
 import { resolveNatsServer } from "../lib/nats-bin.js";
 import { isOnboarded, markOnboarded } from "../lib/onboard.js";
-import { machineStatus, meshStatus, onPath } from "../lib/status.js";
+import { machineStatus, meshStatus, onPath, resolveSpace } from "../lib/status.js";
 import { startMeshDetached, up } from "./up.js";
 import { ensureWeb, webUp, WEB_URL } from "./web.js";
 import { ensureManager, managerUp, stopManager } from "../lib/manager-proc.js";
@@ -103,7 +103,7 @@ async function runFirstRun(yes: boolean): Promise<void> {
 
   // The web dashboard, in the background, so it's just there (best-effort; never blocks setup).
   try {
-    const web = await ensureWeb({ space: DEFAULT_SPACE, server: DEFAULT_SERVER });
+    const web = await ensureWeb({ space: resolveSpace(process.cwd()), server: DEFAULT_SERVER });
     if (web.running) {
       p.log.success(`Web dashboard at ${web.url} (stop with: cotal down)`);
       log.line(`web: ${web.url}`);
@@ -158,7 +158,7 @@ async function runFirstRun(yes: boolean): Promise<void> {
   else {
     // Agents/CI: bring up the control plane so cotal_spawn / despawn / purge work right away.
     try {
-      ensureManager({ space: DEFAULT_SPACE, server: DEFAULT_SERVER });
+      ensureManager({ space: resolveSpace(process.cwd()), server: DEFAULT_SERVER });
     } catch {
       /* non-fatal */
     }
@@ -246,7 +246,7 @@ async function offerDemo(haveClaude: boolean): Promise<void> {
       }
       // Non-cmux: a background pty manager pre-spawns david/sven (managed, despawnable), then we
       // hand this terminal to the driving session.
-      ensureManager({ space: DEFAULT_SPACE, server: DEFAULT_SERVER, spawn: ["david", "sven"] });
+      ensureManager({ space: resolveSpace(process.cwd()), server: DEFAULT_SERVER, spawn: ["david", "sven"] });
       p.outro(brand("Launching your session... david and sven are warming up in the background."));
       await spawn(["me", "--prompt", ME_GREETING]);
       process.exit(0);
@@ -258,7 +258,7 @@ async function offerDemo(haveClaude: boolean): Promise<void> {
   // Declined, or no Claude: start the background (pty) control plane so cotal_spawn / despawn /
   // purge still work, then leave them the quick-reference card.
   try {
-    ensureManager({ space: DEFAULT_SPACE, server: DEFAULT_SERVER });
+    ensureManager({ space: resolveSpace(process.cwd()), server: DEFAULT_SERVER });
   } catch {
     /* non-fatal: the card still shows how to start it */
   }
@@ -303,13 +303,15 @@ function ensureCmuxSession(cwd: string): void {
   stopManager();
 
   // Invoke this CLI by its resolved path, not bare `cotal`, so the panes work whether the user
-  // installed via npx, `npm i -g`, or a dev clone (no dependency on `cotal` being on PATH).
+  // installed via npx, `npm i -g`, or a dev clone (no dependency on `cotal` being on PATH). The
+  // space follows the folder's auth so every pane matches the running mesh.
   const cotal = selfCotal();
+  const space = resolveSpace(cwd);
 
   // Control plane: a cmux-runtime manager that pre-spawns david/sven into their own tabs and owns
   // them (so cotal_despawn / cotal_spawn work). Open it only if it isn't already up (idempotent).
   if (!cmux.workspaceExists("cotal-manager")) {
-    cmux.openWorkspace("cotal-manager", JSON.stringify(term(`${cotal} cmux --space ${DEFAULT_SPACE} --spawn david,sven`)), {
+    cmux.openWorkspace("cotal-manager", JSON.stringify(term(`${cotal} cmux --space ${space} --spawn david,sven`)), {
       focus: false,
     });
   }
@@ -319,11 +321,11 @@ function ensureCmuxSession(cwd: string): void {
   // pass the greeting base64-encoded and decode it in bash.
   if (!cmux.workspaceExists("cotal-main")) {
     const greetB64 = Buffer.from(ME_GREETING, "utf8").toString("base64");
-    const meCmd = `${cotal} spawn me --prompt "$(echo ${greetB64} | base64 -d)"`;
+    const meCmd = `${cotal} spawn me --space ${space} --prompt "$(echo ${greetB64} | base64 -d)"`;
     const main = JSON.stringify({
       direction: "vertical",
       split: 0.34,
-      children: [term(`${cotal} console --space ${DEFAULT_SPACE}`), confirmTerm(meCmd)],
+      children: [term(`${cotal} console --space ${space}`), confirmTerm(meCmd)],
     });
     cmux.openWorkspace("cotal-main", main, { focus: true });
   }

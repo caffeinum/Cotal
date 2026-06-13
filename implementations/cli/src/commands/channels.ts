@@ -5,7 +5,6 @@ import {
   mintCreds,
   newIdentity,
   DEFAULT_SERVER,
-  DEFAULT_SPACE,
   seedChannelRegistry,
   readChannelRegistry,
   effectiveReplay,
@@ -13,6 +12,7 @@ import {
   type ChannelDefaults,
   type ChannelRegistryFile,
 } from "@cotal-ai/core";
+import { resolveSpace } from "../lib/status.js";
 import { c } from "../ui.js";
 
 /**
@@ -39,7 +39,7 @@ export async function channels(argv: string[]): Promise<void> {
     },
   });
   const server = values.server ?? DEFAULT_SERVER;
-  const space = values.space ?? DEFAULT_SPACE;
+  const space = values.space ?? resolveSpace(process.cwd());
   // Tri-state replay: --replay → true, --no-replay → false, neither → leave unchanged.
   const replay = values["no-replay"] ? false : values.replay ? true : undefined;
   const creds = await managerCreds(); // undefined ⇒ open mode
