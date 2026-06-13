@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "@cotal-ai/cli": "workspace:*",
+    "@cotal-ai/cmux": "workspace:*",
     "@cotal-ai/connector-claude-code": "workspace:*",
     "@cotal-ai/connector-codex": "workspace:*",
     "@cotal-ai/connector-opencode": "workspace:*",

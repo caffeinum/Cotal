@@ -21,6 +21,9 @@
     "build": "tsc -p tsconfig.json",
     "prepublishOnly": "pnpm run build"
   },
+  "dependencies": {
+    "@cotal-ai/core": "workspace:*"
+  },
   "devDependencies": {
     "tsx": "^4.22.4"
   },

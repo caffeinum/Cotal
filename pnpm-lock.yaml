@@ -11,6 +11,9 @@ importers:
       '@cotal-ai/cli':
         specifier: workspace:*
         version: link:implementations/cli
+      '@cotal-ai/cmux':
+        specifier: workspace:*
+        version: link:extensions/cmux
       '@cotal-ai/connector-claude-code':
         specifier: workspace:*
         version: link:extensions/connector-claude-code
@@ -58,6 +61,9 @@ importers:
 
   examples/02-cmux-handoff:
     dependencies:
+      '@cotal-ai/cmux':
+        specifier: workspace:*
+        version: link:../../extensions/cmux
       '@cotal-ai/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -70,6 +76,10 @@ importers:
         version: 4.22.4
 
   extensions/cmux:
+    dependencies:
+      '@cotal-ai/core':
+        specifier: workspace:*
+        version: link:../../packages/core
     devDependencies:
       tsx:
         specifier: ^4.22.4
@@ -163,9 +173,6 @@ importers:
 
   implementations/manager:
     dependencies:
-      '@cotal-ai/cmux':
-        specifier: workspace:*
-        version: link:../../extensions/cmux
       '@cotal-ai/core':
         specifier: workspace:*
         version: link:../../packages/core
