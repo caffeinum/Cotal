@@ -7,6 +7,8 @@ export * from "./streams.js";
 export * from "./channels.js";
 export * from "./agent-file.js";
 export * from "./endpoint.js";
+export * from "./spaces.js";
 export * from "./connector.js";
 export * from "./command.js";
+export * from "./runtime.js";
 export * from "./registry.js";
