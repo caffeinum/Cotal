@@ -28,6 +28,9 @@ export interface AttachSession {
 export interface AgentHandle {
   readonly name: string;
   readonly kind: RuntimeKind;
+  /** OS pid of the spawned child, when the backend owns a real process (pty/host); absent for
+   *  backends that don't (tmux/cmux attach to an externally-owned process). */
+  readonly pid?: number;
   status(): "running" | "exited";
   /** Tear the agent down. `graceful` (default) signals a clean exit (so the session
    *  leaves the mesh on its own) before ensuring the process/tab is gone; otherwise

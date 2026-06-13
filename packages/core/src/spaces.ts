@@ -8,7 +8,7 @@ import { connect, credsAuthenticator } from "@nats-io/transport-node";
 import { jetstreamManager } from "@nats-io/jetstream";
 import { Kvm } from "@nats-io/kv";
 import { DEFAULT_SERVER } from "./endpoint.js";
-import { parseSubject, chatStream, dmStream, taskStream, presenceBucket } from "./subjects.js";
+import { parseSubject, chatStream, dmStream, taskStream, presenceBucket, channelBucket } from "./subjects.js";
 
 /** One row of the space overview. */
 export interface SpaceInfo {
@@ -80,9 +80,9 @@ export async function listSpaces(opts: ListSpacesOptions = {}): Promise<SpaceInf
   }
 }
 
-/** Tear down a space — delete its chat/DM/task streams and presence KV bucket. Irreversible; all
- *  history + presence for the space is gone. Open mode, or a cred allowing STREAM.DELETE. Mirrors
- *  the smoke-test cleanup. Not-found streams are ignored (idempotent). */
+/** Tear down a space — delete its chat/DM/task streams plus the presence and channel-registry KV
+ *  buckets. Irreversible; all history, presence, and channel config for the space is gone. Open
+ *  mode, or a cred allowing STREAM.DELETE. Not-found streams are ignored (idempotent). */
 export async function deleteSpace(opts: { servers?: string; creds?: string; space: string }): Promise<void> {
   const nc = await connect({
     servers: opts.servers ?? DEFAULT_SERVER,
@@ -97,6 +97,7 @@ export async function deleteSpace(opts: { servers?: string; creds?: string; spac
       dmStream(opts.space),
       taskStream(opts.space),
       `KV_${presenceBucket(opts.space)}`,
+      `KV_${channelBucket(opts.space)}`,
     ];
     for (const s of streams) await jsm.streams.delete(s).catch(() => {});
   } finally {

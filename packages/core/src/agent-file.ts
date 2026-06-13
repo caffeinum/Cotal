@@ -120,19 +120,36 @@ export function loadAgentFile(path: string): AgentDef {
  *  persist a peer-defined agent as config. */
 export function saveAgentFile(path: string, def: AgentDef): void {
   if (!def.name) throw new Error('saveAgentFile: "name" is required');
-  const lines = ["---", `name: ${def.name}`];
-  if (def.role) lines.push(`role: ${def.role}`);
-  if (def.kind) lines.push(`kind: ${def.kind}`);
-  if (def.description) lines.push(`description: ${def.description}`);
-  if (def.tags?.length) lines.push(`tags: [${def.tags.join(", ")}]`);
-  if (def.channels?.length) lines.push(`channels: [${def.channels.join(", ")}]`);
-  if (def.publish?.length) lines.push(`publish: [${def.publish.join(", ")}]`);
-  if (def.model) lines.push(`model: ${def.model}`);
-  if (def.face) lines.push(`face: ${def.face}`);
+  const lines = ["---", `name: ${fmScalar(def.name)}`];
+  if (def.role) lines.push(`role: ${fmScalar(def.role)}`);
+  if (def.kind) lines.push(`kind: ${fmScalar(def.kind)}`);
+  if (def.description) lines.push(`description: ${fmScalar(def.description)}`);
+  if (def.tags?.length) lines.push(`tags: [${def.tags.map(fmItem).join(", ")}]`);
+  if (def.channels?.length) lines.push(`channels: [${def.channels.map(fmItem).join(", ")}]`);
+  if (def.publish?.length) lines.push(`publish: [${def.publish.map(fmItem).join(", ")}]`);
+  if (def.model) lines.push(`model: ${fmScalar(def.model)}`);
+  if (def.face) lines.push(`face: ${fmScalar(def.face)}`);
   lines.push("---");
   const body = def.persona ? `${def.persona.trim()}\n` : "";
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${lines.join("\n")}\n\n${body}`);
+}
+
+/** Render a frontmatter scalar so {@link loadAgentFile} reads it back unchanged. Quotes values
+ *  the parser would otherwise misread (a leading `[`, a `,`/`:`/`#`, edge whitespace, or empty);
+ *  throws on values the line-based format can't represent (a newline, or both quote styles). */
+function fmScalar(value: string): string {
+  if (/[\r\n]/.test(value)) throw new Error(`saveAgentFile: value cannot contain a newline: ${JSON.stringify(value)}`);
+  if (value !== "" && value === value.trim() && !/^[[]/.test(value) && !/[,:#"']/.test(value)) return value;
+  if (!value.includes('"')) return `"${value}"`;
+  if (!value.includes("'")) return `'${value}'`;
+  throw new Error(`saveAgentFile: value cannot contain both quote styles: ${JSON.stringify(value)}`);
+}
+
+/** A list item additionally cannot hold a comma — the parser splits on `,` before unquoting. */
+function fmItem(value: string): string {
+  if (value.includes(",")) throw new Error(`saveAgentFile: list item cannot contain a comma: ${JSON.stringify(value)}`);
+  return fmScalar(value);
 }
 
 /** Resolve a name-or-path to an agent file. A path (absolute, contains a slash,
