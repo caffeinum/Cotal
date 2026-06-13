@@ -162,6 +162,12 @@ export class Manager {
       : `unsafe name ${JSON.stringify(name)} (allowed: letters, digits, _ -)`;
   }
 
+  /** Spawn a teammate by name (loads `.cotal/agents/<name>.md`), as if a peer asked via the
+   *  control plane. Used to pre-spawn the demo's experts at startup so the manager owns them. */
+  async startByName(name: string): Promise<ControlReply> {
+    return this.opStart({ name });
+  }
+
   private async opStart(args: Record<string, unknown>): Promise<ControlReply> {
     const name = String(args.name ?? "").trim();
     if (!name) return { ok: false, error: "name required" };

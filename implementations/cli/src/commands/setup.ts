@@ -103,17 +103,6 @@ async function runFirstRun(yes: boolean): Promise<void> {
     /* non-fatal: the card still shows how to start it */
   }
 
-  // The control plane, so cotal_spawn / despawn / purge work from any session. Skipped under
-  // --yes: `cotal cmux go` (which runs `setup --yes`) and CI start their own / need none.
-  if (!yes) {
-    try {
-      ensureManager({ space: "demo", server: DEFAULT_SERVER });
-      log.line("manager: started (control plane)");
-    } catch {
-      /* non-fatal: the card still shows how to start it */
-    }
-  }
-
   // Connectors: which agents should be able to join. Only Claude needs an install
   // (its wake channel binds to an installed plugin); Codex/OpenCode auto-wire at spawn.
   const found = { claude: onPath("claude"), codex: onPath("codex"), opencode: onPath("opencode") };
@@ -234,7 +223,13 @@ async function offerDemo(haveClaude: boolean): Promise<void> {
     }
   }
 
-  // No cmux, or declined: leave them the quick-reference card.
+  // No cmux, or declined: no demo manager, so start the background (pty) control plane here so
+  // cotal_spawn / despawn / purge still work, then leave them the quick-reference card.
+  try {
+    ensureManager({ space: "demo", server: DEFAULT_SERVER });
+  } catch {
+    /* non-fatal: the card still shows how to start it */
+  }
   await readyCard(process.cwd());
 }
 
@@ -244,10 +239,11 @@ async function offerDemo(haveClaude: boolean): Promise<void> {
 const ME_GREETING =
   "Greet the operator in a few short lines. Open with one line on what Cotal is: an open space where AI agents join and work together as peers. Say you are their Cotal session and that david (the engineer) and sven (the guide) are on the mesh to help. Then tell them what you can do for them: message david or sven, spawn new teammates and despawn them when done, and send feedback. End by asking what they want to build.";
 
-/** Open david and sven as background cmux tabs, then a focused workspace (console + the driving
- *  session "me"). The driving session consults david/sven over the mesh; nothing is foregrounded
- *  but your own pane. Each spawned `claude` pane presses Enter on its own cmux surface a few times
- *  to auto-accept the one-time dev-channels prompt, so david/sven/me actually join with no keypress. */
+/** Open a background cmux-runtime manager that pre-spawns david/sven (so they're managed teammates
+ *  you can `cotal_despawn`), then a focused workspace (console + the driving session "me"). The
+ *  manager opens david/sven in their own tabs and owns them; "me" stays your foreground driver.
+ *  The `me` pane presses Enter on its own cmux surface a few times to auto-accept the one-time
+ *  dev-channels prompt (the manager's cmux runtime does the same for david/sven). */
 function openCmuxDemo(cwd: string): void {
   const sq = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
   const enterLoop =
@@ -260,8 +256,11 @@ function openCmuxDemo(cwd: string): void {
   const confirmTerm = (cmd: string) => ({
     pane: { surfaces: [{ type: "terminal", command: `bash -lc ${sq(`cd "${cwd}" && ${enterLoop} ${cmd}`)}` }] },
   });
-  cmux.openWorkspace("cotal-david", JSON.stringify(confirmTerm("cotal spawn david")), { focus: false });
-  cmux.openWorkspace("cotal-sven", JSON.stringify(confirmTerm("cotal spawn sven")), { focus: false });
+  // The control plane: a cmux-runtime manager that pre-spawns david/sven into their own tabs and
+  // owns them (so cotal_despawn / cotal_spawn work on them). It must run in a real cmux surface.
+  cmux.openWorkspace("cotal-manager", JSON.stringify(term("cotal cmux --space demo --spawn david,sven")), {
+    focus: false,
+  });
   // cmux runs pane commands through the login shell (which may be nushell) before bash, so keep the
   // command free of embedded single quotes: pass the greeting base64-encoded and decode it in bash.
   const greetB64 = Buffer.from(ME_GREETING, "utf8").toString("base64");

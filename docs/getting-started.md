@@ -26,9 +26,12 @@ one on your PATH, Cotal uses that instead.
 4. **Adds two experts plus your own session** by default: **david**, the engineer (how
    Cotal works), **sven**, the guide (what to build), and **me**, the session you drive.
    The experts can help you set up and experiment, and hand off to each other.
-5. **Offers a demo**: a Claude you drive with david and sven helping in the background.
-   Inside [cmux](https://github.com/) it opens your driving pane plus the experts in
-   background tabs; otherwise it hands your terminal to the driving session.
+5. **Offers a cmux demo**: a Claude you drive, with david and sven helping in the
+   background. Inside [cmux](https://github.com/) it runs a manager that spawns david and
+   sven as managed teammates in their own tabs (so you can `cotal_despawn` them) plus your
+   driving pane. With no cmux it shows the `cotal · ready` card instead. The demo's manager
+   and agent tabs live in cmux — close the tabs (or quit cmux) to stop them; `cotal down`
+   stops the mesh, web, and any background pty manager.
 
 If a step fails, it offers to hand you to an interactive Claude session that has the
 failure context; type `/exit` to return and it retries.

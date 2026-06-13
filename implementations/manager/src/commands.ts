@@ -32,6 +32,7 @@ function parse(argv: string[]): Values {
       creds: { type: "string" },
       "console-port": { type: "string" },
       drive: { type: "boolean" },
+      spawn: { type: "string" }, // comma-separated agent names to pre-spawn at startup
     },
   });
   // These commands are flags-only — reject stray positionals instead of silently ignoring
@@ -191,6 +192,14 @@ async function runManager(argv: string[], runtime: RuntimeMode): Promise<void> {
       `\n  console: ${mgr.consoleUrl}` +
       c.dim("\n  spawn: cotal start --name <n>   ·   stop: cotal stop --name <n>   (Ctrl-C to shut down)"),
   );
+  // Pre-spawn teammates the manager owns (e.g. the demo's david/sven), so they're despawnable.
+  if (v.spawn) {
+    for (const name of v.spawn.split(",").map((s) => s.trim()).filter(Boolean)) {
+      const reply = await mgr.startByName(name);
+      if (reply.ok) console.log(c.green(`✓ spawned ${name}`));
+      else console.error(c.red(`✗ couldn't spawn ${name}: ${reply.error ?? "unknown error"}`));
+    }
+  }
   const shutdown = () => void mgr.stop().then(() => process.exit(0));
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
