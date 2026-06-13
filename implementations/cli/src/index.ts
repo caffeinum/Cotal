@@ -3,9 +3,11 @@ import { up } from "./commands/up.js";
 import { join } from "./commands/join.js";
 import { watch } from "./commands/watch.js";
 import { console_ } from "./commands/console.js";
+import { demo } from "./commands/demo.js";
 import { web } from "./commands/web.js";
 import { spawn } from "./commands/spawn.js";
 import { mint } from "./commands/mint.js";
+import { setup } from "./commands/setup.js";
 import { channels } from "./commands/channels.js";
 import { history } from "./commands/history.js";
 import { feedback } from "./commands/feedback.js";
@@ -45,10 +47,24 @@ const baseCommands: Command[] = [
   },
   {
     kind: "command",
+    name: "demo",
+    group: "Mesh",
+    summary: "replay a scripted multi-agent trace (all message types) to exercise the console/web — --space <s> [--interval <ms>] [--once]",
+    run: demo,
+  },
+  {
+    kind: "command",
     name: "web",
     group: "Mesh",
     summary: "browser observability dashboard — presence, channels, live feed — --space <s> [--port <n>] [--no-open]",
     run: web,
+  },
+  {
+    kind: "command",
+    name: "setup",
+    group: "Agents",
+    summary: "install the cotal plugin into Claude Code so this repo's sessions get the cotal tools (idempotent)",
+    run: setup,
   },
   {
     kind: "command",
