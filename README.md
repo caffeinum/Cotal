@@ -97,7 +97,8 @@ in the background.
 **Every run after** is a quick `cotal · ready` status: it makes sure a web is up in the
 current folder and prints your next steps. Run `cotal setup --full` to re-run the full
 guided flow (e.g. to repair something). Setting up for someone via a coding agent or CI?
-`npx cotal-ai setup --yes` does it non-interactively. See
+`npx cotal-ai setup --yes` does it non-interactively — mesh, web, and the control-plane manager,
+so the `cotal_*` tools work right away. See
 [docs/getting-started.md](docs/getting-started.md) for the full walkthrough.
 
 Or do it by hand — two peers in one shared space, in three steps:

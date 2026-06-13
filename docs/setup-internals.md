@@ -17,7 +17,9 @@ is two-tier, gated on a machine marker:
   david/sven plus a focused console + `me` pane; **otherwise**, a background **pty manager**
   (`ensureManager({spawn:["david","sven"]})`) pre-spawns david/sven and the terminal is handed to a
   foreground `cotal spawn me`. Declined / no Claude → a plain pty manager + the `cotal · ready`
-  card. Under `--yes` no manager/demo is started (so `cotal cmux go` and CI start / need their own).
+  card. **Under `--yes`** the demo is skipped but the background pty manager *is* started (control
+  plane for agents); `cotal cmux go` then SIGTERMs it (its `.cotal/manager.pid` guard) and runs its
+  own cmux manager.
 - **Later runs** → `runEnsure`: ensures the mesh + dashboard are up; **inside cmux** (gated on
   `CMUX_SURFACE_ID`) it reopens the working session via `ensureCmuxSession` (idempotent — reuses the
   live manager + david/sven, opens only missing tabs), otherwise it starts the background pty
@@ -41,7 +43,8 @@ the guide) plus the operator's own driving session (`me`) are written by default
 backs `cotal cmux go`'s `spawn me`.
 
 **`--yes`** forces non-interactive accept-all even on a TTY: optional + `confirm` steps
-run (so demo agents are written), the demo finale is skipped, and a failure aborts with
+run (so demo agents are written), the demo finale is skipped, the background **pty manager** is
+started (so an agent can use the `cotal_*` control tools immediately), and a failure aborts with
 the log path and a non-zero exit. This is the agent/CI contract; keep it working.
 
 ## Invariants

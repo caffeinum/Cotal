@@ -155,6 +155,14 @@ async function runFirstRun(yes: boolean): Promise<void> {
   );
 
   if (!yes) await offerDemo(found.claude);
+  else {
+    // Agents/CI: bring up the control plane so cotal_spawn / despawn / purge work right away.
+    try {
+      ensureManager({ space: "demo", server: DEFAULT_SERVER });
+    } catch {
+      /* non-fatal */
+    }
+  }
   p.outro(brand(yes ? "Cotal is ready." : "Happy meshing."));
 
   function abort() {

@@ -83,8 +83,10 @@ npx cotal-ai setup --yes
 ```
 
 `--yes` accepts every default with no prompts: it installs the plugin, writes the experts
-and your driving session, and starts the web. It never hands over the terminal, and it
-exits non-zero with the log path if a step fails, so an agent or a CI job can check the result.
+and your driving session, and starts the mesh, the web dashboard, and the background **manager**
+(so an agent can use the `cotal_*` tools — spawn/despawn/purge — right away). It never hands over
+the terminal, never opens the demo, and exits non-zero with the log path if a step fails, so an
+agent or a CI job can check the result. `cotal down` stops the background processes.
 
 ## Troubleshooting
 
