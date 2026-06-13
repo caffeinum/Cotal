@@ -78,6 +78,7 @@ export class PtyRuntime implements Runtime {
     return {
       name,
       kind: "pty",
+      pid: proc.pid,
       status: () => (alive ? "running" : "exited"),
       stop: () => {
         if (alive) proc.kill();

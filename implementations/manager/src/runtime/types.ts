@@ -25,6 +25,11 @@ export interface AttachSession {
 export interface AgentHandle {
   readonly name: string;
   readonly kind: RuntimeKind;
+  /** OS pid of the spawned child, when the backend owns one. The `pty` runtime always does
+   *  (`proc.pid`); multiplexer backends (`tmux`/`cmux`) drive a pane with no single child
+   *  pid, so it is absent there. The cockpit's session managed-set records this so a restart
+   *  can liveness-check + kill an orphaned pty by pid. */
+  readonly pid?: number;
   status(): "running" | "exited";
   stop(): void;
   interrupt(): void;
