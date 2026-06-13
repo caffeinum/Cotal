@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, openSync, closeSync, writeFileSync, readFileSync } from "node:fs";
+import { existsSync, openSync, closeSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { DEFAULT_SERVER } from "@cotal-ai/core";
 
@@ -51,4 +51,20 @@ export function ensureManager(o: { space?: string; server?: string } = {}): { ru
   if (managerUp()) return { running: true };
   startManagerDetached(o);
   return { running: true };
+}
+
+/** Stop the detached (pty) manager if we started one. Used when switching to the cmux-tab manager
+ *  so the two don't both answer the control plane (queue-grouped requests would split between them). */
+export function stopManager(): void {
+  const p = PID_PATH();
+  if (!existsSync(p)) return;
+  const pid = Number(readFileSync(p, "utf8").trim());
+  if (Number.isFinite(pid)) {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      /* already gone */
+    }
+  }
+  rmSync(p);
 }

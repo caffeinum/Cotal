@@ -66,6 +66,21 @@ export function closeWorkspace(workspace: string): void {
   cmux(["close-workspace", "--workspace", workspace]);
 }
 
+/** All open workspace lines (name + ref), or `[]` if cmux can't be reached. */
+export function listWorkspaces(): string[] {
+  try {
+    return cmux(["list-workspaces"]).split("\n").map((l) => l.trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/** True if a workspace whose listing contains `name` is already open — used to keep
+ *  re-opening a session idempotent (don't spawn a second manager / duplicate tabs). */
+export function workspaceExists(name: string): boolean {
+  return listWorkspaces().some((l) => l.includes(name));
+}
+
 /** Split the focused pane; the new pane becomes focused. */
 export function newSplit(direction: "left" | "right" | "up" | "down"): void {
   cmux(["new-split", direction]);

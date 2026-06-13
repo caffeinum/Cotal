@@ -17,8 +17,10 @@ is two-tier, gated on a machine marker:
   console + `me` driver. With no cmux / declined, it starts the background **pty manager** instead
   and shows the `cotal · ready` card. Under `--yes` neither is started (so `cotal cmux go` and CI
   start / need their own).
-- **Later runs** → `runEnsure`: ensures the mesh + dashboard + manager are up in the cwd, then a
-  compact status card.
+- **Later runs** → `runEnsure`: ensures the mesh + dashboard are up; **inside cmux** (gated on
+  `CMUX_SURFACE_ID`) it reopens the working session via `ensureCmuxSession` (idempotent — reuses the
+  live manager + david/sven, opens only missing tabs), otherwise it starts the background pty
+  manager. Then a compact status card. This is the "re-run `cotal setup` reopens your session" path.
 
 The **web dashboard** (`ensureWeb` in [`commands/web.ts`](../implementations/cli/src/commands/web.ts))
 auto-starts detached on the default port, addressed as `http://cotal.localhost:7799` (the server
@@ -52,7 +54,7 @@ the log path and a non-zero exit. This is the agent/CI contract; keep it working
 | Onboard marker + `ONBOARD_VERSION` | `~/.cotal/onboarded.json` in [`lib/onboard.ts`](../implementations/cli/src/lib/onboard.ts); version const in `setup.ts` | Flips first-run vs ensure |
 | Demo-agent format | `DEMO_AGENTS` in `setup.ts` matches the frontmatter shape read by [`packages/core/src/agent-file.ts`](../packages/core/src/agent-file.ts) (same as `examples/01-lateral-coordination/agents/`) | `cotal spawn <name>` loads these |
 | `DEFAULT_SERVER` | [`packages/core/src/endpoint.ts`](../packages/core/src/endpoint.ts) | The address setup starts/checks |
-| cmux demo | layout JSON + `cmux.available()` from [`extensions/cmux/src/driver.ts`](../extensions/cmux/src/driver.ts) | The finale opens a `cotal cmux --spawn david,sven` manager tab (it owns david/sven so they're despawnable) + a focused console/`me` workspace |
+| cmux session | `CMUX_SURFACE_ID` gate + `workspaceExists` from [`extensions/cmux/src/driver.ts`](../extensions/cmux/src/driver.ts) | `ensureCmuxSession` opens a `cotal cmux --spawn david,sven` manager tab (owns david/sven so they're despawnable) + a focused `cotal-main` workspace, each only if not already open (idempotent re-entry) |
 
 ## Background processes
 

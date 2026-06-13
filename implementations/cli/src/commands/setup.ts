@@ -16,7 +16,7 @@ import { isOnboarded, markOnboarded } from "../lib/onboard.js";
 import { machineStatus, meshStatus, onPath } from "../lib/status.js";
 import { startMeshDetached, up } from "./up.js";
 import { ensureWeb, webUp, WEB_URL } from "./web.js";
-import { ensureManager, managerUp } from "../lib/manager-proc.js";
+import { ensureManager, managerUp, stopManager } from "../lib/manager-proc.js";
 
 const ONBOARD_VERSION = "1";
 const README_URL = "https://github.com/Cotal-AI/Cotal/blob/main/README.md";
@@ -207,7 +207,7 @@ function claudePluginStep(): Step {
  *  `cotal · ready` quick-reference card. Skipped under --yes. */
 async function offerDemo(haveClaude: boolean): Promise<void> {
   const haveAgents = (["me", "david", "sven"] as const).every((n) => existsSync(resolve(".cotal/agents", `${n}.md`)));
-  const canDemo = haveClaude && haveAgents && process.stdin.isTTY && cmux.available();
+  const canDemo = haveClaude && haveAgents && process.stdin.isTTY && inCmuxSurface();
 
   if (canDemo) {
     const go = abortIfCancel(
@@ -217,8 +217,8 @@ async function offerDemo(haveClaude: boolean): Promise<void> {
       }),
     );
     if (go) {
-      openCmuxDemo(process.cwd());
-      p.log.success("Demo open: drive the 'me' pane; david and sven are on the mesh in the background.");
+      ensureCmuxSession(process.cwd());
+      p.log.success("Session open: drive the 'cotal-main' pane; david and sven are on the mesh in the background.");
       return;
     }
   }
@@ -239,12 +239,21 @@ async function offerDemo(haveClaude: boolean): Promise<void> {
 const ME_GREETING =
   "Greet the operator in a few short lines. Open with one line on what Cotal is: an open space where AI agents join and work together as peers. Say you are their Cotal session and that david (the engineer) and sven (the guide) are on the mesh to help. Then tell them what you can do for them: message david or sven, spawn new teammates and despawn them when done, and send feedback. End by asking what they want to build.";
 
-/** Open a background cmux-runtime manager that pre-spawns david/sven (so they're managed teammates
- *  you can `cotal_despawn`), then a focused workspace (console + the driving session "me"). The
- *  manager opens david/sven in their own tabs and owns them; "me" stays your foreground driver.
- *  The `me` pane presses Enter on its own cmux surface a few times to auto-accept the one-time
- *  dev-channels prompt (the manager's cmux runtime does the same for david/sven). */
-function openCmuxDemo(cwd: string): void {
+/** True when we're running inside a real cmux pane (cmux sets `CMUX_SURFACE_ID` per surface).
+ *  Opening/closing cmux workspaces is only authorized from a live pane, so this — not
+ *  `cmux.available()` (which only pings the app) — is the gate for opening the cmux session. */
+function inCmuxSurface(): boolean {
+  return Boolean(process.env.CMUX_SURFACE_ID);
+}
+
+/** (Re)open the cmux working session, idempotently. A background cmux-runtime manager pre-spawns
+ *  david/sven (so they're managed teammates you can `cotal_despawn`) into their own tabs; the
+ *  focused `cotal-main` workspace is the console + the driving session "me" (your foreground
+ *  driver). Re-running reuses whatever's already open — only missing tabs are created, so there's
+ *  never a second manager. The `me` pane presses Enter on its own cmux surface a few times to
+ *  auto-accept the one-time dev-channels prompt (the manager's cmux runtime does the same for
+ *  david/sven). */
+function ensureCmuxSession(cwd: string): void {
   const sq = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
   const enterLoop =
     '( [ -n "$CMUX_SURFACE_ID" ] && [ -n "$CMUX_BUNDLED_CLI_PATH" ] && ' +
@@ -256,21 +265,32 @@ function openCmuxDemo(cwd: string): void {
   const confirmTerm = (cmd: string) => ({
     pane: { surfaces: [{ type: "terminal", command: `bash -lc ${sq(`cd "${cwd}" && ${enterLoop} ${cmd}`)}` }] },
   });
-  // The control plane: a cmux-runtime manager that pre-spawns david/sven into their own tabs and
-  // owns them (so cotal_despawn / cotal_spawn work on them). It must run in a real cmux surface.
-  cmux.openWorkspace("cotal-manager", JSON.stringify(term("cotal cmux --space demo --spawn david,sven")), {
-    focus: false,
-  });
-  // cmux runs pane commands through the login shell (which may be nushell) before bash, so keep the
-  // command free of embedded single quotes: pass the greeting base64-encoded and decode it in bash.
-  const greetB64 = Buffer.from(ME_GREETING, "utf8").toString("base64");
-  const meCmd = `cotal spawn me --prompt "$(echo ${greetB64} | base64 -d)"`;
-  const main = JSON.stringify({
-    direction: "vertical",
-    split: 0.34,
-    children: [term("cotal console --space demo"), confirmTerm(meCmd)],
-  });
-  cmux.openWorkspace("cotal-demo", main, { focus: true });
+
+  // The cmux-tab manager becomes the control plane; drop any detached pty manager so they don't
+  // both answer control requests.
+  stopManager();
+
+  // Control plane: a cmux-runtime manager that pre-spawns david/sven into their own tabs and owns
+  // them (so cotal_despawn / cotal_spawn work). Open it only if it isn't already up (idempotent).
+  if (!cmux.workspaceExists("cotal-manager")) {
+    cmux.openWorkspace("cotal-manager", JSON.stringify(term("cotal cmux --space demo --spawn david,sven")), {
+      focus: false,
+    });
+  }
+
+  // Your focused driver: console + the "me" session. cmux runs pane commands through the login
+  // shell (which may be nushell) before bash, so keep the command free of embedded single quotes:
+  // pass the greeting base64-encoded and decode it in bash.
+  if (!cmux.workspaceExists("cotal-main")) {
+    const greetB64 = Buffer.from(ME_GREETING, "utf8").toString("base64");
+    const meCmd = `cotal spawn me --prompt "$(echo ${greetB64} | base64 -d)"`;
+    const main = JSON.stringify({
+      direction: "vertical",
+      split: 0.34,
+      children: [term("cotal console --space demo"), confirmTerm(meCmd)],
+    });
+    cmux.openWorkspace("cotal-main", main, { focus: true });
+  }
 }
 
 /** The compact repeat-run: quietly ensure the mesh + web are up here, then a one-glance card. */
@@ -290,8 +310,11 @@ async function runEnsure(): Promise<void> {
     mesh = await meshStatus(process.cwd());
   }
   await ensureWeb({ space: mesh.space, server: mesh.server }).catch(() => {});
+  // Inside cmux, re-running setup reopens your session (idempotent: reuse the live manager +
+  // david/sven, open only missing tabs). Otherwise bring up the background pty control plane.
   try {
-    ensureManager({ space: mesh.space, server: mesh.server });
+    if (inCmuxSurface()) ensureCmuxSession(process.cwd());
+    else ensureManager({ space: mesh.space, server: mesh.server });
   } catch {
     /* non-fatal */
   }
@@ -304,7 +327,8 @@ async function readyCard(cwd: string): Promise<void> {
   const mesh = await meshStatus(cwd);
   const m = await machineStatus();
   const web = await webUp();
-  const mgr = managerUp();
+  // The control plane is either the detached pty manager (pid file) or the cmux-tab manager.
+  const mgr = managerUp() || (inCmuxSurface() && cmux.workspaceExists("cotal-manager"));
   const line = (on: boolean, text: string) => `${on ? ok("✓") : dim("○")} ${text}`;
   note(
     [
