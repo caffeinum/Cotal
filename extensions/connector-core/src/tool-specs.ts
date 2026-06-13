@@ -40,7 +40,7 @@ function statusGlyph(s: PresenceStatus): string {
 /** Viewer-only `[[face:X]]` emotion tags — a face-hosted agent embeds them in its send text and
  *  the face viewer reads them from the tool-call input (the event stream); the wire gets clean
  *  text, so peers and the console never see them. */
-const FACE_TAG_RE = /\[\[\s*face\s*:\s*[a-zA-Z]+\s*\]\]\s?/gi;
+const FACE_TAG_RE = /\[\[\s*face\s*:\s*[\w-]+\s*\]\]\s?/gi;
 const stripFaceTags = (text: string): string => text.replace(FACE_TAG_RE, "");
 
 /** One-line meaning of each attention mode, echoed back on set/read so the agent always sees the
