@@ -10,6 +10,7 @@
  *   channels: [general]    # channels this agent subscribes to (read)
  *   publish: [general]     # channels this agent may post to (write); omit = same as channels
  *   model: opus            # optional CLI/model override
+ *   face: sven             # optional avatar id for face-capable viewers
  *   ---
  *   <the Markdown body is the persona — an appended system prompt>
  *
@@ -18,8 +19,8 @@
  * session reads its own card from it. Part of the wire contract's onboarding
  * half, alongside the join link.
  */
-import { readFileSync } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { EndpointKind } from "./types.js";
 
 export interface AgentDef {
@@ -35,6 +36,8 @@ export interface AgentDef {
   publish?: string[];
   /** Model override handed to the agent CLI (e.g. `claude --model`). */
   model?: string;
+  /** Avatar id for face-capable viewers (e.g. the face-term animated terminal view). */
+  face?: string;
   /** Markdown body — the agent's persona / appended system prompt. */
   persona?: string;
 }
@@ -106,8 +109,30 @@ export function loadAgentFile(path: string): AgentDef {
     channels: list("channels"),
     publish: list("publish"),
     model: str("model"),
+    face: str("face"),
     persona: persona || undefined,
   };
+}
+
+/** Write an agent definition back to disk in the form {@link loadAgentFile} reads:
+ *  the set frontmatter fields followed by the persona body. Round-trips through the
+ *  parser; creates parent dirs. The runtime persona-definition path uses this to
+ *  persist a peer-defined agent as config. */
+export function saveAgentFile(path: string, def: AgentDef): void {
+  if (!def.name) throw new Error('saveAgentFile: "name" is required');
+  const lines = ["---", `name: ${def.name}`];
+  if (def.role) lines.push(`role: ${def.role}`);
+  if (def.kind) lines.push(`kind: ${def.kind}`);
+  if (def.description) lines.push(`description: ${def.description}`);
+  if (def.tags?.length) lines.push(`tags: [${def.tags.join(", ")}]`);
+  if (def.channels?.length) lines.push(`channels: [${def.channels.join(", ")}]`);
+  if (def.publish?.length) lines.push(`publish: [${def.publish.join(", ")}]`);
+  if (def.model) lines.push(`model: ${def.model}`);
+  if (def.face) lines.push(`face: ${def.face}`);
+  lines.push("---");
+  const body = def.persona ? `${def.persona.trim()}\n` : "";
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${lines.join("\n")}\n\n${body}`);
 }
 
 /** Resolve a name-or-path to an agent file. A path (absolute, contains a slash,
