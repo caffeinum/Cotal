@@ -1,5 +1,6 @@
 import { appendFileSync, mkdirSync } from "node:fs";
-import { resolve, dirname } from "node:path";
+import { dirname } from "node:path";
+import { cotalPath } from "./paths.js";
 
 export interface SetupLog {
   path: string;
@@ -7,9 +8,9 @@ export interface SetupLog {
 }
 
 /** Timestamped append log for `cotal setup` — one file, also the first thing a
- *  Claude handoff is pointed at. */
-export function openSetupLog(cwd: string): SetupLog {
-  const path = resolve(cwd, ".cotal/setup.log");
+ *  Claude handoff is pointed at. Resolves the project's `.cotal/` (walks up from cwd). */
+export function openSetupLog(_cwd: string): SetupLog {
+  const path = cotalPath("setup.log");
   mkdirSync(dirname(path), { recursive: true });
   appendFileSync(path, `\n=== cotal setup — ${new Date().toISOString()} ===\n`);
   return {

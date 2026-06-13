@@ -1,11 +1,11 @@
 import { spawn } from "node:child_process";
 import { existsSync, openSync, closeSync, writeFileSync, readFileSync, rmSync } from "node:fs";
-import { resolve } from "node:path";
 import { DEFAULT_SERVER } from "@cotal-ai/core";
 import { selfArgv } from "./self-exec.js";
 import { resolveSpace } from "./status.js";
+import { cotalPath } from "./paths.js";
 
-const PID_PATH = () => resolve(".cotal/manager.pid");
+const PID_PATH = () => cotalPath("manager.pid");
 
 function alive(pid: number): boolean {
   try {
@@ -30,7 +30,7 @@ export function managerUp(): boolean {
  *  empty in prod. `supervise`'s auto runtime resolves to pty when detached, which answers the
  *  control plane (`cotal_spawn`/`despawn`/`purge`/`persona`) with no tmux/cmux needed. */
 export function startManagerDetached(o: { space?: string; server?: string; spawn?: string[] } = {}): number {
-  const fd = openSync(resolve(".cotal/manager.log"), "a");
+  const fd = openSync(cotalPath("manager.log"), "a");
   const [node, ...self] = selfArgv();
   const args = [
     ...self,

@@ -8,6 +8,7 @@ import {
   mintCreds,
   newIdentity,
 } from "@cotal-ai/core";
+import { cotalRoot } from "../lib/paths.js";
 import { resolveSpace } from "../lib/status.js";
 import { c } from "../ui.js";
 
@@ -48,7 +49,7 @@ export async function history(argv: string[]): Promise<void> {
 }
 
 async function managerCreds(): Promise<string | undefined> {
-  const auth = loadSpaceAuth(authDir(process.cwd()));
+  const auth = loadSpaceAuth(authDir(cotalRoot()));
   if (!auth) return undefined;
   return mintCreds(auth, newIdentity(), "manager");
 }

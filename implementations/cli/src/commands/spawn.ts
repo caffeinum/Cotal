@@ -16,6 +16,7 @@ import {
   type AgentDef,
   type Connector,
 } from "@cotal-ai/core";
+import { cotalRoot } from "../lib/paths.js";
 import { resolveSpace } from "../lib/status.js";
 
 /**
@@ -77,7 +78,7 @@ export async function spawn(argv: string[]): Promise<void> {
   // Open mode (no `.cotal/auth`): unchanged — the session connects without creds.
   let id: string | undefined;
   let credsPath: string | undefined;
-  const auth = loadSpaceAuth(authDir(process.cwd()));
+  const auth = loadSpaceAuth(authDir(cotalRoot()));
   if (auth) {
     const identity = newIdentity();
     const prov = new CotalEndpoint({
@@ -97,7 +98,7 @@ export async function spawn(argv: string[]): Promise<void> {
       role,
     });
     await prov.stop();
-    credsPath = join(authDir(process.cwd()), "creds", `${name}.creds`);
+    credsPath = join(authDir(cotalRoot()), "creds", `${name}.creds`);
     mkdirSync(dirname(credsPath), { recursive: true });
     writeFileSync(credsPath, creds, { mode: 0o600 });
     id = identity.id;

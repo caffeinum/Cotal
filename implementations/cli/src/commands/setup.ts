@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
 import * as p from "@clack/prompts";
 import { DEFAULT_SERVER, isReachable, registry, type Connector } from "@cotal-ai/core";
@@ -18,6 +18,7 @@ import { startMeshDetached, up } from "./up.js";
 import { ensureWeb, webUp, WEB_URL } from "./web.js";
 import { ensureManager, managerUp, stopManager } from "../lib/manager-proc.js";
 import { selfCotal } from "../lib/self-exec.js";
+import { cotalPath } from "../lib/paths.js";
 import { spawn } from "./spawn.js";
 
 const ONBOARD_VERSION = "1";
@@ -91,7 +92,7 @@ async function runFirstRun(yes: boolean, open: boolean): Promise<void> {
       title: "Start the web for agents",
       explain: "A local NATS + JetStream server you own; the web your agents join, in the background.",
       live: true,
-      context: [resolve(".cotal/nats.log"), resolve(".cotal/auth/server.conf"), README_URL],
+      context: [cotalPath("nats.log"), cotalPath("auth/server.conf"), README_URL],
       async run() {
         if (await isReachable(DEFAULT_SERVER)) return `already running at ${DEFAULT_SERVER}`;
         const pane = new LivePane();
@@ -134,9 +135,9 @@ async function runFirstRun(yes: boolean, open: boolean): Promise<void> {
   }
 
   // Two experts plus your own driving session, by default.
-  mkdirSync(resolve(".cotal/agents"), { recursive: true });
+  mkdirSync(cotalPath("agents"), { recursive: true });
   for (const [name, body] of Object.entries(DEMO_AGENTS)) {
-    const path = resolve(".cotal/agents", `${name}.md`);
+    const path = cotalPath("agents", `${name}.md`);
     if (!existsSync(path)) writeFileSync(path, body);
   }
   p.log.success("Added david (the engineer), sven (the guide), and your session (me); they join when you spawn them or open the demo");
@@ -231,7 +232,7 @@ function claudePluginStep(): Step {
  *  the terminal is handed to the driving session. The demo spawns Claude sessions, so it needs
  *  Claude Code. If declined / no Claude, fall back to the `cotal · ready` card. Skipped under --yes. */
 async function offerDemo(haveClaude: boolean): Promise<void> {
-  const haveAgents = (["me", "david", "sven"] as const).every((n) => existsSync(resolve(".cotal/agents", `${n}.md`)));
+  const haveAgents = (["me", "david", "sven"] as const).every((n) => existsSync(cotalPath("agents", `${n}.md`)));
   const isTTY = Boolean(process.stdin.isTTY);
 
   if (haveClaude && haveAgents && isTTY) {

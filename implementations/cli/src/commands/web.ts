@@ -4,7 +4,7 @@ import { createServer, type ServerResponse } from "node:http";
 import { connect } from "node:net";
 import { readFileSync, writeFileSync, openSync, closeSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import {
   CotalEndpoint,
   isReachable,
@@ -18,6 +18,7 @@ import {
   newIdentity,
 } from "@cotal-ai/core";
 import { resolveSpace } from "../lib/status.js";
+import { cotalPath, cotalRoot } from "../lib/paths.js";
 import { c } from "../ui.js";
 import { selfArgv } from "../lib/self-exec.js";
 
@@ -59,7 +60,7 @@ export async function web(argv: string[]): Promise<void> {
   // An explicit --creds still wins. Open mode (no auth): connect bare.
   let creds = values.creds ? readFileSync(values.creds, "utf8") : undefined;
   if (!creds) {
-    const auth = loadSpaceAuth(authDir(process.cwd()));
+    const auth = loadSpaceAuth(authDir(cotalRoot()));
     if (auth) {
       if (auth.space !== space) {
         console.error(
@@ -218,7 +219,7 @@ export function webUp(port: number = WEB_PORT): Promise<boolean> {
  *  stopped by `cotal down`. Re-execs this same CLI — `process.execArgv` carries the tsx loader in
  *  dev, and is empty in prod where `node <entry.js> web …` runs the compiled binary. */
 export function startWebDetached(o: { space?: string; server?: string } = {}): { pid: number; url: string } {
-  const fd = openSync(resolve(".cotal/web.log"), "a");
+  const fd = openSync(cotalPath("web.log"), "a");
   const [node, ...self] = selfArgv();
   const args = [
     ...self,
@@ -233,7 +234,7 @@ export function startWebDetached(o: { space?: string; server?: string } = {}): {
   const child = spawn(node, args, { detached: true, stdio: ["ignore", fd, fd] });
   closeSync(fd);
   child.unref();
-  writeFileSync(resolve(".cotal/web.pid"), String(child.pid));
+  writeFileSync(cotalPath("web.pid"), String(child.pid));
   return { pid: child.pid ?? 0, url: WEB_URL };
 }
 

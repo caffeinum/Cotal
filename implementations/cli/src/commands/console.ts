@@ -12,6 +12,7 @@ import {
   mintCreds,
   newIdentity,
 } from "@cotal-ai/core";
+import { cotalRoot } from "../lib/paths.js";
 import { resolveSpace } from "../lib/status.js";
 import { c } from "../ui.js";
 import { runLog } from "../render.js";
@@ -44,7 +45,7 @@ export async function console_(argv: string[]): Promise<void> {
   // exactly one space, so there's no overview — we enter it directly. Open mode (no auth): connect
   // bare; with no --space, the TTY shows the space overview.
   if (!creds) {
-    const auth = loadSpaceAuth(authDir(process.cwd()));
+    const auth = loadSpaceAuth(authDir(cotalRoot()));
     if (auth) {
       if (space && space !== auth.space) {
         console.error(

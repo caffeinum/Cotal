@@ -10,6 +10,7 @@ import {
   newIdentity,
   type Profile,
 } from "@cotal-ai/core";
+import { cotalRoot } from "../lib/paths.js";
 import { c } from "../ui.js";
 
 /** Out-of-band cred minting: generate an identity, sign a profile-scoped user JWT with the
@@ -30,7 +31,7 @@ export async function mint(argv: string[]): Promise<void> {
     console.error(c.red(`unknown profile "${profile}" — expected agent, observer, or admin`));
     process.exit(1);
   }
-  const dir = authDir(process.cwd());
+  const dir = authDir(cotalRoot());
   const auth = loadSpaceAuth(dir);
   if (!auth) {
     console.error(c.red("no space auth found here — run `cotal up` first"));

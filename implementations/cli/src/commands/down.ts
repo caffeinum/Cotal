@@ -1,18 +1,18 @@
 import { existsSync, readFileSync, rmSync } from "node:fs";
-import { resolve } from "node:path";
 import { c } from "../ui.js";
+import { cotalPath } from "../lib/paths.js";
 
 /** Stop the background processes started by `cotal up --detach` / `cotal setup`:
  *  the manager, the web dashboard, and the mesh. */
 export async function down(): Promise<void> {
   const targets: Array<[string, string]> = [
-    [".cotal/manager.pid", "manager"],
-    [".cotal/web.pid", "web dashboard"],
-    [".cotal/nats.pid", "nats-server"],
+    ["manager.pid", "manager"],
+    ["web.pid", "web dashboard"],
+    ["nats.pid", "nats-server"],
   ];
   let any = false;
-  for (const [rel, label] of targets) {
-    const pidPath = resolve(rel);
+  for (const [file, label] of targets) {
+    const pidPath = cotalPath(file);
     if (!existsSync(pidPath)) continue;
     any = true;
     stop(pidPath, label);

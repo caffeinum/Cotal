@@ -29,6 +29,7 @@ import {
 import { resolveSpace } from "../lib/status.js";
 import { c } from "../ui.js";
 import { resolveNatsServer } from "../lib/nats-bin.js";
+import { cotalPath, cotalRoot } from "../lib/paths.js";
 
 export async function up(argv: string[]): Promise<void> {
   const { values } = parseArgs({
@@ -62,7 +63,7 @@ export async function up(argv: string[]): Promise<void> {
     return;
   }
 
-  const storeDir = resolve(values["store-dir"] ?? ".cotal/nats");
+  const storeDir = values["store-dir"] ? resolve(values["store-dir"]) : cotalPath("nats");
   mkdirSync(storeDir, { recursive: true });
   const useAuth = !values.open;
   const space = values.space ?? resolveSpace(process.cwd());
@@ -113,7 +114,7 @@ export interface DetachOpts {
  */
 export async function startMeshDetached(opts: DetachOpts = {}): Promise<{ server: string; pid: number; source: string }> {
   const server = opts.server ?? DEFAULT_SERVER;
-  const storeDir = resolve(opts.storeDir ?? ".cotal/nats");
+  const storeDir = opts.storeDir ? resolve(opts.storeDir) : cotalPath("nats");
   mkdirSync(storeDir, { recursive: true });
   const useAuth = !opts.open;
   const space = opts.space ?? resolveSpace(process.cwd());
@@ -123,7 +124,7 @@ export async function startMeshDetached(opts: DetachOpts = {}): Promise<{ server
   const args = setup ? ["-c", setup.confPath] : ["-js", "-sd", storeDir, "-p", String(port)];
   const { bin, source } = await resolveNatsServer();
 
-  const logPath = resolve(".cotal/nats.log");
+  const logPath = cotalPath("nats.log");
   const startOffset = existsSync(logPath) ? statSync(logPath).size : 0;
   const fd = openSync(logPath, "a");
   const child = spawn(bin, args, { detached: true, stdio: ["ignore", fd, fd] });
@@ -139,7 +140,7 @@ export async function startMeshDetached(opts: DetachOpts = {}): Promise<{ server
     child.kill("SIGTERM");
     throw new Error(`nats-server did not become reachable at ${server} — see ${logPath}`);
   }
-  writeFileSync(resolve(".cotal/nats.pid"), String(child.pid));
+  writeFileSync(cotalPath("nats.pid"), String(child.pid));
   await postStart(server, space, setup, seedFile);
   return { server, pid: child.pid ?? 0, source };
 }
@@ -195,7 +196,7 @@ async function postStart(
  *  path that's missing is a hard error; the default `.cotal/channels.json` is optional (absent
  *  ⇒ nothing to seed). */
 function loadChannelsFile(explicit?: string): ChannelRegistryFile | undefined {
-  const path = resolve(explicit ?? ".cotal/channels.json");
+  const path = explicit ? resolve(explicit) : cotalPath("channels.json");
   if (!existsSync(path)) {
     if (explicit) {
       console.error(c.red(`channels file not found: ${path}`));
@@ -214,7 +215,7 @@ async function authSetup(
   server: string,
   space: string,
 ): Promise<{ confPath: string; creds: string }> {
-  const dir = authDir(process.cwd());
+  const dir = authDir(cotalRoot());
   let auth: SpaceAuth | undefined = loadSpaceAuth(dir);
   if (!auth) {
     auth = await createSpaceAuth(space);

@@ -8,6 +8,7 @@ import {
   DEFAULT_SERVER,
   DEFAULT_SPACE,
   authDir,
+  findCotalRoot,
   loadSpaceAuth,
   registry,
   type Command,
@@ -23,7 +24,7 @@ type Values = Record<string, string | undefined>;
 /** The space to operate on: explicit `--space`, else this folder's `.cotal/auth` space, else the
  *  default — so a manually-run manager matches the folder's mesh instead of assuming the default. */
 function spaceFor(v: Values): string {
-  return v.space ?? loadSpaceAuth(authDir(process.cwd()))?.space ?? DEFAULT_SPACE;
+  return v.space ?? loadSpaceAuth(authDir(findCotalRoot()))?.space ?? DEFAULT_SPACE;
 }
 
 function parse(argv: string[]): Values {

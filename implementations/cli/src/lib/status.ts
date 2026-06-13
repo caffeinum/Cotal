@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
-import { DEFAULT_SERVER, DEFAULT_SPACE, authDir, isReachable, loadSpaceAuth } from "@cotal-ai/core";
+import { join } from "node:path";
+import { DEFAULT_SERVER, DEFAULT_SPACE, authDir, findCotalRoot, isReachable, loadSpaceAuth } from "@cotal-ai/core";
 import { resolveNatsServer } from "./nats-bin.js";
 
 export interface MeshStatus {
@@ -15,14 +15,14 @@ export interface MeshStatus {
  *  A folder has exactly one space (its auth) — commands resolve it through here so they always
  *  match the folder's mesh instead of assuming the global default. */
 export function resolveSpace(cwd: string): string {
-  return loadSpaceAuth(authDir(cwd))?.space ?? DEFAULT_SPACE;
+  return loadSpaceAuth(authDir(findCotalRoot(cwd)))?.space ?? DEFAULT_SPACE;
 }
 
 /** Cheap, connectionless-ish snapshot of the mesh for this folder: is a server up,
- *  and what space/auth does the local `.cotal/` describe. */
+ *  and what space/auth does the local `.cotal/` describe (found by walking up from `cwd`). */
 export async function meshStatus(cwd: string): Promise<MeshStatus> {
   const server = DEFAULT_SERVER;
-  const auth = loadSpaceAuth(authDir(cwd));
+  const auth = loadSpaceAuth(authDir(findCotalRoot(cwd)));
   return {
     reachable: await isReachable(server),
     server,
@@ -69,5 +69,6 @@ function claudePluginInstalled(): boolean {
 
 /** True once the machine-level setup has completed at least once. */
 export function hasLocalMesh(cwd: string): boolean {
-  return existsSync(resolve(cwd, ".cotal", "auth", "auth.json")) || existsSync(resolve(cwd, ".cotal", "nats"));
+  const root = findCotalRoot(cwd);
+  return existsSync(join(root, ".cotal", "auth", "auth.json")) || existsSync(join(root, ".cotal", "nats"));
 }
