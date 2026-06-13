@@ -8,6 +8,7 @@ import {
   CotalEndpoint,
   isReachable,
   DEFAULT_SERVER,
+  DEFAULT_SPACE,
   deliveryOf,
   parseSubject,
   spaceWildcard,
@@ -27,10 +28,7 @@ const PAGE: Record<string, { path: string; type: string }> = {
 
 /** A live observability dashboard for a space, served over HTTP + SSE. A read-only
  *  observer endpoint (invisible to peers) feeds the page presence, channel history,
- *  and a live message stream — no manager required. Bound to loopback.
- *
- *  Use --host 0.0.0.0 to serve externally. Use --password to protect with HTTP Basic
- *  auth (any username accepted, the flag value is the required password). */
+ *  and a live message stream — no manager required. Bound to loopback. */
 export async function web(argv: string[]): Promise<void> {
   const { values } = parseArgs({
     args: argv,
@@ -39,17 +37,13 @@ export async function web(argv: string[]): Promise<void> {
       space: { type: "string" },
       server: { type: "string" },
       port: { type: "string" },
-      host: { type: "string" },
-      password: { type: "string" },
       "no-open": { type: "boolean" },
       creds: { type: "string" },
     },
   });
-  const space = values.space ?? "demo";
+  const space = values.space ?? DEFAULT_SPACE;
   const server = values.server ?? DEFAULT_SERVER;
   const port = values.port ? Number(values.port) : 7799;
-  const host = values.host ?? "127.0.0.1";
-  const password = values.password;
   // The dashboard is always an admin god-view (no read-only viewer mode) so it can show DMs
   // and anycast. Auth mode (`.cotal/auth` present): self-mint an `admin` cred so it joins the
   // authed mesh with no manual --creds — like `cotal spawn`, it holds the space signing key.
@@ -107,13 +101,7 @@ export async function web(argv: string[]): Promise<void> {
     broadcast("message", { mode, senderId, msg });
   }, { subject: tapSubject });
 
-  function unauthorised(res: ServerResponse): void {
-    res.writeHead(401, { "www-authenticate": 'Basic realm="Cotal"' });
-    res.end("unauthorised");
-  }
-
   const httpServer = createServer(async (req, res) => {
-    if (!checkAuth(req, password) && req.url !== "/health") return unauthorised(res);
     const path = (req.url ?? "/").split("?")[0];
     const query = new URLSearchParams((req.url ?? "").split("?")[1] ?? "");
 
@@ -177,11 +165,11 @@ export async function web(argv: string[]): Promise<void> {
     process.exit(1);
   });
 
-  await new Promise<void>((resolve) => httpServer.listen(port, host, resolve));
-  const url = `http://${host}:${port}/`;
+  await new Promise<void>((resolve) => httpServer.listen(port, "127.0.0.1", resolve));
+  const url = `http://127.0.0.1:${port}/`;
   console.log(`${c.bold("Cotal web")} — observing space ${c.bold(space)}`);
   console.log(c.dim("  god-view — DMs + anycast visible"));
-  console.log(`  ${c.cyan(url)}  ${c.dim(`(bound to ${host}:${port})`)}`);
+  console.log(`  ${c.cyan(url)}  ${c.dim("(Ctrl-C to stop)")}`);
   if (!values["no-open"]) openBrowser(url);
 
   const shutdown = async () => {
@@ -199,16 +187,6 @@ export async function web(argv: string[]): Promise<void> {
 function json(res: ServerResponse, data: unknown): void {
   res.writeHead(200, { "content-type": "application/json" });
   res.end(JSON.stringify(data));
-}
-
-function checkAuth(req: IncomingMessage, password: string | undefined): boolean {
-  if (!password) return true;
-  const header = req.headers.authorization ?? "";
-  const m = /^Basic\s+(.+)$/i.exec(header);
-  if (!m) return false;
-  const decoded = Buffer.from(m[1], "base64").toString("utf8");
-  const [, pass] = decoded.split(":");
-  return pass === password;
 }
 
 /** Best-effort open of the dashboard in the default browser. The URL is already

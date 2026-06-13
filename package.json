@@ -18,6 +18,7 @@
     "ci:publish": "pnpm build && pnpm publish -r --provenance --access=public --no-git-checks",
     "smoke": "tsx packages/core/smoke.ts",
     "smoke:auth": "tsx packages/core/smoke-auth.ts",
+    "smoke:view": "tsx implementations/cli/view.smoke.ts",
     "smoke:membership": "tsx packages/core/membership.smoke.ts",
     "smoke:membership:auth": "tsx packages/core/membership-auth.smoke.ts",
     "smoke:channels": "tsx packages/core/channels.smoke.ts",
