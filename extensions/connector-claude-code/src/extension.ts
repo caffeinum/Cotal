@@ -37,7 +37,11 @@ export const claudeConnector: Connector = {
     if (opts.creds) env.COTAL_CREDS = opts.creds;
     if (opts.servers) env.COTAL_SERVERS = opts.servers;
 
-    const args = ["--dangerously-load-development-channels", CHANNEL_REF];
+    // A leading positional is claude's first message, auto-submitted on start —
+    // so a driving session can greet the operator the moment it joins.
+    const args = opts.prompt
+      ? [opts.prompt, "--dangerously-load-development-channels", CHANNEL_REF]
+      : ["--dangerously-load-development-channels", CHANNEL_REF];
 
     // An agent file carries identity (read in-session via COTAL_AGENT_FILE) plus
     // persona + model, which can only be applied to a `claude` session at launch.

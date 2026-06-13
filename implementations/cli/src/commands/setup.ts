@@ -117,7 +117,7 @@ async function runFirstRun(yes: boolean): Promise<void> {
   markOnboarded(ONBOARD_VERSION);
   note(
     [
-      "You drive Cotal through an agent: spawn one and just talk to it. It has the tools to message peers, spawn teammates, and send feedback. Now any agent can join and collaborate.",
+      "Your agent has direct access to Cotal: spawn one and just talk to it (it can message peers, spawn teammates, and send feedback). Now any agent can join and collaborate. You can also use the CLI.",
       "",
       `${ok("✓")} drive a session     ${dim("cotal spawn me")}`,
       `${ok("✓")} ask the engineer    ${dim("cotal spawn david")}`,
@@ -125,7 +125,7 @@ async function runFirstRun(yes: boolean): Promise<void> {
       `${ok("✓")} watch in a browser  ${dim("cotal web --space demo")}`,
       `${ok("✓")} stop the web        ${dim("cotal down")}`,
       "",
-      dim('Cotal not working? Tell your agent "send feedback: ..." and it sends it for you (built-in cotal_feedback), or run cotal feedback "<msg>".'),
+      dim('Cotal not working? Tell your agent to give us feedback and it sends it for you (built-in cotal_feedback), or run cotal feedback "<msg>".'),
     ].join("\n"),
     "You're set",
   );
@@ -209,20 +209,33 @@ async function offerDemo(haveClaude: boolean): Promise<void> {
   }
 }
 
+/** Greeting the driving session auto-submits on start (no apostrophes — it rides through
+ *  cmux's `bash -lc '…'` quoting). */
+const ME_GREETING =
+  "Greet the operator in 2-3 lines: you are their Cotal session, david and sven are on the mesh to help, and they can just say what to build. Then ask what they want to do.";
+
 /** Open david and sven as background cmux tabs, then a focused workspace (console + the driving
  *  session "me"). The driving session consults david/sven over the mesh; nothing is foregrounded
- *  but your own pane. Each tab runs the foreground `cotal` command in this folder. */
+ *  but your own pane. Each spawned `claude` pane presses Enter on its own cmux surface a few times
+ *  to auto-accept the one-time dev-channels prompt, so david/sven/me actually join with no keypress. */
 function openCmuxDemo(cwd: string): void {
   const sq = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
+  const enterLoop =
+    '( [ -n "$CMUX_SURFACE_ID" ] && [ -n "$CMUX_BUNDLED_CLI_PATH" ] && ' +
+    'for _ in 1 2 3 4 5; do sleep 1; "$CMUX_BUNDLED_CLI_PATH" send-key --surface "$CMUX_SURFACE_ID" enter >/dev/null 2>&1; done ) &';
   const term = (cmd: string) => ({
     pane: { surfaces: [{ type: "terminal", command: `bash -lc ${sq(`cd "${cwd}" && ${cmd}`)}` }] },
   });
-  cmux.openWorkspace("cotal-david", JSON.stringify(term("cotal spawn david")), { focus: false });
-  cmux.openWorkspace("cotal-sven", JSON.stringify(term("cotal spawn sven")), { focus: false });
+  // A claude pane that auto-confirms the dev-channels prompt so the session joins the mesh.
+  const confirmTerm = (cmd: string) => ({
+    pane: { surfaces: [{ type: "terminal", command: `bash -lc ${sq(`cd "${cwd}" && ${enterLoop} ${cmd}`)}` }] },
+  });
+  cmux.openWorkspace("cotal-david", JSON.stringify(confirmTerm("cotal spawn david")), { focus: false });
+  cmux.openWorkspace("cotal-sven", JSON.stringify(confirmTerm("cotal spawn sven")), { focus: false });
   const main = JSON.stringify({
     direction: "vertical",
     split: 0.34,
-    children: [term("cotal console --space demo"), term("cotal spawn me")],
+    children: [term("cotal console --space demo"), confirmTerm(`cotal spawn me --prompt ${sq(ME_GREETING)}`)],
   });
   cmux.openWorkspace("cotal-demo", main, { focus: true });
 }
@@ -251,7 +264,8 @@ async function runEnsure(): Promise<void> {
       line(m.claudePlugin, `plugin ${dim(m.claudePlugin ? "installed" : "not installed")}`),
       line(mesh.reachable, `web    ${dim(`${mesh.server} · space ${mesh.space}`)}`),
       "",
-      dim('next:  cotal spawn david · join --name you · web · down · feedback "<msg>"'),
+      `drive it:  ${dim("cotal spawn me")}   ${dim("(or david / sven)")}`,
+      `more:      ${dim('cotal web · cotal down · cotal feedback "<msg>" · cotal --help')}`,
     ].join("\n"),
     brandBold("cotal · ready"),
   );
