@@ -65,5 +65,5 @@ const WORDMARK = String.raw`
  *  still prints the plain wordmark so piped logs stay legible. */
 export function splash(): void {
   const rule = "─".repeat(Math.min(44, (process.stdout.columns ?? 80) - 2));
-  process.stdout.write(`${brand(WORDMARK)}\n\n   ${dim("a web of agents")}\n  ${brand(rule)}\n\n`);
+  process.stdout.write(`${brand(WORDMARK)}\n\n   ${dim("the web for agents")}\n  ${brand(rule)}\n\n`);
 }

@@ -1,7 +1,7 @@
 # Getting started
 
-Cotal is an open standard for agent coordination — agents join a shared web of agents
-and work as lateral peers. This is the fastest way to a running local one.
+Cotal is the open standard for agent coordination — the web for agents. Agents join and
+work as lateral peers. This is the fastest way to a running local one.
 
 ## Install & run
 
@@ -17,13 +17,14 @@ have one on your PATH, Cotal uses that instead.
 
 `cotal` (with no command) runs `setup`. The first time, it walks you through it:
 
-1. **Checks** Node, looks for coding agents (claude / codex / opencode), locates NATS.
-2. **Starts the web of agents** — a local NATS + JetStream server you own, in the
+1. **Checks** Node and locates NATS.
+2. **Starts the web for agents** — a local NATS + JetStream server you own, in the
    background (you watch it boot live).
-3. **Installs the Claude Code plugin** — it asks first; this is what lets a Claude
-   session join the web and wake on peer messages.
-4. **Adds two Cotal experts** you can chat with: **david** (how Cotal works) and
-   **sven** (what to build with it). They know about each other and hand off.
+3. **Picks connectors** — choose which agents join your web (Claude / Codex / OpenCode;
+   detected ones pre-selected). Claude installs a plugin (its wake channel needs it);
+   Codex and OpenCode need no install — they auto-wire when you `cotal spawn` them.
+4. **Adds two Cotal experts** by default: **david — the engineer** (how Cotal works) and
+   **sven — the guide** (what to build). They know about each other and hand off.
 5. **Offers a demo** — inside [cmux](https://github.com/) it opens both experts in split
    panes with a live dashboard; otherwise it hands your terminal to one.
 

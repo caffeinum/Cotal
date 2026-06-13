@@ -10,13 +10,20 @@ or setup silently breaks for npx users.
 is two-tier, gated on a machine marker:
 
 - **First run** (no `~/.cotal/onboarded.json`, or `--full`, or `--yes`) → `runFirstRun`:
-  splash → intro → narrated steps (`lib/steps.ts`) → write marker → demo finale.
+  splash → intro → core steps (Node, NATS, start the web) → **connector picker** → write the
+  two default experts (david/sven) → marker → demo finale.
 - **Later runs** → `runEnsure`: a compact status card; starts a web in the cwd if none.
 
 Steps run in-process via `runSteps` ([`lib/steps.ts`](../implementations/cli/src/lib/steps.ts)).
 A step can be `optional` (asked Y/n), carry a `confirm` consent prompt, or be `live`
 (draws its own pane via [`lib/live-window.ts`](../implementations/cli/src/lib/live-window.ts)).
 On failure, an interactive run offers a Claude handoff ([`lib/assist.ts`](../implementations/cli/src/lib/assist.ts)).
+
+The **connector picker** (`pickConnectors`) multiselects Claude / Codex / OpenCode (detected
+pre-checked). Only **Claude** runs an install (its wake channel binds to an *installed* plugin);
+**Codex/OpenCode auto-wire at spawn** (they inject MCP/plugin via `buildLaunch`, never writing
+the user's config) so the picker just marks them ready. The two experts (david — the engineer,
+sven — the guide) are written by default.
 
 **`--yes`** forces non-interactive accept-all even on a TTY: optional + `confirm` steps
 run (so demo agents are written), the demo finale is skipped, and a failure aborts with

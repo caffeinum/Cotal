@@ -86,7 +86,7 @@ cotal
 ```
 
 One command, guided setup. The **first run** walks you through it: checks
-prerequisites, starts a local web of agents (the `nats-server` binary ships with the
+prerequisites, starts a local web for agents (the `nats-server` binary ships with the
 package — bring your own on PATH and it wins), installs the Claude Code plugin (it asks
 first), and drops in two Cotal experts you can chat with — **david** (how it works) and
 **sven** (what to build) — with a live view as it boots. If a step fails it offers to hand

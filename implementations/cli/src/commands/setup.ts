@@ -40,14 +40,14 @@ async function runFirstRun(yes: boolean): Promise<void> {
   splash();
   p.intro(brandBold("Welcome to Cotal"));
   note(
-    "Cotal is an open standard for agent coordination — agents join a shared web of agents and work as lateral peers. I'll get a local one running in a few steps (safe to re-run; next time you'll just get a quick status).",
+    "Cotal is the open standard for agent coordination — the web for agents. Any agent can join and talk to the others (or to you), as lateral peers. It's part of Web-A, the Web for Agents. Let's set up a local one.",
     "What is this",
   );
 
   const log = openSetupLog(process.cwd());
-  const found = { claude: false, codex: false, opencode: false };
 
-  const steps: Step[] = [
+  // Prerequisites + the local web (NATS). These never prompt.
+  const core: Step[] = [
     {
       name: "node-version",
       title: "Check Node.js",
@@ -57,17 +57,6 @@ async function runFirstRun(yes: boolean): Promise<void> {
         const major = Number(process.versions.node.split(".")[0]);
         if (major < 20) throw new Error(`Node ${process.versions.node} is too old — Cotal needs Node >= 20`);
         return `Node ${process.versions.node}`;
-      },
-    },
-    {
-      name: "detect-agents",
-      title: "Find coding agents",
-      explain: "These are the AI agents that can join the web of agents as peers.",
-      context: [README_URL],
-      async run() {
-        for (const a of Object.keys(found) as (keyof typeof found)[]) found[a] = onPath(a);
-        if (!found.claude) p.log.info(dim("claude not found — install it for the deepest integration: https://claude.com/claude-code"));
-        return Object.entries(found).map(([n, v]) => `${n} ${v ? "✓" : "—"}`).join("   ");
       },
     },
     {
@@ -82,7 +71,7 @@ async function runFirstRun(yes: boolean): Promise<void> {
     },
     {
       name: "start-mesh",
-      title: "Start the web of agents",
+      title: "Start the web for agents",
       explain: "A local NATS + JetStream server you own — the web your agents join, in the background.",
       live: true,
       context: [resolve(".cotal/nats.log"), resolve(".cotal/auth/server.conf"), README_URL],
@@ -98,55 +87,89 @@ async function runFirstRun(yes: boolean): Promise<void> {
         }
       },
     },
-    {
-      name: "claude-plugin",
-      title: "Install the Claude Code plugin",
-      explain: "Lets a Claude Code session join the web of agents and wake on peer messages.",
-      confirm: "Install the Claude Code plugin? It adds a local-scope plugin to your Claude config",
-      context: [join(homedir(), ".cotal/claude-plugin"), CC_DOCS_URL],
-      async run() {
-        if (!found.claude) return "skipped — claude not installed";
-        installClaudePlugin();
-        return "cotal@cotal-mesh (local scope)";
-      },
-    },
-    {
-      name: "demo-agents",
-      title: "Add two Cotal experts",
-      explain: "david (how Cotal works) and sven (what to build with it) — agents you can chat with.",
-      optional: true,
-      context: [README_URL],
-      async run() {
-        mkdirSync(resolve(".cotal/agents"), { recursive: true });
-        for (const [name, body] of Object.entries(DEMO_AGENTS)) {
-          const path = resolve(".cotal/agents", `${name}.md`);
-          if (!existsSync(path)) writeFileSync(path, body);
-        }
-        return ".cotal/agents/{david,sven}.md";
-      },
-    },
   ];
+  if (!(await runSteps(core, log, { yes }))) return abort();
 
-  if (!(await runSteps(steps, log, { yes }))) {
-    p.outro(brand("Setup paused — fix the step above and run `cotal setup` again."));
-    process.exitCode = 1;
-    return;
+  // Connectors: which agents should be able to join. Only Claude needs an install
+  // (its wake channel binds to an installed plugin); Codex/OpenCode auto-wire at spawn.
+  const found = { claude: onPath("claude"), codex: onPath("codex"), opencode: onPath("opencode") };
+  const selected = await pickConnectors(found, yes);
+  if (selected.has("claude")) {
+    if (!found.claude) p.log.warn("claude isn't on PATH — install it (https://claude.com/claude-code), then re-run setup.");
+    else if (!(await runSteps([claudePluginStep()], log, { yes }))) return abort();
   }
+  for (const name of ["codex", "opencode"] as const) {
+    if (selected.has(name) && found[name]) {
+      p.log.success(`${name} — ready (auto-wired when you spawn it)`);
+      log.line(`connector ${name}: ready (no install)`);
+    }
+  }
+
+  // Two Cotal experts, by default: david (the engineer) and sven (the guide).
+  mkdirSync(resolve(".cotal/agents"), { recursive: true });
+  for (const [name, body] of Object.entries(DEMO_AGENTS)) {
+    const path = resolve(".cotal/agents", `${name}.md`);
+    if (!existsSync(path)) writeFileSync(path, body);
+  }
+  p.log.success("Added two Cotal experts — david (the engineer) and sven (the guide)");
+  log.line("demo-agents: wrote david + sven");
 
   markOnboarded(ONBOARD_VERSION);
   note(
     [
-      `${ok("✓")} talk to a Cotal expert  ${dim("cotal spawn david   (or sven)")}`,
-      `${ok("✓")} join the web yourself   ${dim("cotal join --space demo --name you")}`,
-      `${ok("✓")} watch it in a browser   ${dim("cotal web --space demo")}`,
-      `${ok("✓")} stop the web            ${dim("cotal down")}`,
-      `${ok("✓")} tell us how it went     ${dim('cotal feedback "<message>"')}`,
+      `${ok("✓")} meet david, the engineer  ${dim("cotal spawn david")}`,
+      `${ok("✓")} meet sven, the guide      ${dim("cotal spawn sven")}`,
+      `${ok("✓")} join the web yourself     ${dim("cotal join --space demo --name you")}`,
+      `${ok("✓")} watch it in a browser     ${dim("cotal web --space demo")}`,
+      `${ok("✓")} stop the web              ${dim("cotal down")}`,
+      `${ok("✓")} send feedback             ${dim('ask any agent (they have cotal_feedback) — or cotal feedback "<msg>"')}`,
     ].join("\n"),
     "You're set — next steps",
   );
 
   if (!yes) await offerDemo(found.claude);
   p.outro(brand(yes ? "Cotal is ready." : "Happy meshing."));
+
+  function abort() {
+    p.outro(brand("Setup paused — fix the step above and run `cotal setup` again."));
+    process.exitCode = 1;
+  }
+}
+
+/** Pick which agent connectors to set up. Detected ones are pre-checked (= the "all"
+ *  default). Non-interactive / --yes selects all detected without prompting. */
+async function pickConnectors(
+  found: Record<"claude" | "codex" | "opencode", boolean>,
+  yes: boolean,
+): Promise<Set<string>> {
+  const all = (["claude", "codex", "opencode"] as const).filter((n) => found[n]);
+  if (yes || !process.stdin.isTTY) return new Set(all);
+  const labels: Record<string, string> = { claude: "Claude Code", codex: "Codex", opencode: "OpenCode" };
+  const picked = await p.multiselect({
+    message: "Which agents should join your web?",
+    options: (["claude", "codex", "opencode"] as const).map((n) => ({
+      value: n,
+      label: labels[n],
+      hint: !found[n] ? "not on PATH" : n === "claude" ? "installs a plugin" : "ready at spawn",
+    })),
+    initialValues: all,
+    required: false,
+  });
+  return new Set(p.isCancel(picked) ? all : (picked as string[]));
+}
+
+/** The Claude Code plugin install, as a step (spinner + failure handling + handoff). */
+function claudePluginStep(): Step {
+  return {
+    name: "claude-plugin",
+    title: "Install the Claude Code plugin",
+    explain: "Lets a Claude Code session join the web and wake on peer messages.",
+    context: [join(homedir(), ".cotal/claude-plugin"), CC_DOCS_URL],
+    async run() {
+      installClaudePlugin();
+      return "cotal@cotal-mesh (local scope)";
+    },
+  };
 }
 
 /** Finale: let the operator meet the two experts right away. Inside cmux, open a workspace
@@ -194,10 +217,10 @@ async function runEnsure(): Promise<void> {
   let mesh = await meshStatus(process.cwd());
   if (!mesh.reachable) {
     const s = p.spinner();
-    s.start("Starting the web of agents");
+    s.start("Starting the web for agents");
     try {
       await up(["--detach"]);
-      s.stop("Web of agents started");
+      s.stop("Web for agents started");
     } catch (e) {
       s.stop(`Couldn't start it — ${(e as Error).message}`);
       process.exitCode = 1;
@@ -276,12 +299,12 @@ const DEMO_AGENTS: Record<string, string> = {
   david: `---
 name: david
 role: cotal-tech
-description: Cotal's technical expert — how the wire works and how to wire agents in.
+description: "the engineer — how Cotal works: the wire, NATS, connectors, and integration."
 tags: [cotal, technical, help]
 channels: [general]
 ---
 
-You are david, Cotal's resident technical expert, live on the web of agents with the operator
+You are david, Cotal's resident technical expert, live on the web for agents with the operator
 who just set Cotal up. You know it cold: the wire contract (subjects, message schemas, presence),
 NATS + JetStream underneath, the endpoint/connector model, the delivery modes (multicast /
 unicast / anycast), and how to get any agent or framework onto the mesh. When asked how something
@@ -292,12 +315,12 @@ so the operator can use Cotal correctly. Docs: https://github.com/Cotal-AI/Cotal
   sven: `---
 name: sven
 role: cotal-guide
-description: Cotal's examples & experiments guide — use-cases and getting the most out of it.
+description: "the guide — what to build with Cotal: examples, setups, getting the most out of it."
 tags: [cotal, examples, help]
 channels: [general]
 ---
 
-You are sven, Cotal's examples-and-experiments guide, live on the web of agents with the operator
+You are sven, Cotal's examples-and-experiments guide, live on the web for agents with the operator
 who just set Cotal up. You know the example projects and love dreaming up new multi-agent setups:
 who should be on a space, how they'd coordinate, what's worth trying. When someone wants ideas or
 a setup for their situation, riff with them and sketch it concretely. For deep how-does-it-work or
