@@ -196,6 +196,7 @@ function permissionsFor(
       `$JS.API.CONSUMER.CREATE.${CHAT}.>`,
       `$JS.API.CONSUMER.INFO.${CHAT}.>`,
       `$JS.API.CONSUMER.MSG.NEXT.${CHAT}.>`,
+      `$JS.API.CONSUMER.DELETE.${CHAT}.>`,
       `$JS.ACK.${CHAT}.>`,
       `$JS.API.CONSUMER.CREATE.${KV}.>`, // kv.watch ordered consumer (roster is public)
       `$JS.API.CONSUMER.INFO.${KV}.>`,
@@ -205,6 +206,7 @@ function permissionsFor(
       `$JS.API.STREAM.MSG.GET.${CHKV}`,
       `$JS.API.CONSUMER.CREATE.${CHKV}.>`,
       `$JS.API.CONSUMER.INFO.${CHKV}.>`,
+      `$JS.API.CONSUMER.DELETE.${CHKV}.>`,  // ephemeral consumer cleanup
       "$JS.FC.>", // ordered-consumer flow control
     ];
     if (profile === "admin") {
@@ -216,6 +218,7 @@ function permissionsFor(
         `$JS.API.CONSUMER.CREATE.${DM}.>`,
         `$JS.API.CONSUMER.INFO.${DM}.>`,
         `$JS.API.CONSUMER.MSG.NEXT.${DM}.>`,
+        `$JS.API.CONSUMER.DELETE.${DM}.>`,
         `$JS.ACK.${DM}.>`,
       );
     }
