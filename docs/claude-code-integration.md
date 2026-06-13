@@ -33,7 +33,8 @@ claude --dangerously-load-development-channels plugin:cotal@cotal-mesh
   `cotal-mesh` in both — the channel ref depends on it. `cotal setup` is two-tier: the first run
   (no `~/.cotal/onboarded.json` marker) does this install as a narrated step; later runs just
   verify it in the compact status. The plugin install is local-scope, so the enablement lives in
-  the working dir's `.claude/settings.local.json`.
+  the working dir's `.claude/settings.local.json`. See [setup-internals.md](setup-internals.md)
+  for the full flow + the invariants that keep this install working.
 - **Bundled.** The MCP server and hooks are esbuild-bundled to `dist/*.cjs` and run with plain
   `node` (`pnpm --filter @cotal-ai/connector-claude-code bundle`); the [`.mcp.json`](../extensions/connector-claude-code/.mcp.json)
   and [`hooks.json`](../extensions/connector-claude-code/hooks/hooks.json) point at the bundles. Bundling is

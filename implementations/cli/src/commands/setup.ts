@@ -25,13 +25,18 @@ const NATS_RELEASES_URL = "https://github.com/nats-io/nats-server/releases";
  *  narrated flow; later runs get a compact ensure+status. `--full` forces the full flow.
  *  Each failed step offers an interactive Claude handoff (COTAL_SKIP_ASSIST=1 disables). */
 export async function setup(argv: string[]): Promise<void> {
-  const { values } = parseArgs({ args: argv, allowPositionals: true, options: { full: { type: "boolean" } } });
-  if (!isOnboarded() || values.full) await runFirstRun();
+  const { values } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: { full: { type: "boolean" }, yes: { type: "boolean", short: "y" } },
+  });
+  // `--yes` (agents/CI) always runs the full flow non-interactively.
+  if (!isOnboarded() || values.full || values.yes) await runFirstRun(Boolean(values.yes));
   else await runEnsure();
 }
 
-/** The full, narrated first-run experience. */
-async function runFirstRun(): Promise<void> {
+/** The full, narrated first-run experience. `yes` = non-interactive accept-all. */
+async function runFirstRun(yes: boolean): Promise<void> {
   splash();
   p.intro(brandBold("Welcome to Cotal"));
   note(
@@ -122,7 +127,7 @@ async function runFirstRun(): Promise<void> {
     },
   ];
 
-  if (!(await runSteps(steps, log))) {
+  if (!(await runSteps(steps, log, { yes }))) {
     p.outro(brand("Setup paused — fix the step above and run `cotal setup` again."));
     process.exitCode = 1;
     return;
@@ -140,8 +145,8 @@ async function runFirstRun(): Promise<void> {
     "You're set — next steps",
   );
 
-  await offerDemo(found.claude);
-  p.outro(brand("Happy meshing."));
+  if (!yes) await offerDemo(found.claude);
+  p.outro(brand(yes ? "Cotal is ready." : "Happy meshing."));
 }
 
 /** Finale: let the operator meet the two experts right away. Inside cmux, open a workspace

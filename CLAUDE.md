@@ -9,6 +9,9 @@ tree. The wire contract (subjects, message schemas, presence/discovery conventio
 *is* the standard; libraries are thin clients over it. Transport is **NATS + JetStream**;
 reference implementation is **TypeScript**.
 
+New here? [docs/getting-started.md](docs/getting-started.md) is the fastest path to a
+running mesh; [docs/setup-internals.md](docs/setup-internals.md) documents the `cotal setup`
+flow + the invariants a repo change must keep in sync.
 See [docs/OVERVIEW.md](docs/OVERVIEW.md) for *what* it does,
 [docs/architecture.md](docs/architecture.md) for *how*, and
 [docs/claude-code-integration.md](docs/claude-code-integration.md) for the Claude Code

@@ -25,26 +25,31 @@ export interface Step {
 }
 
 /** Run steps in order with a failure loop per step: offer a Claude handoff, then
- *  retry / skip / quit. Returns false on abort. */
-export async function runSteps(steps: Step[], log: SetupLog): Promise<boolean> {
+ *  retry / skip / quit. Returns false on abort.
+ *
+ *  `yes` is non-interactive accept-all (agents/CI): optional and `confirm` steps run
+ *  without prompting (so e.g. demo agents are written), and a failure aborts with the
+ *  log path instead of opening the recovery menu/handoff — even on a TTY. */
+export async function runSteps(steps: Step[], log: SetupLog, opts: { yes?: boolean } = {}): Promise<boolean> {
+  const interactive = process.stdin.isTTY && !opts.yes;
   for (const step of steps) {
-    if (step.optional && (!process.stdin.isTTY || !(await ask(`${step.title}?`)))) {
+    if (step.optional && !opts.yes && (!interactive || !(await ask(`${step.title}?`)))) {
       p.log.info(dim(`skipped — ${step.title}`));
       log.line(`${step.name}: skipped (declined)`);
       continue;
     }
-    // Consent before a system-changing step (TTY only); a "no" skips it.
-    if (step.confirm && process.stdin.isTTY && !(await ask(step.confirm))) {
+    // Consent before a system-changing step (interactive only); a "no" skips it.
+    if (step.confirm && interactive && !(await ask(step.confirm))) {
       p.log.info(dim(`skipped — ${step.title}`));
       log.line(`${step.name}: skipped (declined consent)`);
       continue;
     }
-    if (!(await runOne(step, log))) return false;
+    if (!(await runOne(step, log, interactive))) return false;
   }
   return true;
 }
 
-async function runOne(step: Step, log: SetupLog): Promise<boolean> {
+async function runOne(step: Step, log: SetupLog, interactive: boolean): Promise<boolean> {
   for (;;) {
     if (step.explain) p.log.step(step.explain);
     const spin = step.live ? undefined : p.spinner();
@@ -62,8 +67,8 @@ async function runOne(step: Step, log: SetupLog): Promise<boolean> {
       p.log.error(err.message);
       log.line(`${step.name}: FAILED — ${err.message}`);
 
-      // Non-interactive (CI, piped): no recovery loop — abort with the log path.
-      if (!process.stdin.isTTY) {
+      // Non-interactive (CI, piped, or --yes): no recovery loop — abort with the log path.
+      if (!interactive) {
         p.log.message(dim(`See ${log.path}`));
         return false;
       }

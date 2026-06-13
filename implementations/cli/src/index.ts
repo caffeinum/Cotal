@@ -20,7 +20,7 @@ const baseCommands: Command[] = [
     kind: "command",
     name: "setup",
     group: "Setup",
-    summary: "guided first-run setup — NATS, mesh, agent connectors, demo agents",
+    summary: "guided setup — first run walks you through it; --yes for non-interactive (agents/CI), --full to redo",
     run: setup,
   },
   {
