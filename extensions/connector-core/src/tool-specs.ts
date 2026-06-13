@@ -7,10 +7,11 @@
  * Codex); the OpenCode connector renders the same specs as native plugin tools. One
  * source of truth, so the cotal_* surface can't drift across adapters.
  */
+import { execFileSync } from "node:child_process";
 import { z } from "zod";
 import { isConcreteChannel, type PresenceStatus } from "@cotal-ai/core";
 import type { MeshAgent, InboxItem } from "./agent.js";
-import type { AgentConfig } from "./config.js";
+import { FEEDBACK_URL, PUBLIC_FEEDBACK_URL, type AgentConfig } from "./config.js";
 
 /** What a Cotal tool returns: text to show the model, flagged on failure. MCP wraps it in
  *  `content`; the OpenCode plugin returns the string. */
@@ -79,6 +80,18 @@ function renderChannelInfo(
   return lines.join("\n");
 }
 
+/** Contact email for keyless feedback: explicit arg → COTAL_FEEDBACK_EMAIL → git config. */
+function resolveFeedbackEmail(explicit?: string): string | undefined {
+  if (explicit?.trim()) return explicit.trim();
+  if (process.env.COTAL_FEEDBACK_EMAIL?.trim()) return process.env.COTAL_FEEDBACK_EMAIL.trim();
+  try {
+    const email = execFileSync("git", ["config", "user.email"], { encoding: "utf8" }).trim();
+    return email || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Routing context for a `<channel …>` tag. Keys must be [A-Za-z0-9_] (others are dropped). */
 export function channelMeta(i: InboxItem): Record<string, string> {
   const m: Record<string, string> = { kind: i.kind, from: i.fromName, from_id: i.fromId };
@@ -90,8 +103,9 @@ export function channelMeta(i: InboxItem): Record<string, string> {
   return m;
 }
 
-/** The full Cotal tool set for a given config. Renderers iterate this. */
-export function cotalToolSpecs(config: AgentConfig): CotalToolSpec[] {
+/** The full Cotal tool set for a given config. Renderers iterate this; `source` names the
+ *  hosting connector and is stamped onto outgoing feedback. */
+export function cotalToolSpecs(config: AgentConfig, source = "connector"): CotalToolSpec[] {
   return [
     {
       name: "cotal_roster",
@@ -344,6 +358,54 @@ export function cotalToolSpecs(config: AgentConfig): CotalToolSpec[] {
           return err(
             `Couldn't spawn ${name}: no manager reachable (${(e as Error).message}). Is the manager running?`,
           );
+        }
+      },
+    },
+    {
+      name: "cotal_feedback",
+      title: "Cotal: send beta feedback",
+      description:
+        "Send feedback about Cotal to its developers. With a configured feedback key it goes to the keyed beta intake; without one it goes to the public cotal.ai intake, which requires a contact email.",
+      schema: {
+        origin: z
+          .enum(["human", "agent"])
+          .describe('"human" when relaying the user\'s feedback, "agent" when reporting an issue you hit yourself.'),
+        type: z.enum(["bug", "idea", "friction", "praise", "other"]).describe("What kind of feedback this is."),
+        summary: z.string().max(2000).describe("One-line summary of the feedback."),
+        details: z.string().max(10_000).optional().describe("Longer free-form details."),
+        severity: z.enum(["low", "medium", "high"]).optional().describe("How badly this hurts (bugs/friction)."),
+        area: z.string().optional().describe("The part of Cotal this concerns (e.g. presence, channels, CLI)."),
+        repro: z.string().optional().describe("Steps to reproduce."),
+        expected: z.string().optional().describe("What you expected to happen."),
+        actual: z.string().optional().describe("What actually happened."),
+        email: z
+          .string()
+          .optional()
+          .describe("Contact email — required on the keyless public path when none is configured in the environment."),
+      },
+      async run(_agent, _config, args: Record<string, unknown>) {
+        const { email, ...payload } = args;
+        const url = config.feedbackUrl ?? (config.feedbackKey ? FEEDBACK_URL : PUBLIC_FEEDBACK_URL);
+        const headers: Record<string, string> = { "content-type": "application/json" };
+        const body: Record<string, unknown> = { ...payload, source };
+        if (config.feedbackKey) {
+          headers.authorization = `Bearer ${config.feedbackKey}`;
+        } else {
+          const contact = resolveFeedbackEmail(email as string | undefined);
+          if (!contact)
+            return err(
+              "Keyless feedback goes to the public cotal.ai intake, which requires a traceable contact email — ask the user for one and retry with the email argument (or set COTAL_FEEDBACK_EMAIL).",
+            );
+          body.email = contact;
+        }
+        try {
+          const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+          const reply = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
+          if (!res.ok)
+            return err(`Feedback rejected (${res.status}${reply.error ? `: ${reply.error}` : ""}).`);
+          return ok(`Feedback sent${reply.id ? ` (id ${reply.id})` : ""}. Thanks!`);
+        } catch (e) {
+          return err(`Couldn't reach the feedback intake at ${url}: ${(e as Error).message}`);
         }
       },
     },

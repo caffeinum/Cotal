@@ -18,9 +18,10 @@ function toContent(r: ToolResult) {
 }
 
 /** Register the Cotal tool surface (roster, inbox, send, dm, anycast, status, channels,
- *  channel_info, join, leave, spawn) on an MCP server. */
-export function registerCotalTools(server: McpServer, agent: MeshAgent, config: AgentConfig): void {
-  for (const spec of cotalToolSpecs(config)) {
+ *  channel_info, join, leave, spawn, feedback) on an MCP server. `source` names the
+ *  hosting connector for outgoing feedback. */
+export function registerCotalTools(server: McpServer, agent: MeshAgent, config: AgentConfig, source?: string): void {
+  for (const spec of cotalToolSpecs(config, source)) {
     if (spec.schema) {
       server.registerTool(
         spec.name,

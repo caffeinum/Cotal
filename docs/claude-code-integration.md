@@ -119,15 +119,21 @@ and the agent authenticates as its own JWT identity. See [architecture.md](archi
 
 ## Beta feedback
 
-Set this in a beta tester's agent environment to expose `cotal_feedback`:
+`cotal_feedback` works out of the box: without a key it posts to the public intake at
+`https://cotal.ai/v1/feedback`, which requires a contact email (sourced from
+`COTAL_FEEDBACK_EMAIL`, then `git config user.email`, otherwise the agent asks the user).
+The CLI can send too: `cotal feedback "<summary>" [--type bug] [--email you@example.com]`.
+
+Set this in a beta tester's agent environment to route to the keyed intake instead:
 
 ```
 COTAL_FEEDBACK_KEY=fbk_<per-tester-key>
 ```
 
-The tool posts to the hardcoded intake URL `https://broker.cotal.ai/v1/feedback` with
+With a key the tool posts to `https://broker.cotal.ai/v1/feedback` with
 `Authorization: Bearer ...`; the server derives tester identity from the key, not from the
-model-supplied body. Each submission has `origin: "human" | "agent"`: human means the tester asked
+model-supplied body — no email needed. `COTAL_FEEDBACK_URL` overrides either URL (self-hosted
+intakes). Each submission has `origin: "human" | "agent"`: human means the tester asked
 the agent to send feedback; agent means the agent independently hit a major Cotal issue and
 auto-reported it.
 

@@ -21,7 +21,8 @@
     "smoke:membership:auth": "tsx packages/core/membership-auth.smoke.ts",
     "smoke:channels": "tsx packages/core/channels.smoke.ts",
     "smoke:channels:auth": "tsx packages/core/channels-auth.smoke.ts",
-    "smoke:attention": "tsx extensions/connector-core/attention.smoke.ts"
+    "smoke:attention": "tsx extensions/connector-core/attention.smoke.ts",
+    "smoke:feedback": "tsx extensions/connector-core/feedback.smoke.ts"
   },
   "dependencies": {
     "@cotal-ai/cli": "workspace:*",

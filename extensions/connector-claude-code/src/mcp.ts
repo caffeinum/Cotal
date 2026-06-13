@@ -161,7 +161,7 @@ async function main(): Promise<void> {
     },
   );
 
-  registerCotalTools(server, agent, config);
+  registerCotalTools(server, agent, config, "claude-code");
 
   // One wake-nudge path, shared by incoming messages and the Stop→idle flush. It stays a stable
   // function gated on a *mutable* `channelActive` flag (flipped true only after the MCP
