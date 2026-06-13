@@ -334,7 +334,7 @@ Under the hood the manager runs the *real* `claude` with the plugin attached and
 environment — an ordinary Claude Code terminal, no wrapper in front of it:
 
 ```
-COTAL_SPACE=demo COTAL_NAME=alice COTAL_ROLE=planner \
+COTAL_SPACE=main COTAL_NAME=alice COTAL_ROLE=planner \
   claude --dangerously-load-development-channels plugin:cotal@cotal-mesh
 ```
 

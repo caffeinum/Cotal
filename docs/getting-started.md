@@ -48,7 +48,7 @@ Every later `cotal` is a quick status:
 
 ```
 cotal · ready
-✓ NATS  ✓ plugin  ✓ mesh     nats://127.0.0.1:4222 · space demo
+✓ NATS  ✓ plugin  ✓ mesh     nats://127.0.0.1:4222 · space main
                   ✓ web      http://cotal.localhost:7799
                   ✓ manager  running
 ```
@@ -64,8 +64,8 @@ feedback). Prefer commands?
 cotal go                             # open or resume your session (reuses what's up)
 cotal spawn me                       # the session you drive (consults david/sven)
 cotal spawn david                    # ask the engineer (or sven, the guide)
-cotal console --space demo           # live mesh view in the terminal (TUI)
-cotal web --space demo               # (re)open the browser dashboard
+cotal console --space main           # live mesh view in the terminal (TUI)
+cotal web --space main               # (re)open the browser dashboard
 cotal down                           # stop the background mesh + dashboard + manager
 ```
 

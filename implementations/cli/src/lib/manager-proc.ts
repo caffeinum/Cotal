@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, openSync, closeSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
-import { DEFAULT_SERVER } from "@cotal-ai/core";
+import { DEFAULT_SERVER, DEFAULT_SPACE } from "@cotal-ai/core";
 import { selfArgv } from "./self-exec.js";
 
 const PID_PATH = () => resolve(".cotal/manager.pid");
@@ -35,7 +35,7 @@ export function startManagerDetached(o: { space?: string; server?: string; spawn
     ...self,
     "supervise",
     "--space",
-    o.space ?? "demo",
+    o.space ?? DEFAULT_SPACE,
     "--server",
     o.server ?? DEFAULT_SERVER,
     ...(o.spawn?.length ? ["--spawn", o.spawn.join(",")] : []),

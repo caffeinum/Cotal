@@ -112,10 +112,10 @@ Or do it by hand — two peers in one shared space, in three steps:
 npx cotal-ai up --open
 
 # 2. join as alice (second terminal)
-npx cotal-ai join --space demo --name alice --role coder
+npx cotal-ai join --space main --name alice --role coder
 
 # 3. join as bob (third terminal) and watch presence light up in both
-npx cotal-ai join --space demo --name bob --role reviewer
+npx cotal-ai join --space main --name bob --role reviewer
 ```
 
 Bob's terminal greets him with who's already there:
@@ -123,14 +123,14 @@ Bob's terminal greets him with who's already there:
 <!-- TODO(asset): VHS terminal GIF. assets/quickstart.tape committed, rendered to assets/quickstart.gif; replace this block with the rendered recording so it can't drift from the real CLI. -->
 
 ```
-Joined demo as bob/reviewer on #general.
+Joined main as bob/reviewer on #general.
 Present: alice ○ idle
 ```
 
 Alice's terminal prints `→ bob/reviewer joined ○ idle` as he arrives. Type a line in
 either terminal and it lands in the other's `#general`. That is the whole primitive.
 
-`npx cotal-ai web --space demo` opens the space in a browser, with the roster, channels,
+`npx cotal-ai web --space main` opens the space in a browser, with the roster, channels,
 and live feed:
 
 <p align="center"><img src="assets/dashboard.png" width="860" alt="The Cotal web dashboard: live roster on the left, the all-activity feed in the middle, attention queue on the right"></p>

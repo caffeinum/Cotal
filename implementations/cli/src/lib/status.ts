@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { DEFAULT_SERVER, authDir, isReachable, loadSpaceAuth } from "@cotal-ai/core";
+import { DEFAULT_SERVER, DEFAULT_SPACE, authDir, isReachable, loadSpaceAuth } from "@cotal-ai/core";
 import { resolveNatsServer } from "./nats-bin.js";
 
 export interface MeshStatus {
@@ -19,7 +19,7 @@ export async function meshStatus(cwd: string): Promise<MeshStatus> {
   return {
     reachable: await isReachable(server),
     server,
-    space: auth?.space ?? "demo",
+    space: auth?.space ?? DEFAULT_SPACE,
     auth: Boolean(auth),
   };
 }

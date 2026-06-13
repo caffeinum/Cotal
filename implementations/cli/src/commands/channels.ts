@@ -5,6 +5,7 @@ import {
   mintCreds,
   newIdentity,
   DEFAULT_SERVER,
+  DEFAULT_SPACE,
   seedChannelRegistry,
   readChannelRegistry,
   effectiveReplay,
@@ -38,7 +39,7 @@ export async function channels(argv: string[]): Promise<void> {
     },
   });
   const server = values.server ?? DEFAULT_SERVER;
-  const space = values.space ?? "demo";
+  const space = values.space ?? DEFAULT_SPACE;
   // Tri-state replay: --replay → true, --no-replay → false, neither → leave unchanged.
   const replay = values["no-replay"] ? false : values.replay ? true : undefined;
   const creds = await managerCreds(); // undefined ⇒ open mode

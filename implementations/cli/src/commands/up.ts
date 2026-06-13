@@ -116,7 +116,7 @@ export async function startMeshDetached(opts: DetachOpts = {}): Promise<{ server
   const storeDir = resolve(opts.storeDir ?? ".cotal/nats");
   mkdirSync(storeDir, { recursive: true });
   const useAuth = !opts.open;
-  const space = opts.space ?? "demo";
+  const space = opts.space ?? DEFAULT_SPACE;
   const seedFile = loadChannelsFile(opts.channels);
   const setup = useAuth ? await authSetup(storeDir, server, space) : undefined;
   const port = Number(new URL(server).port) || 4222;

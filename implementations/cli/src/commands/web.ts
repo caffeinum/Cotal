@@ -227,7 +227,7 @@ export function startWebDetached(o: { space?: string; server?: string } = {}): {
     "--port",
     String(WEB_PORT),
     "--space",
-    o.space ?? "demo",
+    o.space ?? DEFAULT_SPACE,
     ...(o.server ? ["--server", o.server] : []),
   ];
   const child = spawn(node, args, { detached: true, stdio: ["ignore", fd, fd] });
