@@ -40,7 +40,7 @@ async function runFirstRun(yes: boolean): Promise<void> {
   splash();
   p.intro(brandBold("Welcome to Cotal"));
   note(
-    "Cotal is the open web for agents: they join a shared space, see who's around, and coordinate as peers instead of in silos. Let's set yours up.",
+    "Cotal is the open web for agents: they join a shared space, see who's around, and coordinate as peers instead of in silos. Build whole agent societies, even across different machines, on one open web. Let's set yours up.",
     "Give your agents a place to work together",
   );
 
@@ -111,7 +111,7 @@ async function runFirstRun(yes: boolean): Promise<void> {
     const path = resolve(".cotal/agents", `${name}.md`);
     if (!existsSync(path)) writeFileSync(path, body);
   }
-  p.log.success("Added david (the engineer), sven (the guide), and your own session (me)");
+  p.log.success("Added david (the engineer), sven (the guide), and your session (me); they join when you spawn them or open the demo");
   log.line("demo-agents: wrote david + sven + me");
 
   markOnboarded(ONBOARD_VERSION);
@@ -148,17 +148,22 @@ async function pickConnectors(
   const all = (["claude", "codex", "opencode"] as const).filter((n) => found[n]);
   if (yes || !process.stdin.isTTY) return new Set(all);
   const labels: Record<string, string> = { claude: "Claude Code", codex: "Codex", opencode: "OpenCode" };
-  const picked = await p.multiselect({
-    message: "Pick the agents to set up (space to toggle, enter to continue)",
-    options: (["claude", "codex", "opencode"] as const).map((n) => ({
-      value: n,
-      label: labels[n],
-      hint: !found[n] ? "not on PATH" : n === "claude" ? "installs a plugin" : "ready at spawn",
-    })),
-    initialValues: all,
-    required: false,
-  });
-  return new Set(p.isCancel(picked) ? all : (picked as string[]));
+  for (;;) {
+    const picked = await p.multiselect({
+      message: "Pick the agents to set up (space to toggle)",
+      options: (["claude", "codex", "opencode"] as const).map((n) => ({
+        value: n,
+        label: labels[n],
+        hint: !found[n] ? "not on PATH" : n === "claude" ? "installs a plugin" : "ready at spawn",
+      })),
+      initialValues: all,
+      required: false,
+    });
+    const chosen = p.isCancel(picked) ? all : (picked as string[]);
+    const summary = chosen.length ? chosen.map((n) => labels[n]).join(", ") : "none";
+    const go = await p.confirm({ message: `Continue with: ${summary}?`, initialValue: true });
+    if (!p.isCancel(go) && go) return new Set(chosen);
+  }
 }
 
 /** The Claude Code plugin install, as a step (spinner + failure handling + handoff). */
