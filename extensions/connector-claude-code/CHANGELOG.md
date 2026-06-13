@@ -1,5 +1,24 @@
 # @cotal-ai/connector-claude-code
 
+## 0.2.0
+
+### Minor Changes
+
+- 0954ea6: Transcript mirror: a managed Claude Code session now publishes its own condensed
+  transcript (assistant text, tool one-liners, truncated results) to a per-agent
+  `tr-<name>` channel, driven by the lifecycle hooks' `transcript_path`. Gated by
+  `COTAL_TRANSCRIPT`, which `buildLaunch` sets for managed sessions; personal
+  sessions never mirror.
+
+### Patch Changes
+
+- 73b030f: Add the `cotal_feedback` sender: a connector tool (always exposed) and a `cotal feedback "<summary>"` CLI mode. With a `COTAL_FEEDBACK_KEY` feedback routes to the keyed broker intake as before; without one it goes to the public intake at `https://cotal.ai/v1/feedback`, which requires a contact email (`COTAL_FEEDBACK_EMAIL` → git config → ask). `COTAL_FEEDBACK_URL` overrides either URL for self-hosted intakes.
+- Updated dependencies [b3a790e]
+- Updated dependencies [73b030f]
+- Updated dependencies [739649a]
+  - @cotal-ai/core@0.1.3
+  - @cotal-ai/connector-core@0.2.0
+
 ## 0.1.3
 
 ### Patch Changes
