@@ -32,10 +32,15 @@ export async function setup(argv: string[]): Promise<void> {
   const { values } = parseArgs({
     args: argv,
     allowPositionals: true,
-    options: { full: { type: "boolean" }, yes: { type: "boolean", short: "y" } },
+    options: {
+      full: { type: "boolean" },
+      yes: { type: "boolean", short: "y" },
+      auth: { type: "boolean" }, // opt into an authed mesh (JWT/ACLs); default is an open local mesh
+    },
   });
-  // `--yes` (agents/CI) always runs the full flow non-interactively.
-  if (!isOnboarded() || values.full || values.yes) await runFirstRun(Boolean(values.yes));
+  // `--yes` (agents/CI) always runs the full flow non-interactively. The local mesh is open by
+  // default (frictionless, loopback-only); `--auth` opts into JWT auth for shared/cross-machine use.
+  if (!isOnboarded() || values.full || values.yes) await runFirstRun(Boolean(values.yes), !values.auth);
   else await runEnsure();
 }
 
@@ -46,8 +51,9 @@ export async function go(argv: string[]): Promise<void> {
   return setup(argv);
 }
 
-/** The full, narrated first-run experience. `yes` = non-interactive accept-all. */
-async function runFirstRun(yes: boolean): Promise<void> {
+/** The full, narrated first-run experience. `yes` = non-interactive accept-all; `open` = run the
+ *  mesh without auth (the frictionless local default; `--auth` flips it off). */
+async function runFirstRun(yes: boolean, open: boolean): Promise<void> {
   splash();
   p.intro(brandBold("Welcome to Cotal"));
   note(
@@ -91,7 +97,7 @@ async function runFirstRun(yes: boolean): Promise<void> {
         const pane = new LivePane();
         pane.start("Booting nats-server");
         try {
-          const { server } = await startMeshDetached({ onLine: (l) => pane.push(l) });
+          const { server } = await startMeshDetached({ onLine: (l) => pane.push(l), open });
           return `running at ${server} (stop with: cotal down)`;
         } finally {
           pane.clear();

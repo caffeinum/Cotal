@@ -38,10 +38,11 @@ export async function console_(argv: string[]): Promise<void> {
   let creds = values.creds ? readFileSync(values.creds, "utf8") : undefined;
   let space = values.space;
 
-  // Auth mode (.cotal/auth present): self-mint an observer cred for the local space so the console
-  // works without --creds (like `cotal web`). An authed server hosts exactly one space, so there's
-  // no overview — we enter it directly. Open mode (no auth): connect bare; with no --space, the TTY
-  // shows the space overview.
+  // Auth mode (.cotal/auth present): self-mint an admin cred for the local space so the console
+  // works without --creds — same god-view as `cotal web` (the console shows DMs/anycast, which the
+  // narrower `observer` profile denies → NATS Authorization Violation). An authed server hosts
+  // exactly one space, so there's no overview — we enter it directly. Open mode (no auth): connect
+  // bare; with no --space, the TTY shows the space overview.
   if (!creds) {
     const auth = loadSpaceAuth(authDir(process.cwd()));
     if (auth) {
@@ -52,7 +53,7 @@ export async function console_(argv: string[]): Promise<void> {
         process.exit(1);
       }
       space = auth.space;
-      creds = await mintCreds(auth, newIdentity(), "observer");
+      creds = await mintCreds(auth, newIdentity(), "admin");
     }
   }
 

@@ -9,7 +9,9 @@ or setup silently breaks for npx users.
 `cotal setup` ([`implementations/cli/src/commands/setup.ts`](../implementations/cli/src/commands/setup.ts))
 is two-tier, gated on a machine marker:
 
-- **First run** (no `~/.cotal/onboarded.json`, or `--full`, or `--yes`) → `runFirstRun`:
+- **First run** (no `~/.cotal/onboarded.json`, or `--full`, or `--yes`) → `runFirstRun(yes, open)`:
+  the mesh runs **open** (no auth) by default — `--auth` flips it to a JWT-authed mesh. (Open means
+  no `.cotal/auth`, so every read/control CLI connects bare; matches `cotal cmux go`.) Then:
   splash → intro → core steps (Node, NATS, start the mesh) → start the **web dashboard** in the
   background → **connector picker** → write the two default experts (david/sven) → marker → demo
   finale (`offerDemo`). The finale needs Claude Code and, if accepted: **in cmux**, opens a

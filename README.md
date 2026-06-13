@@ -94,6 +94,10 @@ session you drive. If a step fails it offers an interactive Claude session that 
 went wrong, then resumes. The finale opens a Claude you drive, with david and sven helping
 in the background.
 
+The local mesh is **open** by default (no auth, loopback-only) so everything works with zero
+credential setup; add `cotal setup --auth` for a JWT-authed mesh (sender-authenticity + per-agent
+ACLs) when you share it or go cross-machine.
+
 **Every run after** is a quick `cotal · ready` status: it makes sure a web is up in the
 current folder and prints your next steps. Run `cotal setup --full` to re-run the full
 guided flow (e.g. to repair something). Setting up for someone via a coding agent or CI?

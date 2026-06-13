@@ -20,7 +20,9 @@ with the package; if you already have one on your PATH, Cotal uses that instead.
 
 1. **Checks** Node and locates NATS.
 2. **Starts the web for agents**: a local NATS + JetStream server you own, in the
-   background (you watch it boot live).
+   background (you watch it boot live). It's an **open** local mesh (no auth, loopback-only) so
+   everything just works with no credentials; pass `cotal setup --auth` for a JWT-authed mesh
+   (sender-authenticity + per-agent ACLs) when you share it or go cross-machine.
 3. **Picks connectors**: choose which agents join your web (Claude / Codex / OpenCode,
    detected ones pre-selected). Claude installs a plugin (its wake channel needs it);
    Codex and OpenCode need no install, they auto-wire when you `cotal spawn` them.
