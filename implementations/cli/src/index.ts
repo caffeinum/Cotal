@@ -40,7 +40,7 @@ const baseCommands: Command[] = [
     kind: "command",
     name: "console",
     group: "Mesh",
-    summary: "live agent dashboard for a space — --space <s> [--plain]",
+    summary: "live protocol view for a space — lazygit-style TUI, or a line stream on --plain — --space <s> [--plain]",
     run: console_,
   },
   {

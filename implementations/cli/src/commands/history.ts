@@ -4,6 +4,7 @@ import {
   authDir,
   clearSpaceHistory,
   DEFAULT_SERVER,
+  DEFAULT_SPACE,
   loadSpaceAuth,
   mintCreds,
   newIdentity,
@@ -32,7 +33,7 @@ export async function history(argv: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const space = values.space ?? "demo";
+  const space = values.space ?? DEFAULT_SPACE;
   const server = values.server ?? DEFAULT_SERVER;
   const creds = values.creds ? readFileSync(values.creds, "utf8") : await managerCreds();
   const result = await clearSpaceHistory({
