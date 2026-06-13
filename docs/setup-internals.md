@@ -10,11 +10,13 @@ or setup silently breaks for npx users.
 is two-tier, gated on a machine marker:
 
 - **First run** (no `~/.cotal/onboarded.json`, or `--full`, or `--yes`) → `runFirstRun`:
-  splash → intro → core steps (Node, NATS, start the mesh) → start the **web dashboard** in the
-  background → **connector picker** → write the two default experts (david/sven) → marker →
-  demo finale (a cmux-only live demo, or the `cotal · ready` card when cmux is absent/declined).
-- **Later runs** → `runEnsure`: ensures the mesh + dashboard are up in the cwd, then a compact
-  status card.
+  splash → intro → core steps (Node, NATS, start the mesh) → start the **web dashboard** + the
+  **manager** in the background → **connector picker** → write the two default experts (david/sven)
+  → marker → demo finale (a cmux-only live demo, or the `cotal · ready` card when cmux is
+  absent/declined). The manager is **skipped under `--yes`** (so `cotal cmux go` and CI start /
+  need their own).
+- **Later runs** → `runEnsure`: ensures the mesh + dashboard + manager are up in the cwd, then a
+  compact status card.
 
 The **web dashboard** (`ensureWeb` in [`commands/web.ts`](../implementations/cli/src/commands/web.ts))
 auto-starts detached on the default port, addressed as `http://cotal.localhost:7799` (the server
@@ -52,7 +54,7 @@ the log path and a non-zero exit. This is the agent/CI contract; keep it working
 
 ## Background processes
 
-Two detached processes back a folder, both stopped by `cotal down`:
+Three detached processes back a folder, all stopped by `cotal down`:
 
 - **Mesh** — `startMeshDetached` ([`commands/up.ts`](../implementations/cli/src/commands/up.ts))
   is the one place that boots a background nats-server (also used by `up --detach`). Writes
@@ -60,3 +62,8 @@ Two detached processes back a folder, both stopped by `cotal down`:
 - **Web dashboard** — `startWebDetached` / `ensureWeb`
   ([`commands/web.ts`](../implementations/cli/src/commands/web.ts)) re-execs `cotal web` detached.
   Writes `.cotal/web.pid` and `.cotal/web.log`. `webUp()` probes the port for the status card.
+- **Manager** — `startManagerDetached` / `ensureManager`
+  ([`lib/manager-proc.ts`](../implementations/cli/src/lib/manager-proc.ts)) re-execs `cotal supervise`
+  detached (pty runtime); it answers the control plane (`cotal_spawn`/`despawn`/`purge`/`persona`).
+  Writes `.cotal/manager.pid` and `.cotal/manager.log`; `managerUp()` checks pid liveness for the
+  card. `cotal cmux go` SIGTERMs this pid first so its cmux-runtime manager is the only one.

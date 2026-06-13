@@ -39,12 +39,14 @@ Every later `cotal` is a quick status:
 
 ```
 cotal · ready
-✓ NATS  ✓ plugin  ✓ mesh  nats://127.0.0.1:4222 · space demo
-                  ✓ web   http://cotal.localhost:7799
+✓ NATS  ✓ plugin  ✓ mesh     nats://127.0.0.1:4222 · space demo
+                  ✓ web      http://cotal.localhost:7799
+                  ✓ manager  running
 ```
 
-It makes sure the mesh **and** the browser dashboard are running in the current folder, then
-prints your next steps. The dashboard auto-starts at `http://cotal.localhost:7799` (works in
+It makes sure the mesh, the browser dashboard, **and** the manager (the control plane behind
+`cotal_spawn` / `despawn` / `purge` / `persona`) are running in the current folder, then prints
+your next steps. The dashboard auto-starts at `http://cotal.localhost:7799` (works in
 Chrome/Firefox/Edge; on Safari use `http://127.0.0.1:7799`). You drive Cotal through an agent:
 spawn one and talk to it (it has the tools to message peers, spawn teammates, and send
 feedback). Prefer commands?
@@ -52,8 +54,9 @@ feedback). Prefer commands?
 ```bash
 cotal spawn me                       # the session you drive (consults david/sven)
 cotal spawn david                    # ask the engineer (or sven, the guide)
+cotal console --space demo           # live mesh view in the terminal (TUI)
 cotal web --space demo               # (re)open the browser dashboard
-cotal down                           # stop the background mesh + dashboard
+cotal down                           # stop the background mesh + dashboard + manager
 ```
 
 Feedback flows through your agent too: tell it "send feedback: ..." and it reports it for

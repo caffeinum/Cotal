@@ -16,6 +16,7 @@ import { isOnboarded, markOnboarded } from "../lib/onboard.js";
 import { machineStatus, meshStatus, onPath } from "../lib/status.js";
 import { startMeshDetached, up } from "./up.js";
 import { ensureWeb, webUp, WEB_URL } from "./web.js";
+import { ensureManager, managerUp } from "../lib/manager-proc.js";
 
 const ONBOARD_VERSION = "1";
 const README_URL = "https://github.com/Cotal-AI/Cotal/blob/main/README.md";
@@ -102,6 +103,17 @@ async function runFirstRun(yes: boolean): Promise<void> {
     /* non-fatal: the card still shows how to start it */
   }
 
+  // The control plane, so cotal_spawn / despawn / purge work from any session. Skipped under
+  // --yes: `cotal cmux go` (which runs `setup --yes`) and CI start their own / need none.
+  if (!yes) {
+    try {
+      ensureManager({ space: "demo", server: DEFAULT_SERVER });
+      log.line("manager: started (control plane)");
+    } catch {
+      /* non-fatal: the card still shows how to start it */
+    }
+  }
+
   // Connectors: which agents should be able to join. Only Claude needs an install
   // (its wake channel binds to an installed plugin); Codex/OpenCode auto-wire at spawn.
   const found = { claude: onPath("claude"), codex: onPath("codex"), opencode: onPath("opencode") };
@@ -134,6 +146,7 @@ async function runFirstRun(yes: boolean): Promise<void> {
       `${ok("✓")} drive a session     ${dim("cotal spawn me")}`,
       `${ok("✓")} ask the engineer    ${dim("cotal spawn david")}`,
       `${ok("✓")} ask the guide       ${dim("cotal spawn sven")}`,
+      `${ok("✓")} watch the mesh      ${dim("cotal console")}`,
       `${ok("✓")} open the dashboard  ${dim(WEB_URL)}`,
       `${ok("✓")} stop everything     ${dim("cotal down")}`,
       "",
@@ -278,23 +291,31 @@ async function runEnsure(): Promise<void> {
     mesh = await meshStatus(process.cwd());
   }
   await ensureWeb({ space: mesh.space, server: mesh.server }).catch(() => {});
+  try {
+    ensureManager({ space: mesh.space, server: mesh.server });
+  } catch {
+    /* non-fatal */
+  }
   await readyCard(process.cwd());
 }
 
-/** The `cotal · ready` one-glance card: machine + mesh + web status, plus the key commands.
- *  Shared by the repeat-run ensure and the first-run no-demo finale. */
+/** The `cotal · ready` one-glance card: machine + mesh + web + manager status, plus the key
+ *  commands. Shared by the repeat-run ensure and the first-run no-demo finale. */
 async function readyCard(cwd: string): Promise<void> {
   const mesh = await meshStatus(cwd);
   const m = await machineStatus();
   const web = await webUp();
+  const mgr = managerUp();
   const line = (on: boolean, text: string) => `${on ? ok("✓") : dim("○")} ${text}`;
   note(
     [
-      line(m.nats !== "missing", `NATS    ${dim(m.nats === "missing" ? "missing" : m.nats)}`),
-      line(m.claudePlugin, `plugin  ${dim(m.claudePlugin ? "installed" : "not installed")}`),
-      line(mesh.reachable, `mesh    ${dim(`${mesh.server} · space ${mesh.space}`)}`),
-      line(web, `web     ${dim(WEB_URL)}`),
+      line(m.nats !== "missing", `NATS     ${dim(m.nats === "missing" ? "missing" : m.nats)}`),
+      line(m.claudePlugin, `plugin   ${dim(m.claudePlugin ? "installed" : "not installed")}`),
+      line(mesh.reachable, `mesh     ${dim(`${mesh.server} · space ${mesh.space}`)}`),
+      line(web, `web      ${dim(WEB_URL)}`),
+      line(mgr, `manager  ${dim(mgr ? "running" : "not running")}`),
       "",
+      `watch it:  ${dim("cotal console")}   ${dim("(live TUI in this terminal)")}`,
       `drive it:  ${dim("cotal spawn me")}   ${dim("(or david / sven)")}`,
       `more:      ${dim('cotal web · cotal down · cotal feedback "<msg>" · cotal --help')}`,
     ].join("\n"),

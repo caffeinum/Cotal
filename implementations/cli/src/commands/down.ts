@@ -2,16 +2,25 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { c } from "../ui.js";
 
-/** Stop the background mesh and web dashboard started by `cotal up --detach` / `cotal setup`. */
+/** Stop the background processes started by `cotal up --detach` / `cotal setup`:
+ *  the manager, the web dashboard, and the mesh. */
 export async function down(): Promise<void> {
-  const meshPid = resolve(".cotal/nats.pid");
-  if (!existsSync(meshPid)) {
-    console.error(c.red("No background mesh found (.cotal/nats.pid missing). Was it started with `cotal up --detach`?"));
+  const targets: Array<[string, string]> = [
+    [".cotal/manager.pid", "manager"],
+    [".cotal/web.pid", "web dashboard"],
+    [".cotal/nats.pid", "nats-server"],
+  ];
+  let any = false;
+  for (const [rel, label] of targets) {
+    const pidPath = resolve(rel);
+    if (!existsSync(pidPath)) continue;
+    any = true;
+    stop(pidPath, label);
+  }
+  if (!any) {
+    console.error(c.red("Nothing running here (no .cotal/*.pid). Was it started with `cotal up` / `cotal setup`?"));
     process.exit(1);
   }
-  stop(meshPid, "nats-server");
-  const webPid = resolve(".cotal/web.pid");
-  if (existsSync(webPid)) stop(webPid, "web dashboard");
 }
 
 function stop(pidPath: string, label: string): void {

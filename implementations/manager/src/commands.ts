@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync, rmSync } from "node:fs";
 import { execFileSync, spawn } from "node:child_process";
 import { join } from "node:path";
 import {
@@ -271,6 +271,21 @@ async function runDrive(argv: string[]): Promise<void> {
     }
   }
   console.log(c.green(`✓ mesh up at ${server}`));
+
+  // A prior interactive `cotal setup` may have left a detached (pty) manager; cmux go wants its
+  // own cmux-runtime manager, so stop that one first — queue-grouped control would otherwise split
+  // spawns between the two.
+  const pidFile = join(root, ".cotal", "manager.pid");
+  if (existsSync(pidFile)) {
+    const pid = Number(readFileSync(pidFile, "utf8").trim());
+    try {
+      process.kill(pid, "SIGTERM");
+      console.log(c.dim(`stopped a background manager (pid ${pid}) to use cmux tabs`));
+    } catch {
+      /* already gone */
+    }
+    rmSync(pidFile);
+  }
 
   // Manager in its own tab (skip if one is already running for this space).
   let mgrRunning = false;
