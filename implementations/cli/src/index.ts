@@ -1,5 +1,7 @@
 import { registry, type Command } from "@cotal-ai/core";
 import { up } from "./commands/up.js";
+import { down } from "./commands/down.js";
+import { setup } from "./commands/setup.js";
 import { join } from "./commands/join.js";
 import { watch } from "./commands/watch.js";
 import { console_ } from "./commands/console.js";
@@ -16,10 +18,24 @@ import { feedback } from "./commands/feedback.js";
 const baseCommands: Command[] = [
   {
     kind: "command",
+    name: "setup",
+    group: "Setup",
+    summary: "guided first-run setup — NATS, mesh, agent connectors, demo agents",
+    run: setup,
+  },
+  {
+    kind: "command",
     name: "up",
     group: "Mesh",
     summary: "start a local nats-server (JetStream, JWT auth by default; --open for an unauthenticated dev mesh)",
     run: up,
+  },
+  {
+    kind: "command",
+    name: "down",
+    group: "Mesh",
+    summary: "stop a background mesh started with `up --detach`",
+    run: down,
   },
   {
     kind: "command",

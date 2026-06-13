@@ -27,9 +27,9 @@ pnpm + TypeScript ESM monorepo — four dependency tiers, one-way deps, Node ≥
   - **@cotal-ai/openai-agents**, **@cotal-ai/vercel-ai** — agent-framework adapters: a native peer that embeds a Cotal endpoint (reusing connector-core's `MeshAgent`) and answers mesh traffic via the SDK's own loop. See [docs/agent-frameworks.md](docs/agent-frameworks.md).
   - **@cotal-ai/cmux** — thin driver over the [cmux](https://github.com/) CLI (open a workspace/tab, send keys); used by the manager's `cmux` runtime and example launch scripts.
 - **`implementations/*` — opinionated surfaces** over core (self-contained; never import each other).
-  - **@cotal-ai/cli** — mesh CLI: `up`, `join`, `watch`, `console` (thin NATS clients) plus `spawn` — a foreground agent launch reusing the connector's launch recipe.
+  - **@cotal-ai/cli** — mesh CLI: `up`/`down`, `join`, `watch`, `console` (thin NATS clients), `spawn` — a foreground agent launch reusing the connector's launch recipe — and `setup`, the two-tier guided flow (bundled NATS binary, Claude plugin install, interactive Claude handoff on failures). First run (no `~/.cotal/onboarded.json`) is the full narrated/clack flow; later runs are a compact ensure+status; `setup --full` forces the full flow.
   - **@cotal-ai/manager** — agent supervisor: a mesh endpoint that spawns/manages nodes via a pluggable `Runtime` (`pty` default / `tmux` / `cmux`), plus its own control-plane commands (`start`/`stop`/`ps`/`attach`) and a WS attach endpoint.
-- **`bin/cotal.ts` — composition root** for the `cotal` binary: imports the implementations it wants (which self-register their commands) and runs them.
+- **`bin/` — the published `cotal-ai` package**: `cotal.ts` is the composition root for the `cotal` binary — imports the implementations it wants (which self-register their commands) and runs them. `npx cotal-ai` with no args runs the guided `setup`.
 - **`examples/*` — use-cases** (composition roots; private, never published).
 
 Tiers depend one-way: `examples → implementations → packages ← (peer) extensions`. An

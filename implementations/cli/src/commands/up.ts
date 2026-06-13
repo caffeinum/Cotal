@@ -1,5 +1,14 @@
 import { spawn } from "node:child_process";
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import {
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  openSync,
+  statSync,
+  readSync,
+  closeSync,
+} from "node:fs";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import {
@@ -18,6 +27,7 @@ import {
   type ChannelRegistryFile,
 } from "@cotal-ai/core";
 import { c } from "../ui.js";
+import { resolveNatsServer } from "../lib/nats-bin.js";
 
 export async function up(argv: string[]): Promise<void> {
   const { values } = parseArgs({
@@ -29,6 +39,7 @@ export async function up(argv: string[]): Promise<void> {
       space: { type: "string" },
       open: { type: "boolean" }, // disable auth — run an open dev mesh
       channels: { type: "string" }, // seed the channel registry from this JSON file
+      detach: { type: "boolean" }, // run the server in the background (pid in .cotal/nats.pid)
     },
   });
   const server = values.server ?? DEFAULT_SERVER;
@@ -36,32 +47,39 @@ export async function up(argv: string[]): Promise<void> {
     console.log(c.green(`✓ NATS already running at ${server}`));
     return;
   }
+
+  if (values.detach) {
+    const { pid, source } = await startMeshDetached({
+      server,
+      storeDir: values["store-dir"],
+      space: values.space,
+      open: values.open,
+      channels: values.channels,
+    });
+    console.log(c.dim(`Started nats-server (${source}).`));
+    console.log(c.green(`✓ mesh running in the background (pid ${pid}) — stop with: cotal down`));
+    return;
+  }
+
   const storeDir = resolve(values["store-dir"] ?? ".cotal/nats");
   mkdirSync(storeDir, { recursive: true });
-
-  // Secure by default: start the server in decentralized-JWT mode so agents must present
-  // minted creds. `--open` runs the unauthenticated dev mesh instead.
   const useAuth = !values.open;
   const space = values.space ?? "demo";
   const seedFile = loadChannelsFile(values.channels);
   const setup = useAuth ? await authSetup(storeDir, server, space) : undefined;
-  // Auth mode's port comes from the generated config; open mode must pass it explicitly, else
-  // nats-server ignores --server's port and binds the default 4222.
   const port = Number(new URL(server).port) || 4222;
   const args = setup ? ["-c", setup.confPath] : ["-js", "-sd", storeDir, "-p", String(port)];
+  const { bin, source } = await resolveNatsServer();
 
   console.log(
     c.dim(
-      useAuth
-        ? `Starting nats-server (JetStream, JWT auth) — store: ${storeDir}`
-        : `Starting nats-server (JetStream, OPEN/no-auth) — store: ${storeDir}`,
+      `Starting nats-server (JetStream, ${useAuth ? "JWT auth" : "OPEN/no-auth"}, ${source}) — store: ${storeDir}`,
     ),
   );
   console.log(c.dim("Press Ctrl-C to stop.\n"));
-  const child = spawn("nats-server", args, { stdio: "inherit" });
+  const child = spawn(bin, args, { stdio: "inherit" });
   child.on("error", (err) => {
     console.error(c.red(`Failed to start nats-server: ${err.message}`));
-    console.error(c.dim("Install it with: brew install nats-server"));
     process.exit(1);
   });
   const stop = () => child.kill("SIGTERM");
@@ -69,29 +87,107 @@ export async function up(argv: string[]): Promise<void> {
   process.on("SIGTERM", stop);
   child.on("exit", (code) => process.exit(code ?? 0));
 
-  // Auth mode: streams are space infrastructure that agents are denied STREAM.CREATE for,
-  // so pre-create them here (once, privileged) as soon as the server accepts connections.
-  if (setup) {
-    for (let i = 0; i < 50; i++) {
-      if (await isReachable(server, { creds: setup.creds })) break;
-      await new Promise((r) => setTimeout(r, 200));
-    }
-    await setupSpaceStreams({ servers: server, space, creds: setup.creds });
-    console.log(c.dim("Pre-created CHAT/DM/TASK streams for the space."));
-    if (seedFile) {
-      await seedChannelRegistry({ servers: server, space, creds: setup.creds, file: seedFile });
-      console.log(c.dim("Seeded the channel registry."));
-    }
-  } else if (seedFile) {
-    // Open mode: the bucket is created lazily — wait for the server, then seed it (no creds).
-    for (let i = 0; i < 50; i++) {
-      if (await isReachable(server)) break;
-      await new Promise((r) => setTimeout(r, 200));
-    }
-    await seedChannelRegistry({ servers: server, space, file: seedFile });
-    console.log(c.dim("Seeded the channel registry."));
+  if (await waitReady(server, setup?.creds)) {
+    await postStart(server, space, setup, seedFile);
   }
   await new Promise<void>(() => {});
+}
+
+export interface DetachOpts {
+  server?: string;
+  storeDir?: string;
+  space?: string;
+  open?: boolean;
+  channels?: string;
+  /** Live boot lines, tailed from the server's log file (safe for a detached child). */
+  onLine?: (line: string) => void;
+}
+
+/**
+ * Start a background nats-server (JetStream), wait until it's reachable, pre-create the
+ * space's streams, and leave it running detached (pid in `.cotal/nats.pid`). Shared by
+ * `up --detach` and `cotal setup`. When `onLine` is given, boot output is tailed from the
+ * log file and forwarded — the child writes to the file (not a pipe), so it survives the
+ * parent exiting.
+ */
+export async function startMeshDetached(opts: DetachOpts = {}): Promise<{ server: string; pid: number; source: string }> {
+  const server = opts.server ?? DEFAULT_SERVER;
+  const storeDir = resolve(opts.storeDir ?? ".cotal/nats");
+  mkdirSync(storeDir, { recursive: true });
+  const useAuth = !opts.open;
+  const space = opts.space ?? "demo";
+  const seedFile = loadChannelsFile(opts.channels);
+  const setup = useAuth ? await authSetup(storeDir, server, space) : undefined;
+  const port = Number(new URL(server).port) || 4222;
+  const args = setup ? ["-c", setup.confPath] : ["-js", "-sd", storeDir, "-p", String(port)];
+  const { bin, source } = await resolveNatsServer();
+
+  const logPath = resolve(".cotal/nats.log");
+  const startOffset = existsSync(logPath) ? statSync(logPath).size : 0;
+  const fd = openSync(logPath, "a");
+  const child = spawn(bin, args, { detached: true, stdio: ["ignore", fd, fd] });
+  closeSync(fd);
+  child.unref();
+
+  let tailing = Boolean(opts.onLine);
+  if (opts.onLine) tailLines(logPath, startOffset, opts.onLine, () => !tailing);
+
+  const ready = await waitReady(server, setup?.creds);
+  tailing = false;
+  if (!ready) {
+    child.kill("SIGTERM");
+    throw new Error(`nats-server did not become reachable at ${server} — see ${logPath}`);
+  }
+  writeFileSync(resolve(".cotal/nats.pid"), String(child.pid));
+  await postStart(server, space, setup, seedFile);
+  return { server, pid: child.pid ?? 0, source };
+}
+
+/** Poll a growing log file and forward newly-appended lines until `stopped()` is true. */
+function tailLines(path: string, from: number, onLine: (l: string) => void, stopped: () => boolean): void {
+  let offset = from;
+  const tick = () => {
+    if (stopped()) return;
+    try {
+      const size = statSync(path).size;
+      if (size > offset) {
+        const fd = openSync(path, "r");
+        const buf = Buffer.alloc(size - offset);
+        readSync(fd, buf, 0, buf.length, offset);
+        closeSync(fd);
+        offset = size;
+        for (const line of buf.toString("utf8").split("\n")) if (line.trim()) onLine(line);
+      }
+    } catch {
+      // file may not exist yet on the first ticks — keep polling
+    }
+    setTimeout(tick, 150);
+  };
+  setTimeout(tick, 150);
+}
+
+async function waitReady(server: string, creds?: string): Promise<boolean> {
+  for (let i = 0; i < 50; i++) {
+    if (await isReachable(server, creds ? { creds } : undefined)) return true;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return false;
+}
+
+/** One-time space infrastructure once the server accepts connections: pre-create the
+ *  streams agents are denied STREAM.CREATE for (auth mode), and seed the channel registry. */
+async function postStart(
+  server: string,
+  space: string,
+  setup?: { creds: string },
+  seedFile?: ChannelRegistryFile,
+): Promise<void> {
+  if (setup) {
+    await setupSpaceStreams({ servers: server, space, creds: setup.creds });
+  }
+  if (seedFile) {
+    await seedChannelRegistry({ servers: server, space, creds: setup?.creds, file: seedFile });
+  }
 }
 
 /** Load the declarative channels-config file to seed the registry. An explicit `--channels`
@@ -122,7 +218,6 @@ async function authSetup(
   if (!auth) {
     auth = await createSpaceAuth(space);
     saveSpaceAuth(dir, auth);
-    console.log(c.dim(`Generated space auth for "${space}" → ${dir}/auth.json (keep the signing key safe)`));
   }
   const port = Number(new URL(server).port) || 4222;
   const confPath = resolve(dir, "server.conf");

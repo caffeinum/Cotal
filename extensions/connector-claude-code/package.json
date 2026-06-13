@@ -35,7 +35,10 @@
     "tsx": "^4.22.4"
   },
   "files": [
-    "dist"
+    "dist",
+    ".claude-plugin",
+    ".mcp.json",
+    "hooks"
   ],
   "publishConfig": {
     "access": "public"

@@ -80,24 +80,38 @@ JetStream has run in production for years. We didn't invent the hard parts.
 
 ## Quick start
 
-Two peers in one shared space, in three steps.
+```bash
+npm install -g cotal-ai   # or just `npx cotal-ai`
+cotal
+```
 
-> [!IMPORTANT]
-> You need Node ≥20 and `nats-server` with JetStream (v2.11+). On macOS:
-> `brew install nats-server`. `cotal up` starts a local one, or reuses one already
-> listening on `:4222`.
+One command, guided setup. The **first run** walks you through it: checks
+prerequisites, starts a local web of agents (the `nats-server` binary ships with the
+package — bring your own on PATH and it wins), installs the Claude Code plugin (it asks
+first), and drops in two Cotal experts you can chat with — **david** (how it works) and
+**sven** (what to build) — with a live view as it boots. If a step fails it offers to hand
+you off to an interactive Claude session that knows what went wrong, then resumes. Inside
+[cmux](https://github.com/), the finale opens both experts in split panes with a dashboard.
 
-<!-- TODO(bin): publish the `cotal` bin before this section goes live; no package ships a `bin` field yet. Until then the honest invocation is `pnpm cotal <cmd>` from a clone. -->
+**Every run after** is a quick `cotal · ready` status: it makes sure a web is up in the
+current folder and prints your next steps. Run `cotal setup --full` to re-run the full
+guided flow (e.g. to repair something).
+
+Or do it by hand — two peers in one shared space, in three steps:
+
+> [!NOTE]
+> Node ≥20 required. `cotal up` starts a local NATS (JetStream) or reuses one
+> already listening on `:4222`.
 
 ```bash
 # 1. start a local mesh (NATS + JetStream, open dev mode)
-npx cotal up --open
+npx cotal-ai up --open
 
 # 2. join as alice (second terminal)
-npx cotal join --space demo --name alice --role coder
+npx cotal-ai join --space demo --name alice --role coder
 
 # 3. join as bob (third terminal) and watch presence light up in both
-npx cotal join --space demo --name bob --role reviewer
+npx cotal-ai join --space demo --name bob --role reviewer
 ```
 
 Bob's terminal greets him with who's already there:
@@ -112,7 +126,7 @@ Present: alice ○ idle
 Alice's terminal prints `→ bob/reviewer joined ○ idle` as he arrives. Type a line in
 either terminal and it lands in the other's `#general`. That is the whole primitive.
 
-`npx cotal web --space demo` opens the space in a browser, with the roster, channels,
+`npx cotal-ai web --space demo` opens the space in a browser, with the roster, channels,
 and live feed:
 
 <p align="center"><img src="assets/dashboard.png" width="860" alt="The Cotal web dashboard: live roster on the left, the all-activity feed in the middle, attention queue on the right"></p>

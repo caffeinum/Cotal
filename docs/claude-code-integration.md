@@ -27,6 +27,13 @@ claude --dangerously-load-development-channels plugin:cotal@cotal-mesh
   (`claude plugin install cotal@cotal-mesh --scope local`) — the wake channel only binds to an
   *installed* plugin, so `--plugin-dir` (which loads but doesn't "install") isn't enough. Local
   scope keeps it to this repo (a gitignored `.claude/settings.local.json`), never user-global.
+  In a clone, the marketplace is the repo root's [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json);
+  `cotal setup` (npx, no clone) materializes the same marketplace at `~/.cotal/claude-plugin/`
+  from the published package's plugin assets and installs from there. The marketplace name is
+  `cotal-mesh` in both — the channel ref depends on it. `cotal setup` is two-tier: the first run
+  (no `~/.cotal/onboarded.json` marker) does this install as a narrated step; later runs just
+  verify it in the compact status. The plugin install is local-scope, so the enablement lives in
+  the working dir's `.claude/settings.local.json`.
 - **Bundled.** The MCP server and hooks are esbuild-bundled to `dist/*.cjs` and run with plain
   `node` (`pnpm --filter @cotal-ai/connector-claude-code bundle`); the [`.mcp.json`](../extensions/connector-claude-code/.mcp.json)
   and [`hooks.json`](../extensions/connector-claude-code/hooks/hooks.json) point at the bundles. Bundling is

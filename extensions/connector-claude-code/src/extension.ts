@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { loadAgentFile, registry, type Connector, type LaunchOpts, type LaunchSpec } from "@cotal-ai/core";
 
 /** Channel ref for the locally-installed `cotal` plugin (marketplace `cotal-mesh`).
@@ -17,6 +18,9 @@ const CHANNEL_REF = "plugin:cotal@cotal-mesh";
 export const claudeConnector: Connector = {
   kind: "connector",
   name: "claude",
+  // Package root (parent of dist/), which doubles as the installable plugin dir:
+  // it carries .claude-plugin/, .mcp.json, hooks/ and the dist/*.cjs bundles.
+  pluginRoot: fileURLToPath(new URL("..", import.meta.url)),
   buildLaunch(opts: LaunchOpts): LaunchSpec {
     const env: Record<string, string> = {
       COTAL_SPACE: opts.space,
