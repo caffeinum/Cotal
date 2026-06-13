@@ -148,22 +148,19 @@ async function pickConnectors(
   const all = (["claude", "codex", "opencode"] as const).filter((n) => found[n]);
   if (yes || !process.stdin.isTTY) return new Set(all);
   const labels: Record<string, string> = { claude: "Claude Code", codex: "Codex", opencode: "OpenCode" };
-  for (;;) {
-    const picked = await p.multiselect({
-      message: "Pick the agents to set up (space to toggle)",
-      options: (["claude", "codex", "opencode"] as const).map((n) => ({
-        value: n,
-        label: labels[n],
-        hint: !found[n] ? "not on PATH" : n === "claude" ? "installs a plugin" : "ready at spawn",
-      })),
-      initialValues: all,
-      required: false,
-    });
-    const chosen = p.isCancel(picked) ? all : (picked as string[]);
-    const summary = chosen.length ? chosen.map((n) => labels[n]).join(", ") : "none";
-    const go = await p.confirm({ message: `Continue with: ${summary}?`, initialValue: true });
-    if (!p.isCancel(go) && go) return new Set(chosen);
-  }
+  // Enter on the multiselect *is* the continue — no second confirm prompt (that extra step read
+  // as a confusing separate tab).
+  const picked = await p.multiselect({
+    message: "Pick the agents to set up (space to toggle, enter to continue)",
+    options: (["claude", "codex", "opencode"] as const).map((n) => ({
+      value: n,
+      label: labels[n],
+      hint: !found[n] ? "not on PATH" : n === "claude" ? "installs a plugin" : "ready at spawn",
+    })),
+    initialValues: all,
+    required: false,
+  });
+  return new Set(p.isCancel(picked) ? all : (picked as string[]));
 }
 
 /** The Claude Code plugin install, as a step (spinner + failure handling + handoff). */
