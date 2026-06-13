@@ -179,7 +179,12 @@ can't race the TUI input box and the TUI renders it live), acking on `session.id
 watching the TUI sees the agent work and can type into the same session. So unlike Codex it is
 push-capable, and unlike Claude Code it needs no separate hooks or control socket — the plugin holds
 the mesh connection for the session and closes it in `dispose`. Spawned agents run autonomously
-(`permission: "allow"`).
+(`permission: "allow"`). The foreground viewer is swappable: an agent file's optional `face:` id
+makes the launcher attach an animated avatar viewer to the session instead of the chat TUI
+(`COTAL_FACE_BIN` must point at a face-term-compatible script; it watches the same event stream and
+can still send prompts into the session). A face-hosted agent is also told to embed `[[face:X]]`
+emotion tags in its send text — the viewer reads them from the tool-call input to animate the
+avatar, and the send tools strip them before publishing, so they never reach the wire.
 
 **Two injection paths (different control profiles), composed.**
 
@@ -248,7 +253,10 @@ and reports status.
 
 **Spawn via a pluggable `Runtime` (no tmux dependency).** Starting / stopping / attaching is
 abstracted behind one interface (`spawn → handle`, `stop`, `status`, `attach`, optional
-`interrupt`) with selectable backends — think *pm2 / docker for agent TUIs*:
+`interrupt`) — think *pm2 / docker for agent TUIs*. `Runtime` is a **core extension contract**
+like `Connector`/`Command`: `pty`/`tmux` ship with the manager, and other backends self-register
+a `RuntimeProvider` on import (the manager resolves them from the registry — it has no compile-time
+dependency on them). Selectable backends:
 - **`pty` (default)** — the manager spawns the real `claude`/Codex (plugin + env) in a
   pseudo-terminal it owns via **`@lydell/node-pty`** (prebuilt binaries for mac/Linux/Windows ×
   x64/arm64 — zero compiler, zero `node-gyp`, ABI-stable). A real native TUI; the human watches
@@ -256,15 +264,27 @@ abstracted behind one interface (`spawn → handle`, `stop`, `status`, `attach`,
   control (group-kill, restart). No external software to install.
 - **`tmux` / `iTerm2` (opt-in)** — for users already living in a multiplexer who want native
   panes / persistence; auto-detect (if already inside tmux, use it).
-- **`cmux` (opt-in)** — each agent gets its own [cmux](https://github.com/) tab via the
-  `@cotal-ai/cmux` driver. Like tmux you watch it natively, so `attach` points you at the tab
-  rather than streaming. The manager must run inside a live cmux surface (cmux only authorizes
-  its control socket from a real pane). Drives [`examples/02`](../examples/02-cmux-handoff/README.md).
+- **`cmux` (integration)** — each agent gets its own [cmux](https://github.com/) tab. This is a
+  true plug-in: the `cmux` runtime lives in **`@cotal-ai/cmux`** and self-registers a `RuntimeProvider`
+  on import, so the manager spawns into tabs without depending on the package — a composition root
+  opts in with one `import "@cotal-ai/cmux"` (the `cotal` binary does). Like tmux you watch it
+  natively, so `attach` points you at the tab rather than streaming. Teardown is real: the runtime
+  keeps the tab's workspace + surface ids, so `stop` types `/exit` for a clean leave then closes the
+  tab (graceful) or closes it outright (hard). The manager must run inside a live cmux surface (cmux
+  only authorizes its control socket from a real pane). Drives
+  [`examples/02`](../examples/02-cmux-handoff/README.md).
 - **`byo` (floor)** — the manager doesn't own the process; a human runs `cotal claude --role …`
   in their own terminal and the manager just tracks it via presence.
 - **`host` (upgrade)** — headless via the Agent SDK / Codex app-server for structured control +
   true mid-turn interrupt; no native TUI (rendered from the event stream), observed via
   `cotal watch`.
+
+**Running one.** `cotal supervise` starts a manager on the default terminal runtime (pty, or tmux
+inside tmux); `cotal cmux` starts one that spawns each teammate into its own cmux tab (run it from a
+cmux pane). The `cotal` binary aliases the Claude-Code connector as the default agent, so
+`cotal_spawn` / `cotal_persona` / `cotal_despawn` work out of the box. For one-command onboarding,
+`cotal cmux go` installs the plugin (`cotal setup`), brings up the mesh, and opens the manager
++ console + a driving session in cmux.
 
 The PTY carries the agent's **terminal I/O only** — its mesh traffic still flows agent↔NATS
 directly through the plugin, so owning the PTY doesn't put the manager on the message hot path.
@@ -288,13 +308,16 @@ owner for the actual pixels (same stream `cotal attach` consumes, just rendered 
   loopback port (`COTAL_CONSOLE_PORT`, default `7878`). It can split later into a standalone
   `cotal console` node that discovers managers over the mesh and aggregates their streams.
 
-**Control schema (first cut):** `start {role, name, agent}` · `stop {instance}` · `ps` ·
-`status {instance}` · `attach {instance}` · `bind {instance, config}` — control-plane
-request/reply messages any authorized node (CLI, dashboard, or an agent) can send; spawning is
-policy-gated.
+**Control schema (first cut):** `start {role, name, agent}` · `stop {name, graceful?}` ·
+`definePersona {name, persona, role?, model?}` · `ps` · `status {instance}` · `attach {instance}` ·
+`bind {instance, config}` — control-plane request/reply messages any authorized node (CLI,
+dashboard, or an agent) can send; spawning is policy-gated. `definePersona` writes
+`.cotal/agents/<name>.md` (via `saveAgentFile`), which a later `start` auto-discovers.
 
-**Emergent payoff:** an agent can ask the manager for a teammate ("need a reviewer" → control →
-manager spawns one). The new agent is a *peer*, not a child.
+**Emergent payoff:** an agent can grow *and* shape the team without a human — ask the manager for
+a teammate (`cotal_spawn`), mint a brand-new persona on the fly (`cotal_persona` → saved as config
+→ spawnable), or tear one down (`cotal_despawn`, graceful or hard). The new agent is a *peer*, not
+a child.
 
 ## Hosting & onboarding
 
@@ -509,6 +532,8 @@ covers three things at once: live delivery, the inbound buffer, and late-join hi
   `ControlRequest`/`ControlReply` envelope is unchanged; only the transport underneath swaps.
 - **Isolation:** one NATS **account** per space (later: split `space` into `org/namespace`).
   Auth mode (the default) makes the account a real boundary; `--open` is one shared account.
+  See [spaces.md](spaces.md) for the space-vs-channel model and how spaces connect
+  (export/import within an operator, a narrow bridge across operators).
 - **Transport choice:** JetStream streams for all three delivery modes (durability + per-reader
   bookmarks + history), KV for presence, Object Store for artifacts, and the Services API for
   the control plane.

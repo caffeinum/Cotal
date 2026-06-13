@@ -21,11 +21,11 @@ pnpm + TypeScript ESM monorepo — four dependency tiers, one-way deps, Node ≥
 - **`packages/*` — the protocol** (generic, the standard).
   - **@cotal-ai/core** — endpoint, subjects, message types; the NATS client layer + extension contracts (`Connector`, `Command`) and the `Registry` they self-register into.
 - **`extensions/*` — pluggable adapters** (peer-depend core; self-register on import).
-  - **@cotal-ai/connector-core** — shared MCP-bridge runtime (mesh agent, `cotal_*` tools incl. `cotal_spawn`, hook relay); the adapters are thin clients over it.
+  - **@cotal-ai/connector-core** — shared MCP-bridge runtime (mesh agent, `cotal_*` tool specs incl. `cotal_spawn` / `cotal_persona` / `cotal_despawn`, hook relay); the adapters are thin clients over it.
   - **@cotal-ai/connector-claude-code** — Claude Code adapter (installed plugin + `claude/channel` push).
   - **@cotal-ai/connector-codex** — Codex adapter (pull-only MCP server injected via `codex -c`; no plugin, no hooks).
   - **@cotal-ai/connector-opencode** — OpenCode adapter (native in-process plugin injected via `OPENCODE_CONFIG_CONTENT`; renders the shared `cotal_*` tool specs as plugin tools).
-  - **@cotal-ai/cmux** — thin driver over the [cmux](https://github.com/) CLI (open a workspace/tab, send keys); used by the manager's `cmux` runtime and example launch scripts.
+  - **@cotal-ai/cmux** — the cmux integration: a thin driver over the [cmux](https://github.com/) CLI (open/close a tab, send keys) **plus a self-registering `cmux` Runtime**. Importing it registers the runtime with the core `Registry`, so the manager spawns into cmux tabs without depending on this package (opt-in via one import; the `cotal` binary does it).
 - **`implementations/*` — opinionated surfaces** over core (self-contained; never import each other).
   - **@cotal-ai/cli** — mesh CLI: `up`, `join`, `watch`, `console` (thin NATS clients) plus `spawn` — a foreground agent launch reusing the connector's launch recipe.
   - **@cotal-ai/manager** — agent supervisor: a mesh endpoint that spawns/manages nodes via a pluggable `Runtime` (`pty` default / `tmux` / `cmux`), plus its own control-plane commands (`start`/`stop`/`ps`/`attach`) and a WS attach endpoint.
