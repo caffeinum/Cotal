@@ -36,13 +36,17 @@ export class CmuxRuntime implements Runtime {
   readonly kind = "cmux";
 
   spawn(name: string, spec: LaunchSpec, cwd: string): AgentHandle {
+    // `name` becomes a temp-script filename and a `cotal-<name>` tab id — keep it a bare token
+    // so it can't traverse paths or break the workspace label.
+    if (!/^[A-Za-z0-9_.-]+$/.test(name))
+      throw new Error(`cmux runtime: unsafe agent name ${JSON.stringify(name)} (allowed: letters, digits, _ . -)`);
     if (!cmux.available())
       throw new Error(
         `the cmux CLI (${process.env.CMUX_BUNDLED_CLI_PATH ?? "cmux"}) couldn't reach the app — ` +
           "is cmux running, and is this process inside a cmux surface (CMUX_SOCKET_PATH set)?",
       );
     const envPrefix = Object.entries(spec.env ?? {}).map(([k, v]) => `${k}=${shellQuote(v)}`);
-    const cmd = [...envPrefix, spec.command, ...spec.args.map(shellQuote)].join(" ");
+    const cmd = [...envPrefix, shellQuote(spec.command), ...spec.args.map(shellQuote)].join(" ");
     // If the launch shows a one-time confirm (Claude's dev-channels prompt), auto-clear it by
     // sending Enter to this tab's own surface a few times — so a spawned teammate joins the mesh
     // without anyone switching to its tab to press Enter. (Same trick as run-agent.sh.)

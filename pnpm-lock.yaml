@@ -61,6 +61,9 @@ importers:
 
   examples/02-cmux-handoff:
     dependencies:
+      '@cotal-ai/cmux':
+        specifier: workspace:*
+        version: link:../../extensions/cmux
       '@cotal-ai/core':
         specifier: workspace:*
         version: link:../../packages/core

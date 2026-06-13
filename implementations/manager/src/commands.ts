@@ -205,6 +205,11 @@ async function runDrive(argv: string[]): Promise<void> {
   const space = v.space ?? DEFAULT_SPACE;
   const name = v.name ?? "me";
   const server = v.server ?? DEFAULT_SERVER;
+  // name/space get interpolated into the cmux pane's `bash -lc '…'` command; keep them bare
+  // tokens so they can't break out of the quoting.
+  for (const [label, val] of [["name", name], ["space", space]] as const)
+    if (!/^[A-Za-z0-9_.-]+$/.test(val))
+      throw new Error(`cotal cmux go: unsafe ${label} ${JSON.stringify(val)} (allowed: letters, digits, _ . -)`);
   const root = findWorkspaceRoot();
   const tsx = join(root, "node_modules", ".bin", "tsx");
   const cmuxCli = join(root, "extensions", "cmux", "src", "cli.ts");

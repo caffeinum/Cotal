@@ -18,6 +18,7 @@ import {
   type LaunchSpec,
 } from "@cotal-ai/core";
 import { Manager } from "@cotal-ai/manager";
+import "@cotal-ai/cmux"; // self-registers the `cmux` RuntimeProvider the manager resolves below
 import { fileURLToPath } from "node:url";
 
 const RUN_AGENT = fileURLToPath(new URL("../run-agent.sh", import.meta.url));
