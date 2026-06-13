@@ -1,5 +1,6 @@
 import * as p from "@clack/prompts";
 import { dim } from "./theme.js";
+import { abortIfCancel } from "./cancel.js";
 import { assistAvailable, runHandoff } from "./assist.js";
 import type { SetupLog } from "./setup-log.js";
 
@@ -105,6 +106,6 @@ async function failureMenu(step: Step): Promise<Choice> {
 }
 
 async function ask(message: string): Promise<boolean> {
-  const answer = await p.confirm({ message, initialValue: true });
-  return p.isCancel(answer) ? false : answer;
+  // A real "No" returns false (skip the step); Ctrl-C aborts setup.
+  return abortIfCancel(await p.confirm({ message, initialValue: true }));
 }

@@ -9,6 +9,7 @@ import { cmux } from "@cotal-ai/cmux";
 import { brand, brandBold, dim, ok, note, splash } from "../lib/theme.js";
 import { LivePane } from "../lib/live-window.js";
 import { runSteps, type Step } from "../lib/steps.js";
+import { abortIfCancel } from "../lib/cancel.js";
 import { openSetupLog } from "../lib/setup-log.js";
 import { resolveNatsServer } from "../lib/nats-bin.js";
 import { isOnboarded, markOnboarded } from "../lib/onboard.js";
@@ -148,19 +149,30 @@ async function pickConnectors(
   const all = (["claude", "codex", "opencode"] as const).filter((n) => found[n]);
   if (yes || !process.stdin.isTTY) return new Set(all);
   const labels: Record<string, string> = { claude: "Claude Code", codex: "Codex", opencode: "OpenCode" };
-  // Enter on the multiselect *is* the continue — no second confirm prompt (that extra step read
-  // as a confusing separate tab).
-  const picked = await p.multiselect({
-    message: "Pick the agents to set up (space to toggle, enter to continue)",
-    options: (["claude", "codex", "opencode"] as const).map((n) => ({
-      value: n,
-      label: labels[n],
-      hint: !found[n] ? "not on PATH" : n === "claude" ? "installs a plugin" : "ready at spawn",
-    })),
-    initialValues: all,
-    required: false,
-  });
-  return new Set(p.isCancel(picked) ? all : (picked as string[]));
+
+  // Common case: show what was detected and offer a visible Continue button (clack's multiselect
+  // has no native one). Only "Customize" (or nothing detected) drops into the toggle list.
+  if (all.length) {
+    note(all.map((n) => labels[n]).join(", "), "Agents found");
+    const go = abortIfCancel(
+      await p.confirm({ message: "Set these up?", active: "Continue", inactive: "Customize", initialValue: true }),
+    );
+    if (go) return new Set(all);
+  }
+
+  const picked = abortIfCancel(
+    await p.multiselect({
+      message: "Pick the agents to set up (space toggles, enter continues)",
+      options: (["claude", "codex", "opencode"] as const).map((n) => ({
+        value: n,
+        label: labels[n],
+        hint: !found[n] ? "not on PATH" : n === "claude" ? "installs a plugin" : "ready at spawn",
+      })),
+      initialValues: all,
+      required: false,
+    }),
+  );
+  return new Set(picked as string[]);
 }
 
 /** The Claude Code plugin install, as a step (spinner + failure handling + handoff). */
@@ -185,21 +197,25 @@ async function offerDemo(haveClaude: boolean): Promise<void> {
   if (!haveClaude || !haveAgents || !process.stdin.isTTY) return;
 
   if (cmux.available()) {
-    const go = await p.confirm({
-      message: "Open a live demo? A Claude you drive, with david and sven helping in the background.",
-      initialValue: true,
-    });
-    if (p.isCancel(go) || !go) return;
+    const go = abortIfCancel(
+      await p.confirm({
+        message: "Open a live demo? A Claude you drive, with david and sven helping in the background.",
+        initialValue: true,
+      }),
+    );
+    if (!go) return;
     openCmuxDemo(process.cwd());
     p.log.success("Demo open: drive the 'me' pane; david and sven are on the mesh in the background.");
     return;
   }
 
-  const go = await p.confirm({
-    message: "Spawn your driving session now? (open david and sven in other terminals to help)",
-    initialValue: false,
-  });
-  if (!p.isCancel(go) && go) {
+  const go = abortIfCancel(
+    await p.confirm({
+      message: "Spawn your driving session now? (open david and sven in other terminals to help)",
+      initialValue: false,
+    }),
+  );
+  if (go) {
     p.outro(brand("Launching your session..."));
     await spawn(["me"]);
     process.exit(0);
@@ -230,10 +246,14 @@ function openCmuxDemo(cwd: string): void {
   });
   cmux.openWorkspace("cotal-david", JSON.stringify(confirmTerm("cotal spawn david")), { focus: false });
   cmux.openWorkspace("cotal-sven", JSON.stringify(confirmTerm("cotal spawn sven")), { focus: false });
+  // cmux runs pane commands through the login shell (which may be nushell) before bash, so keep the
+  // command free of embedded single quotes: pass the greeting base64-encoded and decode it in bash.
+  const greetB64 = Buffer.from(ME_GREETING, "utf8").toString("base64");
+  const meCmd = `cotal spawn me --prompt "$(echo ${greetB64} | base64 -d)"`;
   const main = JSON.stringify({
     direction: "vertical",
     split: 0.34,
-    children: [term("cotal console --space demo"), confirmTerm(`cotal spawn me --prompt ${sq(ME_GREETING)}`)],
+    children: [term("cotal console --space demo"), confirmTerm(meCmd)],
   });
   cmux.openWorkspace("cotal-demo", main, { focus: true });
 }
