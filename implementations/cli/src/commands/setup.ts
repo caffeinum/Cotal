@@ -18,6 +18,7 @@ import { startMeshDetached, up } from "./up.js";
 import { ensureWeb, webUp, WEB_URL } from "./web.js";
 import { ensureManager, managerUp, stopManager } from "../lib/manager-proc.js";
 import { selfCotal } from "../lib/self-exec.js";
+import { spawn } from "./spawn.js";
 
 const ONBOARD_VERSION = "1";
 const README_URL = "https://github.com/Cotal-AI/Cotal/blob/main/README.md";
@@ -211,29 +212,43 @@ function claudePluginStep(): Step {
   };
 }
 
-/** Finale: a cmux-only live demo — a Claude the operator drives, with david and sven helping in
- *  background cmux tabs. If cmux isn't available (or the demo is declined), fall back to the
- *  `cotal · ready` quick-reference card. Skipped under --yes. */
+/** Finale: a live demo — a Claude the operator drives, with david and sven (manager-owned
+ *  teammates) helping. In cmux they get their own tabs; otherwise they run in the background and
+ *  the terminal is handed to the driving session. The demo spawns Claude sessions, so it needs
+ *  Claude Code. If declined / no Claude, fall back to the `cotal · ready` card. Skipped under --yes. */
 async function offerDemo(haveClaude: boolean): Promise<void> {
   const haveAgents = (["me", "david", "sven"] as const).every((n) => existsSync(resolve(".cotal/agents", `${n}.md`)));
-  const canDemo = haveClaude && haveAgents && process.stdin.isTTY && inCmuxSurface();
+  const isTTY = Boolean(process.stdin.isTTY);
 
-  if (canDemo) {
+  if (haveClaude && haveAgents && isTTY) {
+    const cmux = inCmuxSurface();
     const go = abortIfCancel(
       await p.confirm({
-        message: "Open the cmux demo? A Claude you drive, with david and sven helping in cmux tabs.",
+        message: cmux
+          ? "Open the cmux demo? A Claude you drive, with david and sven helping in cmux tabs."
+          : "Open the demo? A Claude you drive, with david and sven helping in the background.",
         initialValue: true,
       }),
     );
     if (go) {
-      ensureCmuxSession(process.cwd());
-      p.log.success("Session open: drive the 'cotal-main' pane; david and sven are on the mesh in the background.");
-      return;
+      if (cmux) {
+        ensureCmuxSession(process.cwd());
+        p.log.success("Session open: drive the 'cotal-main' pane; david and sven are on the mesh in the background.");
+        return;
+      }
+      // Non-cmux: a background pty manager pre-spawns david/sven (managed, despawnable), then we
+      // hand this terminal to the driving session.
+      ensureManager({ space: "demo", server: DEFAULT_SERVER, spawn: ["david", "sven"] });
+      p.outro(brand("Launching your session... david and sven are warming up in the background."));
+      await spawn(["me", "--prompt", ME_GREETING]);
+      process.exit(0);
     }
+  } else if (isTTY && haveAgents && !haveClaude) {
+    p.log.info("The demo needs Claude Code. Install it (https://claude.com/claude-code), then run `cotal go`.");
   }
 
-  // No cmux, or declined: no demo manager, so start the background (pty) control plane here so
-  // cotal_spawn / despawn / purge still work, then leave them the quick-reference card.
+  // Declined, or no Claude: start the background (pty) control plane so cotal_spawn / despawn /
+  // purge still work, then leave them the quick-reference card.
   try {
     ensureManager({ space: "demo", server: DEFAULT_SERVER });
   } catch {

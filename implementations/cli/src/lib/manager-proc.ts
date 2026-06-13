@@ -28,10 +28,18 @@ export function managerUp(): boolean {
  *  composed `cotal` binary registers it; `process.execArgv` carries the tsx loader in dev and is
  *  empty in prod. `supervise`'s auto runtime resolves to pty when detached, which answers the
  *  control plane (`cotal_spawn`/`despawn`/`purge`/`persona`) with no tmux/cmux needed. */
-export function startManagerDetached(o: { space?: string; server?: string } = {}): number {
+export function startManagerDetached(o: { space?: string; server?: string; spawn?: string[] } = {}): number {
   const fd = openSync(resolve(".cotal/manager.log"), "a");
   const [node, ...self] = selfArgv();
-  const args = [...self, "supervise", "--space", o.space ?? "demo", "--server", o.server ?? DEFAULT_SERVER];
+  const args = [
+    ...self,
+    "supervise",
+    "--space",
+    o.space ?? "demo",
+    "--server",
+    o.server ?? DEFAULT_SERVER,
+    ...(o.spawn?.length ? ["--spawn", o.spawn.join(",")] : []),
+  ];
   const child = spawn(node, args, { detached: true, stdio: ["ignore", fd, fd] });
   closeSync(fd);
   child.unref();
@@ -41,7 +49,7 @@ export function startManagerDetached(o: { space?: string; server?: string } = {}
 
 /** Make the control plane available: reuse a manager already running for this folder, else start
  *  one detached. Best-effort — callers treat it as non-fatal. */
-export function ensureManager(o: { space?: string; server?: string } = {}): { running: boolean } {
+export function ensureManager(o: { space?: string; server?: string; spawn?: string[] } = {}): { running: boolean } {
   if (managerUp()) return { running: true };
   startManagerDetached(o);
   return { running: true };

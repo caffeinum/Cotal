@@ -10,13 +10,14 @@ or setup silently breaks for npx users.
 is two-tier, gated on a machine marker:
 
 - **First run** (no `~/.cotal/onboarded.json`, or `--full`, or `--yes`) → `runFirstRun`:
-  splash → intro → core steps (Node, NATS, start the mesh) → start the **web dashboard** + the
-  **manager** in the background → **connector picker** → write the two default experts (david/sven)
-  → marker → demo finale. The finale is a cmux-only live demo: it opens a **cmux-runtime manager**
-  (`cotal cmux --spawn david,sven`) that owns david/sven (so they're despawnable) plus a focused
-  console + `me` driver. With no cmux / declined, it starts the background **pty manager** instead
-  and shows the `cotal · ready` card. Under `--yes` neither is started (so `cotal cmux go` and CI
-  start / need their own).
+  splash → intro → core steps (Node, NATS, start the mesh) → start the **web dashboard** in the
+  background → **connector picker** → write the two default experts (david/sven) → marker → demo
+  finale (`offerDemo`). The finale needs Claude Code and, if accepted: **in cmux**, opens a
+  **cmux-runtime manager** (`cotal cmux --spawn david,sven`, via `ensureCmuxSession`) that owns
+  david/sven plus a focused console + `me` pane; **otherwise**, a background **pty manager**
+  (`ensureManager({spawn:["david","sven"]})`) pre-spawns david/sven and the terminal is handed to a
+  foreground `cotal spawn me`. Declined / no Claude → a plain pty manager + the `cotal · ready`
+  card. Under `--yes` no manager/demo is started (so `cotal cmux go` and CI start / need their own).
 - **Later runs** → `runEnsure`: ensures the mesh + dashboard are up; **inside cmux** (gated on
   `CMUX_SURFACE_ID`) it reopens the working session via `ensureCmuxSession` (idempotent — reuses the
   live manager + david/sven, opens only missing tabs), otherwise it starts the background pty
