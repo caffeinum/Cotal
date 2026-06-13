@@ -1,6 +1,6 @@
 {
   "name": "@cotal-ai/cli",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -24,7 +24,9 @@
   "dependencies": {
     "@cotal-ai/core": "workspace:*",
     "@cotal-ai/cmux": "workspace:*",
-    "@clack/prompts": "^1.0.0"
+    "@clack/prompts": "^1.0.0",
+    "ink": "^6.0.0",
+    "react": "^19.0.0"
   },
   "optionalDependencies": {
     "@eplightning/nats-server-darwin-arm64": "^2.14.0",
@@ -33,6 +35,9 @@
     "@eplightning/nats-server-linux-x64": "^2.14.0",
     "@eplightning/nats-server-win32-arm64": "^2.14.0",
     "@eplightning/nats-server-win32-x64": "^2.14.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0"
   },
   "files": [
     "dist"

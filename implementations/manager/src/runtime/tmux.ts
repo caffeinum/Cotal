@@ -1,6 +1,5 @@
 import { execFileSync } from "node:child_process";
-import type { LaunchSpec } from "@cotal-ai/core";
-import type { AgentHandle, Runtime } from "./types.js";
+import type { AgentHandle, LaunchSpec, Runtime } from "@cotal-ai/core";
 
 export function tmuxAvailable(): boolean {
   try {
@@ -10,6 +9,9 @@ export function tmuxAvailable(): boolean {
     return false;
   }
 }
+
+/** Grace window for a clean exit before a graceful stop kills the window. */
+const GRACE_MS = 1_500;
 
 function shellQuote(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`;
@@ -67,12 +69,23 @@ export class TmuxRuntime implements Runtime {
       name,
       kind: "tmux",
       status: () => (windowAlive(this.session, name) ? "running" : "exited"),
-      stop: () => {
+      stop: (opts) => {
+        const kill = () => {
+          try {
+            execFileSync("tmux", ["kill-window", "-t", target], { stdio: "ignore" });
+          } catch {
+            /* already gone */
+          }
+        };
+        if (opts?.graceful === false) return kill();
+        // Graceful: type `/exit` so the session leaves the mesh cleanly, then
+        // kill the window after a grace window in case it's still up.
         try {
-          execFileSync("tmux", ["kill-window", "-t", target], { stdio: "ignore" });
+          execFileSync("tmux", ["send-keys", "-t", target, "/exit", "Enter"], { stdio: "ignore" });
         } catch {
-          /* already gone */
+          /* window already gone */
         }
+        setTimeout(kill, GRACE_MS);
       },
       interrupt: () => {
         execFileSync("tmux", ["send-keys", "-t", target, "C-c"], { stdio: "ignore" });

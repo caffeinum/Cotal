@@ -1,6 +1,6 @@
 {
   "name": "@cotal-ai/manager",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -23,7 +23,6 @@
   },
   "dependencies": {
     "@lydell/node-pty": "1.2.0-beta.12",
-    "@cotal-ai/cmux": "workspace:*",
     "@cotal-ai/core": "workspace:*",
     "@xterm/addon-attach": "^0.11.0",
     "@xterm/addon-fit": "^0.10.0",

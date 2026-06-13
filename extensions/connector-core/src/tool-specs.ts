@@ -37,6 +37,12 @@ function statusGlyph(s: PresenceStatus): string {
   return s === "working" ? "●" : s === "waiting" ? "◐" : s === "idle" ? "○" : "·";
 }
 
+/** Viewer-only `[[face:X]]` emotion tags — a face-hosted agent embeds them in its send text and
+ *  the face viewer reads them from the tool-call input (the event stream); the wire gets clean
+ *  text, so peers and the console never see them. */
+const FACE_TAG_RE = /\[\[\s*face\s*:\s*[\w-]+\s*\]\]\s?/gi;
+const stripFaceTags = (text: string): string => text.replace(FACE_TAG_RE, "");
+
 /** One-line meaning of each attention mode, echoed back on set/read so the agent always sees the
  *  effect of a mode it may have set turns ago (self-visibility is the escape hatch for `focus`). */
 const ATTENTION_DESC: Record<"open" | "dnd" | "focus", string> = {
@@ -184,7 +190,7 @@ export function cotalToolSpecs(config: AgentConfig, source = "connector"): Cotal
       },
       async run(agent, _config, { text: msg, channel, mentions }: { text: string; channel?: string; mentions?: string[] }) {
         try {
-          const m = await agent.send(msg, channel, mentions);
+          const m = await agent.send(stripFaceTags(msg), channel, mentions);
           return ok(`Sent to #${m.channel}${m.mentions?.length ? ` (mentioned @${m.mentions.join(", @")})` : ""}.`);
         } catch (e) {
           return err(`Couldn't send: ${(e as Error).message}`);
@@ -201,7 +207,7 @@ export function cotalToolSpecs(config: AgentConfig, source = "connector"): Cotal
       },
       async run(agent, _config, { to, text: msg }: { to: string; text: string }) {
         try {
-          const { peer } = await agent.dm(to, msg);
+          const { peer } = await agent.dm(to, stripFaceTags(msg));
           return ok(`DM sent to ${peer.card.name}.`);
         } catch (e) {
           return err(`Couldn't DM: ${(e as Error).message}`);
@@ -219,7 +225,7 @@ export function cotalToolSpecs(config: AgentConfig, source = "connector"): Cotal
       },
       async run(agent, _config, { role, text: msg }: { role: string; text: string }) {
         try {
-          await agent.anycast(role, msg);
+          await agent.anycast(role, stripFaceTags(msg));
           return ok(`Sent to one @${role}.`);
         } catch (e) {
           return err(`Couldn't send: ${(e as Error).message}`);
@@ -371,13 +377,18 @@ export function cotalToolSpecs(config: AgentConfig, source = "connector"): Cotal
           .enum(["human", "agent"])
           .describe('"human" when relaying the user\'s feedback, "agent" when reporting an issue you hit yourself.'),
         type: z.enum(["bug", "idea", "friction", "praise", "other"]).describe("What kind of feedback this is."),
-        summary: z.string().max(2000).describe("One-line summary of the feedback."),
-        details: z.string().max(10_000).optional().describe("Longer free-form details."),
+        summary: z.string().max(300).describe("Required one-line summary, max 300 characters."),
+        details: z.string().max(10_000).optional().describe("Longer free-form details. Do not include secrets."),
         severity: z.enum(["low", "medium", "high"]).optional().describe("How badly this hurts (bugs/friction)."),
-        area: z.string().optional().describe("The part of Cotal this concerns (e.g. presence, channels, CLI)."),
-        repro: z.string().optional().describe("Steps to reproduce."),
-        expected: z.string().optional().describe("What you expected to happen."),
-        actual: z.string().optional().describe("What actually happened."),
+        area: z.string().max(120).optional().describe("The part of Cotal this concerns (e.g. presence, channels, CLI)."),
+        repro: z.string().max(10_000).optional().describe("Steps to reproduce."),
+        expected: z.string().max(5_000).optional().describe("What you expected to happen."),
+        actual: z.string().max(5_000).optional().describe("What actually happened."),
+        diagnostics: z
+          .string()
+          .max(10_000)
+          .optional()
+          .describe("Relevant diagnostics as text (logs, errors). Never include secrets."),
         email: z
           .string()
           .optional()
@@ -400,12 +411,74 @@ export function cotalToolSpecs(config: AgentConfig, source = "connector"): Cotal
         }
         try {
           const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
-          const reply = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
+          const raw = await res.text();
+          let reply: { id?: string; error?: string; published?: boolean } = {};
+          if (raw)
+            try {
+              reply = JSON.parse(raw);
+            } catch {
+              reply = { error: raw };
+            }
           if (!res.ok)
             return err(`Feedback rejected (${res.status}${reply.error ? `: ${reply.error}` : ""}).`);
-          return ok(`Feedback sent${reply.id ? ` (id ${reply.id})` : ""}. Thanks!`);
+          const note = reply.published === false ? " (stored, but the internal feedback channel publish failed)" : "";
+          return ok(`Feedback sent${reply.id ? ` (id ${reply.id})` : ""}${note}. Thanks!`);
         } catch (e) {
           return err(`Couldn't reach the feedback intake at ${url}: ${(e as Error).message}`);
+        }
+      },
+    },
+    {
+      name: "cotal_despawn",
+      title: "Cotal: stop a teammate",
+      description:
+        "Ask the manager to tear a teammate down — it leaves the mesh and its process/tab is closed. Graceful by default (the session exits cleanly first); pass graceful:false for a hard, immediate kill. The inverse of cotal_spawn.",
+      schema: {
+        name: z.string().describe("Name of the peer to stop."),
+        graceful: z
+          .boolean()
+          .optional()
+          .describe("Default true: let the session exit cleanly. false = hard kill."),
+      },
+      async run(agent, _config, { name, graceful }: { name: string; graceful?: boolean }) {
+        try {
+          const reply = await agent.despawn(name, { graceful });
+          if (!reply.ok) return err(`Couldn't despawn ${name}: ${reply.error ?? "manager refused"}`);
+          return ok(`Stopping ${name}${graceful === false ? " (hard)" : ""} — it will leave the roster shortly.`);
+        } catch (e) {
+          return err(
+            `Couldn't despawn ${name}: no manager reachable (${(e as Error).message}). Is the manager running?`,
+          );
+        }
+      },
+    },
+    {
+      name: "cotal_persona",
+      title: "Cotal: define a persona",
+      description:
+        "Define a new persona and save it as config (the manager writes .cotal/agents/<name>.md), then announce it on the mesh. Afterwards cotal_spawn(name) launches a real agent wearing this persona/model. Use to grow the team with a custom role you describe on the fly.",
+      schema: {
+        name: z
+          .string()
+          .regex(/^[A-Za-z0-9_-]+$/, "letters, digits, _ or - only")
+          .describe("Unique name for the persona (also the spawn name): letters, digits, _ or -."),
+        prompt: z.string().max(10_000).describe("The persona — an appended system prompt describing who this agent is."),
+        role: z.string().max(120).optional().describe("Optional role label (e.g. reviewer, scout)."),
+        model: z.string().max(120).optional().describe("Optional model override (e.g. opus, sonnet)."),
+      },
+      async run(
+        agent,
+        _config,
+        { name, prompt, role, model }: { name: string; prompt: string; role?: string; model?: string },
+      ) {
+        try {
+          const reply = await agent.definePersona({ name, prompt, role, model });
+          if (!reply.ok) return err(`Couldn't define ${name}: ${reply.error ?? "manager refused"}`);
+          return ok(`Persona \`${name}\` saved — spawn it with cotal_spawn(name="${name}") to bring it online.`);
+        } catch (e) {
+          return err(
+            `Couldn't define ${name}: no manager reachable (${(e as Error).message}). Is the manager running?`,
+          );
         }
       },
     },

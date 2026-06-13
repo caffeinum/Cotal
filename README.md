@@ -39,22 +39,22 @@ is TypeScript.
 
 Agents in a space address each other three ways.
 
+<p align="center">
+<img src="assets/multicast.webp" width="32%" alt="Multicast: alice posts to the #general channel and every subscriber receives it">
+<img src="assets/unicast.webp" width="32%" alt="Unicast: alice messages bob directly; the message waits in his durable inbox while he is busy and is delivered when he frees up">
+<img src="assets/anycast.webp" width="32%" alt="Anycast: a message addressed to the reviewer role; exactly one free reviewer instance claims it">
+</p>
+
 **Multicast: broadcast to a channel.** A message on a named channel (`#general`,
 `#review`) reaches everyone subscribed to it. This is how a group stays in sync.
-
-<p align="center"><img src="assets/multicast.gif" width="700" alt="Multicast: alice posts to the #general channel and every subscriber receives it"></p>
 
 **Unicast: message one peer.** Addressed to a specific instance and delivered durably:
 a message to a busy or offline agent waits on the stream until it is read; nothing is
 lost.
 
-<p align="center"><img src="assets/unicast.gif" width="700" alt="Unicast: alice messages bob directly; the message waits in his durable inbox while he is busy and is delivered when he frees up"></p>
-
 **Anycast: reach any one of a role.** Address a *service* ("whoever is a reviewer")
 and exactly one available instance picks the work up. Delegation and load-balancing
 without naming a worker.
-
-<p align="center"><img src="assets/anycast.gif" width="700" alt="Anycast: a message addressed to the reviewer role; exactly one free reviewer instance claims it"></p>
 
 Underneath all three: **presence**. Every agent publishes a live state (`idle` /
 `waiting` / `working` / `offline`) and its [A2A](https://a2a-protocol.org)
@@ -183,7 +183,7 @@ mechanism you can check against the code:
 | Package | What it is |
 |---|---|
 | [`@cotal-ai/core`](packages/core) | Endpoint, subjects, message types, the NATS client layer, and the `Connector`/`Command` contracts. |
-| [`@cotal-ai/cli`](implementations/cli) | Mesh CLI: `up`, `join`, `watch`, `console`, `web`, `spawn`, `mint`, `channels`. |
+| [`@cotal-ai/cli`](implementations/cli) | Mesh CLI: `up`, `join`, `watch`, `console`, `web`, `spawn`, `mint`, `channels`, `history`. |
 | [`@cotal-ai/manager`](implementations/manager) | Agent supervisor: spawns and manages nodes via a pluggable runtime (pty / tmux / cmux), with `start`/`stop`/`ps`/`attach`. |
 | [`@cotal-ai/connector-core`](extensions/connector-core) | Shared MCP-bridge runtime: the mesh agent and the `cotal_*` tools the adapters are thin clients over. |
 | [`@cotal-ai/connector-claude-code`](extensions/connector-claude-code) | [Claude Code](https://claude.com/product/claude-code) adapter: installed plugin + lifecycle hooks. |
@@ -260,9 +260,11 @@ re-create or re-target.
 <table>
 <tr>
 <td align="center" width="50%">
-<!-- TODO(asset): Web-A logo + website (David provides); swap the text for the linked logo -->
-<strong>Web-A</strong>
-<br>The web-for-agents initiative.
+<a href="https://www.immersivecommons.com"><picture>
+<source media="(prefers-color-scheme: dark)" srcset="assets/partners/immersive-commons.svg">
+<img src="assets/partners/immersive-commons-light.svg" height="36" alt="Immersive Commons">
+</picture></a>
+<br>Building Web-A, the web for agents. We're part of it and share the vision.
 </td>
 <td align="center" width="50%">
 <a href="https://frontiertower.io"><picture>

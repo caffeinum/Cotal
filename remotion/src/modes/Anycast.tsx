@@ -1,30 +1,33 @@
-// Anycast: alice addresses the role "reviewer"; exactly one free instance
-// claims the work. 180 frames @ 30fps = 6s seamless loop.
+// Anycast: alice addresses the role "reviewer". The same cast is present; bob
+// and dave are busy, carol is free, so carol claims the work. Exactly one
+// instance picks it up. 180 frames @ 30fps = 6s seamless loop.
 
 import React from "react";
 import { useCurrentFrame } from "remotion";
 import {
   AgentNode,
+  Beam,
   bez,
   Card,
   Dot,
   fade,
   GOLD,
+  INK,
   Labels,
   lerp,
   prog,
-  Pulse,
   wirePath,
   Wires,
   type Pt,
 } from "./scene";
 
-const ALICE: Pt = { x: 250, y: 268 };
-const JUNCTION: Pt = { x: 720, y: 268 };
+// Shared stage: alice left, the reviewer pool clustered right, junction center.
+const ALICE: Pt = { x: 118, y: 300 };
+const JUNCTION: Pt = { x: 425, y: 300 };
 const GROUP: Pt[] = [
-  { x: 1110, y: 116 }, // bob, working
-  { x: 1110, y: 268 }, // carol, idle -> claims
-  { x: 1110, y: 420 }, // dave, working
+  { x: 726, y: 134 }, // bob, busy
+  { x: 726, y: 300 }, // carol, free -> claims
+  { x: 726, y: 466 }, // dave, busy
 ];
 const MEMBERS = [
   { name: "bob", busy: true },
@@ -34,26 +37,27 @@ const MEMBERS = [
 const CLAIMER = 1;
 
 const SEG1: [Pt, Pt] = [
-  { x: ALICE.x + 44, y: ALICE.y },
-  { x: JUNCTION.x - 8, y: JUNCTION.y },
+  { x: ALICE.x + 52, y: ALICE.y },
+  { x: JUNCTION.x - 10, y: JUNCTION.y },
 ];
+// same fan geometry as multicast, so the two cards glance alike
 const outCtrl = (r: Pt): [Pt, Pt] => [
-  { x: JUNCTION.x + 140, y: JUNCTION.y },
-  { x: r.x - 220, y: r.y },
+  { x: JUNCTION.x + 80, y: JUNCTION.y },
+  { x: r.x - 115, y: r.y },
 ];
-const OUT_END = (r: Pt): Pt => ({ x: r.x - 46, y: r.y });
+const OUT_END = (r: Pt): Pt => ({ x: r.x - 54, y: r.y });
 
 const PATH1 = wirePath(SEG1[0], lerp(...SEG1, 0.4), lerp(...SEG1, 0.6), SEG1[1]);
 const OUT_PATHS = GROUP.map((r) => wirePath(JUNCTION, ...outCtrl(r), OUT_END(r)));
 
 const T = {
-  sendStart: 18,
-  sendEnd: 52,
-  probeEnd: 78,
-  claimStart: 78,
-  claimEnd: 104,
-  flashEnd: 130,
-  carolBack: 162,
+  sendStart: 14,
+  sendEnd: 48,
+  probeEnd: 64,
+  claimStart: 64,
+  claimEnd: 90,
+  flashEnd: 116,
+  carolBack: 148,
 };
 
 export const ModeAnycast: React.FC = () => {
@@ -72,36 +76,38 @@ export const ModeAnycast: React.FC = () => {
     frame >= T.sendStart ? Math.max(0, 1 - fade(frame, T.sendStart, T.sendStart + 20)) : 0;
   const dimOthers = probing || (t2 > 0 && t2 < 1) || flash > 0 ? 0.5 : 0;
 
+  const inGlow = fade(frame, T.sendEnd - 4, T.sendEnd) * (1 - fade(frame, T.claimStart, T.claimEnd));
+  const claimGlow = flash;
+
   return (
     <Card frame={frame}>
-      <Wires paths={[PATH1, ...OUT_PATHS]} />
+      <Wires paths={[PATH1, ...OUT_PATHS]} glow={[inGlow, 0, claimGlow, 0]} />
 
-      {/* role bracket, label as a legend on the border */}
+      {/* the role: a quiet bracket around the pool, labelled on its top edge */}
       <div
         style={{
           position: "absolute",
-          left: GROUP[0]!.x - 125,
-          top: GROUP[0]!.y - 64,
-          width: 250,
-          height: GROUP[2]!.y - GROUP[0]!.y + 192,
-          borderRadius: 24,
-          border: "1px solid #20262f",
+          left: 632,
+          top: 72,
+          width: 188,
+          height: 492,
+          borderRadius: 26,
+          border: `1px solid ${INK.line}`,
         }}
       />
       <div
         style={{
           position: "absolute",
-          left: GROUP[0]!.x - 125,
-          top: GROUP[0]!.y - 77,
-          width: 250,
+          left: 632,
+          top: 59,
+          width: 188,
           textAlign: "center",
-          fontSize: 19,
+          fontSize: 21,
           letterSpacing: 1,
           color: GOLD,
-          opacity: 0.85,
         }}
       >
-        <span style={{ background: "#090b0e", padding: "0 12px", borderRadius: 6 }}>@reviewer</span>
+        <span style={{ background: INK.card, padding: "0 12px" }}>@reviewer</span>
       </div>
 
       <AgentNode at={ALICE} name="alice" role="planner" status="working" flash={emit} />
@@ -117,16 +123,16 @@ export const ModeAnycast: React.FC = () => {
         />
       ))}
 
-      <Pulse d={PATH1} pos={(t) => lerp(...SEG1, t)} t={t1} visible={t1 > 0 && t1 < 1} />
+      <Beam d={PATH1} pos={(t) => lerp(...SEG1, t)} t={t1} visible={t1 > 0 && t1 < 1} />
       {probing && <Dot at={JUNCTION} breath={breath} />}
-      <Pulse
+      <Beam
         d={OUT_PATHS[CLAIMER]!}
         pos={(t) => bez(JUNCTION, ...outCtrl(GROUP[CLAIMER]!), OUT_END(GROUP[CLAIMER]!), t)}
         t={t2}
         visible={t2 > 0 && t2 < 1}
       />
 
-      <Labels mode="anycast" subject="cotal.demo.svc.reviewer.alice" />
+      <Labels mode="anycast" caption="any one of a role claims it" subject="cotal.demo.svc.reviewer" />
     </Card>
   );
 };

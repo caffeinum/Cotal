@@ -10,6 +10,8 @@
  *   channels: [general]    # channels this agent subscribes to (read)
  *   publish: [general]     # channels this agent may post to (write); omit = same as channels
  *   model: opus            # optional CLI/model override
+ *   face: sven             # any unmodelled key is kept verbatim in AgentDef.meta — e.g. the
+ *                          #   OpenCode connector reads meta.face for its avatar viewer
  *   ---
  *   <the Markdown body is the persona — an appended system prompt>
  *
@@ -18,8 +20,8 @@
  * session reads its own card from it. Part of the wire contract's onboarding
  * half, alongside the join link.
  */
-import { readFileSync } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { EndpointKind } from "./types.js";
 
 export interface AgentDef {
@@ -35,6 +37,9 @@ export interface AgentDef {
   publish?: string[];
   /** Model override handed to the agent CLI (e.g. `claude --model`). */
   model?: string;
+  /** Frontmatter keys not modelled above, kept verbatim so a connector can read its own launcher
+   *  hints without core knowing about each one (e.g. the OpenCode face viewer's `face:` avatar id). */
+  meta?: Record<string, string>;
   /** Markdown body — the agent's persona / appended system prompt. */
   persona?: string;
 }
@@ -97,6 +102,12 @@ export function loadAgentFile(path: string): AgentDef {
   if (kind && kind !== "agent" && kind !== "endpoint")
     throw new Error(`agent file ${path}: "kind" must be "agent" or "endpoint"`);
 
+  // Sweep every scalar frontmatter key we don't model into meta, verbatim — connector hints
+  // (face, etc.) ride here so core stays ignorant of surface-specific keys.
+  const known = new Set(["name", "role", "kind", "description", "tags", "channels", "publish", "model"]);
+  const meta: Record<string, string> = {};
+  for (const [k, v] of Object.entries(fm)) if (!known.has(k) && typeof v === "string") meta[k] = v;
+
   return {
     name,
     role: str("role"),
@@ -106,8 +117,47 @@ export function loadAgentFile(path: string): AgentDef {
     channels: list("channels"),
     publish: list("publish"),
     model: str("model"),
+    meta: Object.keys(meta).length ? meta : undefined,
     persona: persona || undefined,
   };
+}
+
+/** Write an agent definition back to disk in the form {@link loadAgentFile} reads:
+ *  the set frontmatter fields followed by the persona body. Round-trips through the
+ *  parser; creates parent dirs. The runtime persona-definition path uses this to
+ *  persist a peer-defined agent as config. */
+export function saveAgentFile(path: string, def: AgentDef): void {
+  if (!def.name) throw new Error('saveAgentFile: "name" is required');
+  const lines = ["---", `name: ${fmScalar(def.name)}`];
+  if (def.role) lines.push(`role: ${fmScalar(def.role)}`);
+  if (def.kind) lines.push(`kind: ${fmScalar(def.kind)}`);
+  if (def.description) lines.push(`description: ${fmScalar(def.description)}`);
+  if (def.tags?.length) lines.push(`tags: [${def.tags.map(fmItem).join(", ")}]`);
+  if (def.channels?.length) lines.push(`channels: [${def.channels.map(fmItem).join(", ")}]`);
+  if (def.publish?.length) lines.push(`publish: [${def.publish.map(fmItem).join(", ")}]`);
+  if (def.model) lines.push(`model: ${fmScalar(def.model)}`);
+  if (def.meta) for (const [k, v] of Object.entries(def.meta)) lines.push(`${k}: ${fmScalar(v)}`);
+  lines.push("---");
+  const body = def.persona ? `${def.persona.trim()}\n` : "";
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${lines.join("\n")}\n\n${body}`);
+}
+
+/** Render a frontmatter scalar so {@link loadAgentFile} reads it back unchanged. Quotes values
+ *  the parser would otherwise misread (a leading `[`, a `,`/`:`/`#`, edge whitespace, or empty);
+ *  throws on values the line-based format can't represent (a newline, or both quote styles). */
+function fmScalar(value: string): string {
+  if (/[\r\n]/.test(value)) throw new Error(`saveAgentFile: value cannot contain a newline: ${JSON.stringify(value)}`);
+  if (value !== "" && value === value.trim() && !/^[[]/.test(value) && !/[,:#"']/.test(value)) return value;
+  if (!value.includes('"')) return `"${value}"`;
+  if (!value.includes("'")) return `'${value}'`;
+  throw new Error(`saveAgentFile: value cannot contain both quote styles: ${JSON.stringify(value)}`);
+}
+
+/** A list item additionally cannot hold a comma — the parser splits on `,` before unquoting. */
+function fmItem(value: string): string {
+  if (value.includes(",")) throw new Error(`saveAgentFile: list item cannot contain a comma: ${JSON.stringify(value)}`);
+  return fmScalar(value);
 }
 
 /** Resolve a name-or-path to an agent file. A path (absolute, contains a slash,

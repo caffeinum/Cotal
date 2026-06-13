@@ -5,8 +5,8 @@ You start with just a console + an **orchestrator**; the human types **one** pro
 orchestrator **spawns** todo-api / todo-web / todo-docs into their own [cmux](https://cmux.com)
 tabs, fans the work out in parallel, and routes the API→web handoff itself — no second human prompt.
 
-> Ported from the [haa](https://github.com/) demo (A2A-over-MQTT) onto Cotal/NATS. The story
-> is identical; the transport and the agent wiring are Cotal's.
+> Ported from the haa demo (A2A-over-MQTT) onto Cotal/NATS. The story is identical; the
+> transport and the agent wiring are Cotal's.
 
 ```
               orchestrator
@@ -40,61 +40,64 @@ tabs, fans the work out in parallel, and routes the API→web handoff itself —
 Each repo starts with `TODO(demo)` markers where the work lands. The orchestrator is the only pane
 you open; it spawns the three workers (each via `run-agent.sh <role>` in its own tab). Identity is
 set purely by the `COTAL_*` env on each launch line — both the MCP server and the presence hooks
-inherit it.
+inherit it. The role contract for each agent lives in its folder's `CLAUDE.md`.
 
-## One-time setup
+## Prerequisites
 
-1. **NATS** — `brew install nats-server` (the launcher starts it for you).
-2. **cmux** — `brew install --cask cmux` if you don't have it. Open this folder as the cmux
-   workspace so it picks up `cmux.json`.
-
-No plugin install needed: each agent loads the Cotal MCP server (`cotal_*` tools) and the
-presence/inbox hooks directly via `--mcp-config` / `--settings` (see `run-agent.sh`). The
-**first time each pane starts**, claude asks to *"load development channels?"* — **accept it**,
-or the channel that wakes idle panes stays off.
+- **Repo deps** — from the repo root: `pnpm install` (Node ≥ 20 + pnpm).
+- **NATS** — macOS: `brew install nats-server`; other platforms: [nats.io/download](https://nats.io/download/).
+  The launcher starts the mesh for you.
+- **cmux** — `brew install --cask cmux` if you don't have it ([cmux.com](https://cmux.com)).
+- **Run from inside cmux** — the launcher drives cmux over its socket, so it must run from a
+  cmux terminal; outside one it exits with `✗ can't reach cmux`. Open this folder as the cmux
+  workspace so it picks up `cmux.json`.
+- **No plugin install** — each agent loads the Cotal MCP server (`cotal_*` tools) and the
+  presence/inbox hooks directly via `--mcp-config` / `--settings` (see `run-agent.sh`).
 
 ## Run it
 
-From **inside a cmux terminal** (the cmux CLI talks to the app over its socket):
+From **inside a cmux terminal**, with this folder open as the workspace:
 
-```bash
-./launch.sh --drive    # starts the mesh, opens ONE workspace in the demo layout
-```
+1. **Open the workspace.** This starts the mesh, a `cotal-manager` tab (which spawns workers),
+   and a `cotal-todo` workspace split into the console + orchestrator:
 
-That starts the mesh, opens a `cotal-manager` tab (the manager that spawns workers), and a
-`cotal-todo` workspace split into just two panes:
+   ```bash
+   ./launch.sh --drive
+   ```
 
-```
-┌───────────────┐
-│ cotal console │   live agent panel + message log
-├───────────────┤
-│ orchestrator  │   claude — give it the one prompt
-│   (claude)    │
-└───────────────┘
-```
+   > Every pane command is wrapped in `bash -lc '…'` on purpose: cmux launches panes in your
+   > default login shell (here, **nushell**), which doesn't understand `&&` or inline
+   > `VAR=val cmd` env prefixes — so the body runs in bash regardless.
 
-The **console** dashboard (`cotal console` — agent panel + traffic) on top, the **orchestrator**
-below. Each opens as its own cmux tab. The orchestrator spawns todo-api / todo-web / todo-docs
-later — each lands in a fresh, unfocused tab (a real coder `cd`'d into its repo).
+   ```
+   ┌───────────────┐
+   │ cotal console │   live agent panel + message log
+   ├───────────────┤
+   │ orchestrator  │   claude — give it the one prompt
+   │   (claude)    │
+   └───────────────┘
+   ```
 
-> Every pane command is wrapped in `bash -lc '…'` on purpose: cmux launches panes in your
-> default login shell (here that's **nushell**), which doesn't understand `&&` or inline
-> `VAR=val cmd` env prefixes — so we run the body in bash regardless.
+2. **Accept the channels prompt.** The first time each pane starts, claude asks to
+   *"load development channels?"* — **accept it**, or the channel that wakes idle panes stays off.
 
-Plain `./launch.sh` (no flag) just verifies the mesh and prints the commands — the
-`cmux new-workspace --layout …` line plus the per-role command you can paste into a plain
-terminal or trigger from the **command palette** (`cmux.json`). Each runs `run-agent.sh <role>`,
-which `cd`s into the role's repo and starts claude wired to the mesh:
+3. **Give the orchestrator the one goal.** On boot it onboards you and shows the example goal,
+   then waits. Paste:
+
+   > We're adding task priority to the app. priority: low | medium | high, default medium.
+   > Add it to the API, the web UI, and the docs. Work in parallel. Tell me when each is done.
+
+That's it — the orchestrator does the rest. The workers land in fresh, unfocused tabs (each a
+real coder `cd`'d into its repo).
+
+Prefer to drive it by hand? Plain `./launch.sh` (no flag) just verifies the mesh and prints the
+cmux launch sequence — the workspace layout line plus the per-role command you can paste into a
+plain terminal or trigger from the **command palette** (`cmux.json`). Each runs
+`run-agent.sh <role>`, which `cd`s into the role's repo and starts claude wired to the mesh:
 
 ```bash
 ./run-agent.sh orchestrator   # → claude with the cotal MCP server, hooks, and channel push
 ```
-
-On boot the **orchestrator** onboards you (what the demo is, how to drive it) and shows the
-example goal, then waits. Give it the one prompt:
-
-> We're adding task priority to the app. priority: low | medium | high, default medium.
-> Add it to the API, the web UI, and the docs. Work in parallel. Tell me when each is done.
 
 ## What you'll see
 
@@ -111,13 +114,29 @@ example goal, then waits. Give it the one prompt:
 
 ## How it maps to Cotal
 
-| haa | Cotal tool |
-|---|---|
-| `discover()` | `cotal_roster` |
-| `send_message(target)` | `cotal_dm(to, text)` |
-| `fetch_inbox()` | `cotal_inbox` |
+The agents do all of this through the `cotal_*` MCP tools:
 
-The role contracts live in each folder's `CLAUDE.md`.
+| What an agent does | Cotal tool |
+|---|---|
+| spawn a worker into its own tab | `cotal_spawn` |
+| see who's on the mesh (discover) | `cotal_roster` |
+| send a direct message | `cotal_dm(to, text)` |
+| read its inbox | `cotal_inbox` |
+| set its presence state | `cotal_status` |
+
+The role contracts that tell each agent *how* to use these live in each folder's `CLAUDE.md`.
+
+## Troubleshooting
+
+- **`✗ can't reach cmux`** — you're not in a cmux terminal. cmux's control socket rejects
+  detached callers; open a cmux terminal (with this folder as the workspace) and re-run.
+- **A worker ignores a message** — channel push is off (you skipped the "load development
+  channels" prompt). The message still arrived; press Enter in that pane to let it act, or
+  restart the pane and accept the prompt.
+- **Mesh didn't come up** — check `.mesh.log` in this folder. Usual cause: `nats-server` not
+  installed, or port 4222 already taken.
+- **Duplicate entries in the roster** — a stray manager from a previous run is still up. Run
+  `./launch.sh --stop` to clear it, then re-launch.
 
 ## Notes & limits
 

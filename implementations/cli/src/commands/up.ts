@@ -14,6 +14,7 @@ import { parseArgs } from "node:util";
 import {
   isReachable,
   DEFAULT_SERVER,
+  DEFAULT_SPACE,
   authDir,
   createSpaceAuth,
   loadSpaceAuth,
@@ -64,7 +65,7 @@ export async function up(argv: string[]): Promise<void> {
   const storeDir = resolve(values["store-dir"] ?? ".cotal/nats");
   mkdirSync(storeDir, { recursive: true });
   const useAuth = !values.open;
-  const space = values.space ?? "demo";
+  const space = values.space ?? DEFAULT_SPACE;
   const seedFile = loadChannelsFile(values.channels);
   const setup = useAuth ? await authSetup(storeDir, server, space) : undefined;
   const port = Number(new URL(server).port) || 4222;

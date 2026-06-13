@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
+import type { AttachSession } from "@cotal-ai/core";
 import type { AgentHandle } from "./runtime/index.js";
 
 const require = createRequire(import.meta.url);
@@ -152,7 +153,15 @@ export class AttachEndpoint {
       ws.close();
       return;
     }
-    const session = handle.attach();
+    // Only streamable backends (pty/host) can be attached over the wire; tmux/cmux are watched
+    // natively and their attach() throws. Close cleanly instead of letting it crash the upgrade.
+    let session: AttachSession;
+    try {
+      session = handle.attach();
+    } catch {
+      ws.close(1011, `attach unsupported for the ${handle.kind} runtime — watch its surface directly`);
+      return;
+    }
 
     const backlog = session.backlog();
     if (backlog.length) ws.send(backlog);

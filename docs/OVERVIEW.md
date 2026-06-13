@@ -80,7 +80,8 @@ Full scenario and run steps: **[examples/01-lateral-coordination](../examples/01
   (`space / service / instance`) and the three delivery modes. See [architecture.md](architecture.md).
 - **Presence states** — `idle` / `waiting` / `working` / `offline`.
 - **Built so far** — `@cotal-ai/core` endpoint (presence + all three delivery modes:
-  multicast / unicast / anycast) + `@cotal-ai/cli` (`up` / `join` / `watch`), smoke-tested.
+  multicast / unicast / anycast) + `@cotal-ai/cli` (`up` / `join` / `watch` / `web` /
+  `history clear`), smoke-tested.
 - **Manager (supervisor)** — a long-lived **node** that owns agent *lifecycle + config*
   (not their work); CLI/dashboard drive it over the **control plane**
   (`start`/`stop`/`ps`/`status`/`bind`). Supervisor-only (agents self-connect; manager off the

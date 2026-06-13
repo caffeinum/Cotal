@@ -5,10 +5,12 @@ import { setup } from "./commands/setup.js";
 import { join } from "./commands/join.js";
 import { watch } from "./commands/watch.js";
 import { console_ } from "./commands/console.js";
+import { demo } from "./commands/demo.js";
 import { web } from "./commands/web.js";
 import { spawn } from "./commands/spawn.js";
 import { mint } from "./commands/mint.js";
 import { channels } from "./commands/channels.js";
+import { history } from "./commands/history.js";
 import { feedback } from "./commands/feedback.js";
 
 /** The minimal mesh CLI: thin NATS clients (up/join/watch), plus `spawn` — a
@@ -55,8 +57,15 @@ const baseCommands: Command[] = [
     kind: "command",
     name: "console",
     group: "Mesh",
-    summary: "live agent dashboard for a space — --space <s> [--plain]",
+    summary: "live protocol view for a space — lazygit-style TUI, or a line stream on --plain — --space <s> [--plain]",
     run: console_,
+  },
+  {
+    kind: "command",
+    name: "demo",
+    group: "Mesh",
+    summary: "replay a scripted multi-agent trace (all message types) to exercise the console/web — --space <s> [--interval <ms>] [--once]",
+    run: demo,
   },
   {
     kind: "command",
@@ -87,6 +96,13 @@ const baseCommands: Command[] = [
     summary:
       "inspect/set channel registry — channels <list | set <name> [--replay|--no-replay] [--desc <s>] [--instructions <s>] | default --replay|--no-replay>",
     run: channels,
+  },
+  {
+    kind: "command",
+    name: "history",
+    group: "Mesh",
+    summary: "clear retained message history — history clear --force [--dms] [--space <s>]",
+    run: history,
   },
   {
     kind: "command",

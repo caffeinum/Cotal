@@ -71,6 +71,9 @@ import {
 
 export const DEFAULT_SERVER = "nats://127.0.0.1:4222";
 
+/** Space joined when none is given on the CLI (the `cotal-<space>` cmux tab, etc.). */
+export const DEFAULT_SPACE = "main";
+
 export interface EndpointOptions {
   /** The collaboration to join. */
   space: string;

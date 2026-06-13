@@ -1,6 +1,6 @@
 {
   "name": "@cotal-ai/cmux",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -20,6 +20,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.json",
     "prepublishOnly": "pnpm run build"
+  },
+  "dependencies": {
+    "@cotal-ai/core": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.22.4"
