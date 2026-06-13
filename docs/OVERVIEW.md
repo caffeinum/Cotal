@@ -50,7 +50,9 @@ Four core capabilities, plus observability, history, and isolation.
   a directive, set role, pause/resume — with replies.
 - **Data sharing** — two directions:
   - *Outbound:* **ambient** (lifecycle activity streams to the mesh automatically) and
-    **deliberate** (an agent publishes a message on purpose).
+    **deliberate** (an agent publishes a message on purpose — plain text, or a **view**: a
+    renderable [json-render](https://github.com/vercel-labs/json-render) spec a peer paints from
+    a fixed component catalog, so a peer can share a table/chart/status panel, not just text).
   - *Inbound:* **pull** (the agent reads its buffer when it chooses) and **push** (a
     message is delivered into the live session — soft between turns, or urgent/
     interrupting). A buffer/policy sits in front, so traffic is queued or coalesced,

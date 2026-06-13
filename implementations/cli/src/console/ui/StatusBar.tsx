@@ -17,7 +17,7 @@ export function StatusBar({
   rates: MeshState["rates"];
   activeChannel: string;
   agentCount: number;
-  mode: "normal" | "dm" | "topo";
+  mode: "normal" | "dm" | "topo" | "views";
   railOpen: boolean;
   canBack?: boolean;
   canWrite?: boolean;
@@ -28,12 +28,14 @@ export function StatusBar({
       ? "j/k scroll · ←→ pane · esc back · / search · ? help · q quit"
       : mode === "topo"
         ? "v / 1-3 variant · j/k h/l move · Enter detail · esc back · ? help · q quit"
-        : (canBack ? "esc back · " : "") +
-        ": cmd · j/k select · Enter detail · " +
-        (railOpen ? "n hide-rail" : "n needs-you") +
-        " · d DMs" +
-        (canWrite ? " · c compose · D kill" : "") +
-        " · / search · [ ] chan · ? help · q quit";
+        : mode === "views"
+          ? "V/esc back · ? help · q quit"
+          : (canBack ? "esc back · " : "") +
+          ": cmd · j/k select · Enter detail · " +
+          (railOpen ? "n hide-rail" : "n needs-you") +
+          " · d DMs · V views" +
+          (canWrite ? " · c compose · D kill" : "") +
+          " · / search · [ ] chan · ? help · q quit";
   return (
     <Box width={width} paddingX={1}>
       <Text wrap="truncate-end">

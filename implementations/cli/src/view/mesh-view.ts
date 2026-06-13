@@ -7,7 +7,15 @@
 // See docs/protocol-view.md.
 
 import { EventEmitter } from "node:events";
-import type { CotalEndpoint, CotalMessage, EndpointRef, Presence, PresenceStatus } from "@cotal-ai/core";
+import type {
+  CotalEndpoint,
+  CotalMessage,
+  DeliveryMode,
+  EndpointRef,
+  Presence,
+  PresenceStatus,
+  ViewSpec,
+} from "@cotal-ai/core";
 import { deliveryOf, chatWildcard } from "@cotal-ai/core";
 
 // ---- the model the surfaces render -----------------------------------------
@@ -27,6 +35,17 @@ export interface FeedEntry {
   toNames?: string[]; // unicast targets, resolved off the roster
   count?: number; // burst multiplicity for coalesced unicast
   text: string;
+}
+
+/** A view a peer published — a renderable json-render spec, surfaced for the console's view lens.
+ *  Deduped by message id and windowed (newest last), same as the feed. */
+export interface ViewItem {
+  id: string;
+  ts: number;
+  from: EndpointRef;
+  delivery: FeedDelivery;
+  channel?: string; // multicast
+  spec: ViewSpec;
 }
 
 export interface StatusCounts {
@@ -75,6 +94,7 @@ export interface MeshSnapshot {
   endpoints: Presence[]; // everything else
   channels: { channel: string; messages: number }[];
   feed: FeedEntry[]; // classified + coalesced + windowed
+  views: ViewItem[]; // peer-published renderable views, newest last
   rates: { msgsPerSec: number };
   status: { connected: boolean; space: string; dmVisible: boolean; error?: string };
   signals: MeshSignals;
@@ -96,11 +116,15 @@ const BURST_MS = 400; // unicast burst-coalescing window
 const TICK_MS = 75; // batch every source into one "change"
 const CHANNELS_MS = 2000; // listChannels() refresh
 const DEFAULT_WINDOW = 300;
+const VIEW_WINDOW = 50; // peer-published views retained
 const HISTORY_LIMIT = 50; // per-channel prefill depth
 const DM_LOG_CAP = 1000; // raw DMs retained for the roll-up
 
 function bodyText(msg: CotalMessage): string {
-  return msg.parts.map((p) => (p.kind === "text" ? p.text : JSON.stringify(p.data))).join(" ");
+  return msg.parts
+    .map((p) => (p.kind === "text" ? p.text : p.kind === "view" ? "" : JSON.stringify(p.data)))
+    .join(" ")
+    .trim();
 }
 
 function sortRoster(r: Presence[]): Presence[] {
@@ -140,6 +164,8 @@ export class MeshView extends EventEmitter {
   private channelCounts = new Map<string, number>();
   private feed: FeedEntry[] = [];
   private seen = new Set<string>(); // feed ids, for prefill ∪ live dedupe-by-id
+  private views: ViewItem[] = [];
+  private viewSeen = new Set<string>(); // view message ids, dedupe-by-id
   private pending = new Map<string, Burst>();
   private dmLog: RawDm[] = []; // raw unicast for the DM roll-up
   private recentTs: number[] = []; // tap arrivals in the last 1s → msgs/s
@@ -212,6 +238,7 @@ export class MeshView extends EventEmitter {
       endpoints: this.roster.filter((p) => p.card.kind !== "agent"),
       channels,
       feed: this.feed.slice(),
+      views: this.views.slice(),
       rates: { msgsPerSec: this.msgsPerSec },
       status: {
         connected: this.connected,
@@ -241,6 +268,8 @@ export class MeshView extends EventEmitter {
     if (!kind) return;
     this.recentTs.push(Date.now());
     if (msg.from?.id && msg.from.name) this.byId.set(msg.from.id, msg.from.name); // sharpen id→name
+    // A view rides any delivery as a `view` part — capture it before the unicast early-return.
+    for (const p of msg.parts) if (p.kind === "view") this.recordView(msg, kind, p.spec);
     if (kind === "unicast") return this.coalesce(msg);
     this.push({
       id: msg.id,
@@ -311,6 +340,23 @@ export class MeshView extends EventEmitter {
   private recordDm(d: RawDm): void {
     this.dmLog.push(d);
     if (this.dmLog.length > DM_LOG_CAP) this.dmLog.splice(0, this.dmLog.length - DM_LOG_CAP);
+  }
+
+  /** Retain a peer-published view, deduped by message id and windowed (newest last). */
+  private recordView(msg: CotalMessage, kind: DeliveryMode, spec: ViewSpec): void {
+    if (this.viewSeen.has(msg.id)) return;
+    this.viewSeen.add(msg.id);
+    this.views.push({
+      id: msg.id,
+      ts: msg.ts,
+      from: msg.from,
+      delivery: kind === "anycast" ? "anycast" : kind === "unicast" ? "unicast" : "multicast",
+      channel: kind === "chat" ? msg.channel : undefined,
+      spec,
+    });
+    if (this.views.length > VIEW_WINDOW)
+      for (const d of this.views.splice(0, this.views.length - VIEW_WINDOW)) this.viewSeen.delete(d.id);
+    this.dirty = true;
   }
 
   /** One-shot backlog: prefill each channel's history (multicast), plus the DM backlog when DMs

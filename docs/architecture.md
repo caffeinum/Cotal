@@ -526,6 +526,15 @@ covers three things at once: live delivery, the inbound buffer, and late-join hi
   to a **JetStream Object Store** bucket per space (chunked); the message carries a reference
   part `{ kind:"artifact", ref:{ bucket, name, size, mime } }` and the recipient fetches on
   demand. (Part shape reserved now; delivery later.)
+- **Views:** a peer can publish a *renderable view* instead of plain text — a `{ kind:"view",
+  spec }` part carrying a **json-render** flat spec (a `root` key + a flat element map, each
+  element naming a catalog component, its props, and its child keys; vercel-labs/json-render). It
+  rides the existing delivery modes — `endpoint.publishView(spec, { channel | to | toService })`,
+  no new subject — with a plain-text label part alongside so text-only consumers still see
+  something. A viewer renders it against a **fixed component catalog** (the guardrail: only
+  declared components, validated props, never code); the console's view lens (`V`) paints it with
+  `@json-render/ink`. Core owns the wire shape (`ViewSpec`, structural); the renderer owns the
+  catalog.
 - **Control plane:** the **NATS Services API** (`micro`) — the manager registers a service
   (endpoints `start`/`stop`/`ps`/`status`/`bind` under `ctl.<service>`, auto queue-grouped),
   which brings built-in **discovery** (`$SRV.PING`/`INFO`) and **stats** for free. The
