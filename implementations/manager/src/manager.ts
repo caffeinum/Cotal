@@ -6,6 +6,7 @@ import {
   agentFilePath,
   authDir,
   clearSpaceHistory,
+  findCotalRoot,
   loadAgentFile,
   loadSpaceAuth,
   mintCreds,
@@ -17,7 +18,6 @@ import {
 import type { AgentDef, Connector, ControlReply, ControlRequest, SpaceAuth } from "@cotal-ai/core";
 import {
   createRuntime,
-  findWorkspaceRoot,
   type AgentHandle,
   type Runtime,
   type RuntimeMode,
@@ -70,7 +70,7 @@ export class Manager {
     this.space = opts.space;
     this.servers = opts.servers;
     this.name = opts.name ?? "manager";
-    this.workspaceRoot = opts.workspaceRoot ?? findWorkspaceRoot();
+    this.workspaceRoot = opts.workspaceRoot ?? findCotalRoot();
     this.runtime = createRuntime(opts.runtime ?? "auto", `cotal-${this.space}`);
     this.attach = new AttachEndpoint(
       (name) => this.agents.get(name)?.handle,

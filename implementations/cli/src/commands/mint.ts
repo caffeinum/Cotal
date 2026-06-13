@@ -43,7 +43,7 @@ export async function mint(argv: string[]): Promise<void> {
   let channels: string[] | undefined;
   let role: string | undefined;
   if (profile === "agent") {
-    const f = agentFilePath(process.cwd(), name);
+    const f = agentFilePath(cotalRoot(), name);
     if (existsSync(f)) {
       const def = loadAgentFile(f);
       channels = def.publish ?? def.channels;

@@ -57,7 +57,7 @@ export async function spawn(argv: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const path = agentFilePath(process.cwd(), ref);
+  const path = agentFilePath(cotalRoot(), ref);
   let def: AgentDef;
   try {
     def = loadAgentFile(path);
