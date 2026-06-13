@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync, openSync, closeSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { DEFAULT_SERVER } from "@cotal-ai/core";
+import { selfArgv } from "./self-exec.js";
 
 const PID_PATH = () => resolve(".cotal/manager.pid");
 
@@ -29,16 +30,9 @@ export function managerUp(): boolean {
  *  control plane (`cotal_spawn`/`despawn`/`purge`/`persona`) with no tmux/cmux needed. */
 export function startManagerDetached(o: { space?: string; server?: string } = {}): number {
   const fd = openSync(resolve(".cotal/manager.log"), "a");
-  const args = [
-    ...process.execArgv,
-    process.argv[1],
-    "supervise",
-    "--space",
-    o.space ?? "demo",
-    "--server",
-    o.server ?? DEFAULT_SERVER,
-  ];
-  const child = spawn(process.execPath, args, { detached: true, stdio: ["ignore", fd, fd] });
+  const [node, ...self] = selfArgv();
+  const args = [...self, "supervise", "--space", o.space ?? "demo", "--server", o.server ?? DEFAULT_SERVER];
+  const child = spawn(node, args, { detached: true, stdio: ["ignore", fd, fd] });
   closeSync(fd);
   child.unref();
   writeFileSync(PID_PATH(), String(child.pid));

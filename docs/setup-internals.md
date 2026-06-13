@@ -66,6 +66,12 @@ Three detached processes back a folder, all stopped by `cotal down`:
 - **Web dashboard** — `startWebDetached` / `ensureWeb`
   ([`commands/web.ts`](../implementations/cli/src/commands/web.ts)) re-execs `cotal web` detached.
   Writes `.cotal/web.pid` and `.cotal/web.log`. `webUp()` probes the port for the status card.
+
+All re-execs and the cmux pane commands resolve this CLI via `selfArgv()` / `selfCotal()`
+([`lib/self-exec.ts`](../implementations/cli/src/lib/self-exec.ts)) = `[node, ...loaderFlags, entry]`
+(tsx loader in dev, compiled JS in prod) — so they never need `cotal` on PATH. The cmux session
+therefore opens identically via `npx`, `npm i -g`, and a dev clone. `cotal go` is an alias of
+`cotal setup` (open/resume vs install/update names).
 - **Manager** — `startManagerDetached` / `ensureManager`
   ([`lib/manager-proc.ts`](../implementations/cli/src/lib/manager-proc.ts)) re-execs `cotal supervise`
   detached (pty runtime); it answers the control plane (`cotal_spawn`/`despawn`/`purge`/`persona`).

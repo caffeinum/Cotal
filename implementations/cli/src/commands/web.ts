@@ -17,9 +17,9 @@ import {
   loadSpaceAuth,
   mintCreds,
   newIdentity,
-  type CotalMessage,
 } from "@cotal-ai/core";
 import { c } from "../ui.js";
+import { selfArgv } from "../lib/self-exec.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -219,9 +219,9 @@ export function webUp(port: number = WEB_PORT): Promise<boolean> {
  *  dev, and is empty in prod where `node <entry.js> web …` runs the compiled binary. */
 export function startWebDetached(o: { space?: string; server?: string } = {}): { pid: number; url: string } {
   const fd = openSync(resolve(".cotal/web.log"), "a");
+  const [node, ...self] = selfArgv();
   const args = [
-    ...process.execArgv,
-    process.argv[1],
+    ...self,
     "web",
     "--no-open",
     "--port",
@@ -230,7 +230,7 @@ export function startWebDetached(o: { space?: string; server?: string } = {}): {
     o.space ?? "demo",
     ...(o.server ? ["--server", o.server] : []),
   ];
-  const child = spawn(process.execPath, args, { detached: true, stdio: ["ignore", fd, fd] });
+  const child = spawn(node, args, { detached: true, stdio: ["ignore", fd, fd] });
   closeSync(fd);
   child.unref();
   writeFileSync(resolve(".cotal/web.pid"), String(child.pid));

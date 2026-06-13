@@ -1,7 +1,7 @@
 import { registry, type Command } from "@cotal-ai/core";
 import { up } from "./commands/up.js";
 import { down } from "./commands/down.js";
-import { setup } from "./commands/setup.js";
+import { setup, go } from "./commands/setup.js";
 import { join } from "./commands/join.js";
 import { watch } from "./commands/watch.js";
 import { console_ } from "./commands/console.js";
@@ -24,6 +24,13 @@ const baseCommands: Command[] = [
     group: "Setup",
     summary: "guided setup — first run walks you through it; --yes for non-interactive (agents/CI), --full to redo",
     run: setup,
+  },
+  {
+    kind: "command",
+    name: "go",
+    group: "Setup",
+    summary: "open or resume your session (mesh + web + manager + your cmux tabs); first run installs",
+    run: go,
   },
   {
     kind: "command",

@@ -17,6 +17,7 @@ import { machineStatus, meshStatus, onPath } from "../lib/status.js";
 import { startMeshDetached, up } from "./up.js";
 import { ensureWeb, webUp, WEB_URL } from "./web.js";
 import { ensureManager, managerUp, stopManager } from "../lib/manager-proc.js";
+import { selfCotal } from "../lib/self-exec.js";
 
 const ONBOARD_VERSION = "1";
 const README_URL = "https://github.com/Cotal-AI/Cotal/blob/main/README.md";
@@ -35,6 +36,13 @@ export async function setup(argv: string[]): Promise<void> {
   // `--yes` (agents/CI) always runs the full flow non-interactively.
   if (!isOnboarded() || values.full || values.yes) await runFirstRun(Boolean(values.yes));
   else await runEnsure();
+}
+
+/** `cotal go` — open or resume your session. A friendlier-named alias of `cotal setup`: the first
+ *  run installs (full guided flow), later runs fast-forward to the ensure path and reopen your
+ *  cmux session. `cotal setup` stays the explicit install/update name. */
+export async function go(argv: string[]): Promise<void> {
+  return setup(argv);
 }
 
 /** The full, narrated first-run experience. `yes` = non-interactive accept-all. */
@@ -137,6 +145,7 @@ async function runFirstRun(yes: boolean): Promise<void> {
       `${ok("✓")} ask the guide       ${dim("cotal spawn sven")}`,
       `${ok("✓")} watch the mesh      ${dim("cotal console")}`,
       `${ok("✓")} open the dashboard  ${dim(WEB_URL)}`,
+      `${ok("✓")} resume later        ${dim("cotal go")}`,
       `${ok("✓")} stop everything     ${dim("cotal down")}`,
       "",
       dim('Cotal not working? Tell your agent to give us feedback and it sends it for you (built-in cotal_feedback), or run cotal feedback "<msg>".'),
@@ -270,10 +279,14 @@ function ensureCmuxSession(cwd: string): void {
   // both answer control requests.
   stopManager();
 
+  // Invoke this CLI by its resolved path, not bare `cotal`, so the panes work whether the user
+  // installed via npx, `npm i -g`, or a dev clone (no dependency on `cotal` being on PATH).
+  const cotal = selfCotal();
+
   // Control plane: a cmux-runtime manager that pre-spawns david/sven into their own tabs and owns
   // them (so cotal_despawn / cotal_spawn work). Open it only if it isn't already up (idempotent).
   if (!cmux.workspaceExists("cotal-manager")) {
-    cmux.openWorkspace("cotal-manager", JSON.stringify(term("cotal cmux --space demo --spawn david,sven")), {
+    cmux.openWorkspace("cotal-manager", JSON.stringify(term(`${cotal} cmux --space demo --spawn david,sven`)), {
       focus: false,
     });
   }
@@ -283,11 +296,11 @@ function ensureCmuxSession(cwd: string): void {
   // pass the greeting base64-encoded and decode it in bash.
   if (!cmux.workspaceExists("cotal-main")) {
     const greetB64 = Buffer.from(ME_GREETING, "utf8").toString("base64");
-    const meCmd = `cotal spawn me --prompt "$(echo ${greetB64} | base64 -d)"`;
+    const meCmd = `${cotal} spawn me --prompt "$(echo ${greetB64} | base64 -d)"`;
     const main = JSON.stringify({
       direction: "vertical",
       split: 0.34,
-      children: [term("cotal console --space demo"), confirmTerm(meCmd)],
+      children: [term(`${cotal} console --space demo`), confirmTerm(meCmd)],
     });
     cmux.openWorkspace("cotal-main", main, { focus: true });
   }
@@ -338,6 +351,7 @@ async function readyCard(cwd: string): Promise<void> {
       line(web, `web      ${dim(WEB_URL)}`),
       line(mgr, `manager  ${dim(mgr ? "running" : "not running")}`),
       "",
+      `resume:    ${dim("cotal go")}   ${dim("(reopen this session anytime)")}`,
       `watch it:  ${dim("cotal console")}   ${dim("(live TUI in this terminal)")}`,
       `drive it:  ${dim("cotal spawn me")}   ${dim("(or david / sven)")}`,
       `more:      ${dim('cotal web · cotal down · cotal feedback "<msg>" · cotal --help')}`,

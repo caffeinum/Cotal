@@ -6,12 +6,13 @@ is the fastest way to a running local one.
 ## Install & run
 
 ```bash
-npm install -g cotal-ai   # or run once with: npx cotal-ai
-cotal
+npm install -g cotal-ai   # recommended — puts `cotal` (and `cotal go`) on your PATH
+cotal                      # runs setup
 ```
 
-You need Node ≥ 20. The `nats-server` binary ships with the package; if you already have
-one on your PATH, Cotal uses that instead.
+`npx cotal-ai` works too (no global install); the cmux session still opens either way (it invokes
+its own resolved path, not a global `cotal`). You need Node ≥ 20. The `nats-server` binary ships
+with the package; if you already have one on your PATH, Cotal uses that instead.
 
 ## First run
 
@@ -33,9 +34,10 @@ one on your PATH, Cotal uses that instead.
    session's manager and agent tabs live in cmux — close the tabs (or quit cmux) to stop
    them; `cotal down` stops the mesh, web, and any background pty manager.
 
-To **reopen the session later**, just run `cotal setup` again from inside cmux: it reuses the
-live manager + david/sven and opens only what's missing (no duplicate managers). (`cotal cmux
-go` is a dev-clone shortcut for the same thing; npx/global users use `cotal setup`.)
+To **reopen the session later**, run **`cotal go`** from inside cmux (or just `cotal setup` again):
+it reuses the live manager + david/sven and opens only what's missing (no duplicate managers).
+`cotal go` is the friendly "open/resume" name; `cotal setup` is the same flow under its install/update
+name. (`cotal cmux go` is a dev-clone-only shortcut.)
 
 If a step fails, it offers to hand you to an interactive Claude session that has the
 failure context; type `/exit` to return and it retries.
@@ -59,6 +61,7 @@ spawn one and talk to it (it has the tools to message peers, spawn teammates, an
 feedback). Prefer commands?
 
 ```bash
+cotal go                             # open or resume your session (reuses what's up)
 cotal spawn me                       # the session you drive (consults david/sven)
 cotal spawn david                    # ask the engineer (or sven, the guide)
 cotal console --space demo           # live mesh view in the terminal (TUI)
