@@ -371,13 +371,18 @@ export function cotalToolSpecs(config: AgentConfig, source = "connector"): Cotal
           .enum(["human", "agent"])
           .describe('"human" when relaying the user\'s feedback, "agent" when reporting an issue you hit yourself.'),
         type: z.enum(["bug", "idea", "friction", "praise", "other"]).describe("What kind of feedback this is."),
-        summary: z.string().max(2000).describe("One-line summary of the feedback."),
-        details: z.string().max(10_000).optional().describe("Longer free-form details."),
+        summary: z.string().max(300).describe("Required one-line summary, max 300 characters."),
+        details: z.string().max(10_000).optional().describe("Longer free-form details. Do not include secrets."),
         severity: z.enum(["low", "medium", "high"]).optional().describe("How badly this hurts (bugs/friction)."),
-        area: z.string().optional().describe("The part of Cotal this concerns (e.g. presence, channels, CLI)."),
-        repro: z.string().optional().describe("Steps to reproduce."),
-        expected: z.string().optional().describe("What you expected to happen."),
-        actual: z.string().optional().describe("What actually happened."),
+        area: z.string().max(120).optional().describe("The part of Cotal this concerns (e.g. presence, channels, CLI)."),
+        repro: z.string().max(10_000).optional().describe("Steps to reproduce."),
+        expected: z.string().max(5_000).optional().describe("What you expected to happen."),
+        actual: z.string().max(5_000).optional().describe("What actually happened."),
+        diagnostics: z
+          .string()
+          .max(10_000)
+          .optional()
+          .describe("Relevant diagnostics as text (logs, errors). Never include secrets."),
         email: z
           .string()
           .optional()
@@ -400,10 +405,18 @@ export function cotalToolSpecs(config: AgentConfig, source = "connector"): Cotal
         }
         try {
           const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
-          const reply = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
+          const raw = await res.text();
+          let reply: { id?: string; error?: string; published?: boolean } = {};
+          if (raw)
+            try {
+              reply = JSON.parse(raw);
+            } catch {
+              reply = { error: raw };
+            }
           if (!res.ok)
             return err(`Feedback rejected (${res.status}${reply.error ? `: ${reply.error}` : ""}).`);
-          return ok(`Feedback sent${reply.id ? ` (id ${reply.id})` : ""}. Thanks!`);
+          const note = reply.published === false ? " (stored, but the internal feedback channel publish failed)" : "";
+          return ok(`Feedback sent${reply.id ? ` (id ${reply.id})` : ""}${note}. Thanks!`);
         } catch (e) {
           return err(`Couldn't reach the feedback intake at ${url}: ${(e as Error).message}`);
         }

@@ -149,11 +149,13 @@ Inbound mesh messages arrive in context as
 `<channel source="cotal" from="bob" kind="dm" channel="general">…</channel>`; each meta key
 becomes a tag attribute the agent can read for routing.
 
-`cotal_feedback` is deliberately outside mesh routing: a beta tester's local MCP server posts to an
-HTTPS intake URL with `Authorization: Bearer <tester-key>`. The payload includes `origin` (`human`
-when the user asked the agent to pass feedback along, `agent` when the agent auto-reports a major
-Cotal issue). The intake server maps the key to a tester, writes JSONL as the source of truth, then
-publishes an attributed, untrusted feedback item into our internal Cotal `#feedback` channel for
+`cotal_feedback` is deliberately outside mesh routing: the shared tool surface always exposes a
+feedback tool (MCP for Claude/Codex, native plugin tool for OpenCode). With `COTAL_FEEDBACK_KEY` set
+it posts to the keyed intake with `Authorization: Bearer <tester-key>` and the server maps the key to
+a tester; without a key it posts to the public cotal.ai intake with a contact email instead. The
+payload includes `origin` (`human` when the user asked the agent to pass feedback along, `agent` when
+the agent auto-reports a major Cotal issue). The intake server writes JSONL as the source of truth,
+then publishes an attributed, untrusted feedback item into our internal Cotal `#feedback` channel for
 triage.
 
 **Codex.** The Codex adapter ships the same `cotal_*` MCP server, injected at launch via `codex -c`
