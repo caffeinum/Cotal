@@ -43,6 +43,11 @@ export const claudeConnector: Connector = {
       ? [opts.prompt, "--dangerously-load-development-channels", CHANNEL_REF]
       : ["--dangerously-load-development-channels", CHANNEL_REF];
 
+    // Pre-allow fetching the public Cotal docs so a doc-grounded persona (e.g. david)
+    // can look something up under `npx` (no repo on disk) without prompting the operator
+    // mid-demo. Additive under the default permission mode — leaves other tools as-is.
+    args.push("--allowedTools", "WebFetch(domain:github.com),WebFetch(domain:raw.githubusercontent.com)");
+
     // An agent file carries identity (read in-session via COTAL_AGENT_FILE) plus
     // persona + model, which can only be applied to a `claude` session at launch.
     if (opts.configPath) {

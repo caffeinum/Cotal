@@ -79,6 +79,11 @@ You are a builder on a shared mesh of peer agents…   ← the body is the perso
   `configFromEnv`. Individual `COTAL_*` vars still override it.
 - **Persona is a short contract, not a title.** Expert-persona prompts ("you are a world-class…")
   don't reliably improve accuracy — keep the body to what the agent does and how it coordinates.
+  A persona that needs facts should point at the *source*, not assert them: the demo's `david`/`sven`
+  read the on-disk `docs/`/`examples/`/source (a managed session runs at the repo root) or, with no
+  repo present, fetch the public docs. `buildLaunch` pre-allows that fetch with
+  `--allowedTools "WebFetch(domain:github.com),WebFetch(domain:raw.githubusercontent.com)"` so the
+  lookup doesn't prompt the operator mid-session.
 - **The agent is told its lanes.** The MCP server `instructions` name the channels it reads and may
   post to (from `channels`/`publish`), so the model knows its scope up front instead of learning it
   from inbound tags and rejected sends.
