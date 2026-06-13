@@ -5,11 +5,17 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      snapshot:
+        description: "Snapshot release: publish <version>-<tag>-<datetime> under this npm dist-tag (e.g. next). Leave empty for the normal release flow."
+        type: string
+        default: ""
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
   version:
+    if: github.event_name == 'push' || inputs.snapshot == ''
     timeout-minutes: 15
     runs-on: ubuntu-latest
     permissions:
@@ -55,3 +61,35 @@ jobs:
         run: |
           pnpm changeset tag
           git push origin --tags
+
+  # Snapshot release from any ref — publishes <version>-<tag>-<datetime> under the given npm
+  # dist-tag so a branch can be tried out without merging. No commits, no git tags.
+  snapshot:
+    if: github.event_name == 'workflow_dispatch' && inputs.snapshot != ''
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6.0.8
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Version snapshot
+        run: pnpm changeset version --snapshot ${{ inputs.snapshot }}
+
+      - name: Build and publish
+        run: |
+          pnpm build
+          pnpm publish -r --provenance --access=public --no-git-checks --tag ${{ inputs.snapshot }}

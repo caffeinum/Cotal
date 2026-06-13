@@ -14,7 +14,7 @@ import { cotalToolSpecs, type MeshAgent, type AgentConfig } from "@cotal-ai/conn
 /** Build the cotal_* tool map wired to one mesh agent, rendered from the shared specs. */
 export function buildCotalTools(agent: MeshAgent, config: AgentConfig): Record<string, ToolDefinition> {
   const tools: Record<string, ToolDefinition> = {};
-  for (const spec of cotalToolSpecs(config)) {
+  for (const spec of cotalToolSpecs(config, "opencode")) {
     if (spec.name === "cotal_inbox") {
       // Read-only: this connector delivers + acks each turn, so the tool must never drain. Force
       // peek (still surfaces focus-mode recall), and reframe push-primary / pull-secondary. (norman)
