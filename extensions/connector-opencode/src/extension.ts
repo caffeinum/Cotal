@@ -52,6 +52,7 @@ export const opencodeConnector: Connector = {
       env.COTAL_AGENT_FILE = path; // plugin reads persona from it
       const def = loadAgentFile(path);
       if (def.model) config.model = def.model;
+      if (def.face) env.COTAL_FACE_PERSONA = def.face; // shim swaps the TUI for the face viewer
     }
 
     env.OPENCODE_CONFIG_CONTENT = JSON.stringify(config);
