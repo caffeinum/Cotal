@@ -210,9 +210,10 @@ async function offerDemo(haveClaude: boolean): Promise<void> {
 }
 
 /** Greeting the driving session auto-submits on start (no apostrophes — it rides through
- *  cmux's `bash -lc '…'` quoting). */
+ *  cmux's `bash -lc '…'` quoting). Teaches the capabilities by telling, not by calling tools,
+ *  so it does not depend on david/sven having joined yet when this first turn runs. */
 const ME_GREETING =
-  "Greet the operator in 2-3 lines: you are their Cotal session, david and sven are on the mesh to help, and they can just say what to build. Then ask what they want to do.";
+  "Greet the operator in a few short lines. Open with one line on what Cotal is: an open space where AI agents join and work together as peers. Say you are their Cotal session and that david (the engineer) and sven (the guide) are on the mesh to help. Then tell them what you can do for them: message david or sven, spawn new teammates and despawn them when done, and send feedback. End by asking what they want to build.";
 
 /** Open david and sven as background cmux tabs, then a focused workspace (console + the driving
  *  session "me"). The driving session consults david/sven over the mesh; nothing is foregrounded
