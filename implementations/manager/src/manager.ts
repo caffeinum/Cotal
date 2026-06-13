@@ -150,9 +150,19 @@ export class Manager {
     }
   }
 
+  /** Agent names become `.cotal/agents/<name>.md` paths and mesh identities, so they must be bare
+   *  tokens, never a path — blocks traversal / arbitrary writes from a model-supplied name. */
+  private nameError(name: string): string | undefined {
+    return /^[A-Za-z0-9_-]+$/.test(name)
+      ? undefined
+      : `unsafe name ${JSON.stringify(name)} (allowed: letters, digits, _ -)`;
+  }
+
   private async opStart(args: Record<string, unknown>): Promise<ControlReply> {
     const name = String(args.name ?? "").trim();
     if (!name) return { ok: false, error: "name required" };
+    const nameErr = this.nameError(name);
+    if (nameErr) return { ok: false, error: nameErr };
     if (this.agents.has(name)) return { ok: false, error: `agent "${name}" already running` };
     const agent = args.agent ? String(args.agent) : "cotal";
 
@@ -232,6 +242,8 @@ export class Manager {
   private opDefinePersona(args: Record<string, unknown>): ControlReply {
     const name = String(args.name ?? "").trim();
     if (!name) return { ok: false, error: "name required" };
+    const nameErr = this.nameError(name);
+    if (nameErr) return { ok: false, error: nameErr };
     const persona = String(args.persona ?? "").trim();
     if (!persona) return { ok: false, error: "persona required" };
     const def: AgentDef = {
