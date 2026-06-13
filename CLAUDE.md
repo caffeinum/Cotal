@@ -24,7 +24,7 @@ pnpm + TypeScript ESM monorepo — four dependency tiers, one-way deps, Node ≥
 - **`packages/*` — the protocol** (generic, the standard).
   - **@cotal-ai/core** — endpoint, subjects, message types; the NATS client layer + extension contracts (`Connector`, `Command`) and the `Registry` they self-register into.
 - **`extensions/*` — pluggable adapters** (peer-depend core; self-register on import).
-  - **@cotal-ai/connector-core** — shared MCP-bridge runtime (mesh agent, `cotal_*` tool specs incl. `cotal_spawn` / `cotal_persona` / `cotal_despawn`, hook relay); the adapters are thin clients over it.
+  - **@cotal-ai/connector-core** — shared MCP-bridge runtime (mesh agent, `cotal_*` tool specs incl. `cotal_spawn` / `cotal_persona` / `cotal_despawn` / `cotal_purge`, hook relay); the adapters are thin clients over it.
   - **@cotal-ai/connector-claude-code** — Claude Code adapter (installed plugin + `claude/channel` push).
   - **@cotal-ai/connector-codex** — Codex adapter (pull-only MCP server injected via `codex -c`; no plugin, no hooks).
   - **@cotal-ai/connector-opencode** — OpenCode adapter (native in-process plugin injected via `OPENCODE_CONFIG_CONTENT`; renders the shared `cotal_*` tool specs as plugin tools).

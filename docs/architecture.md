@@ -317,7 +317,8 @@ dashboard, or an agent) can send; spawning is policy-gated. `definePersona` writ
 **Emergent payoff:** an agent can grow *and* shape the team without a human — ask the manager for
 a teammate (`cotal_spawn`), mint a brand-new persona on the fly (`cotal_persona` → saved as config
 → spawnable), or tear one down (`cotal_despawn`, graceful or hard). The new agent is a *peer*, not
-a child.
+a child. Cleanup rides the same control plane: `cotal_purge` has the manager clear the space's
+retained chat backlog (the privileged `STREAM.PURGE` regular agents are denied).
 
 ## Hosting & onboarding
 

@@ -2,8 +2,10 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import {
   CotalEndpoint,
+  DEFAULT_SERVER,
   agentFilePath,
   authDir,
+  clearSpaceHistory,
   loadAgentFile,
   loadSpaceAuth,
   mintCreds,
@@ -136,6 +138,8 @@ export class Manager {
         return this.opStop(args);
       case "definePersona":
         return this.opDefinePersona(args);
+      case "purge":
+        return this.opPurge(args);
       case "attach":
         return this.opAttach(args);
       case "ps":
@@ -235,6 +239,25 @@ export class Manager {
     a.handle.stop({ graceful });
     this.agents.delete(name);
     return { ok: true, data: { name, stopped: true, graceful } };
+  }
+
+  /** Purge the space's retained message backlog (chat, optionally DMs). Privileged — the
+   *  manager mints its own "manager" creds (same as `cotal history clear`); regular agents are
+   *  denied STREAM.PURGE under auth. Cleanup only: leaves live agents and the TASK queue alone. */
+  private async opPurge(args: Record<string, unknown>): Promise<ControlReply> {
+    const includeDms = args.includeDms === true;
+    try {
+      const creds = this.auth ? await mintCreds(this.auth, newIdentity(), "manager") : undefined;
+      const result = await clearSpaceHistory({
+        servers: this.servers ?? DEFAULT_SERVER,
+        space: this.space,
+        creds,
+        includeDms,
+      });
+      return { ok: true, data: result };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
   }
 
   /** Persist a peer-defined persona as config. After this, `start name` auto-discovers

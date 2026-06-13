@@ -7,7 +7,8 @@ session joins NATS, maps lifecycle hooks to presence, and exposes the mesh tools
 presence, and team supervision: `cotal_spawn` (grow the team; the new teammate joins as a
 lateral peer), `cotal_despawn` (tear one down — it leaves the mesh and its process/tab closes),
 and `cotal_persona` (define a persona on the fly; it's saved as config and becomes spawnable),
-plus optional `cotal_feedback` for beta reports. The manager spawns it in a PTY; nothing wraps
+plus `cotal_purge` (clear the space's retained chat backlog) and optional `cotal_feedback` for
+beta reports. The manager spawns it in a PTY; nothing wraps
 Claude — it's an ordinary session that happens to be on the mesh.
 
 > The mesh runtime — agent, `cotal_*` tools, hook relay — lives in
