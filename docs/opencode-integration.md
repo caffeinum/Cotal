@@ -80,6 +80,8 @@ lost while busy/offline). The plugin moves them to the model by **driving the se
   urgent = abort + re-prompt.
 - The session is created lazily on the first wake; persona (agent-file body) rides the first
   prompt's `system`, and the agent-file `model` (`provider/model`) the prompt's `model`.
+  `COTAL_OPENCODE_ADOPT=<title>` drives an existing session with that title instead of
+  creating one (e.g. a face-term UI's own session, so the UI sees the mesh turns).
 
 ## Build
 

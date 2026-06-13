@@ -13,6 +13,12 @@ function statusGlyph(s: PresenceStatus): string {
   return s === "working" ? "●" : s === "waiting" ? "◐" : s === "idle" ? "○" : "·";
 }
 
+/** UI affordance tags (face-term's [[face:X]]) ride the tool ARGS for the local renderer —
+ *  strip them from the mesh payload so peers and consoles see clean text. */
+function stripFaceTags(s: string): string {
+  return s.replace(/\[\[face:[a-z]+\]\]\s*/g, "").trim();
+}
+
 function fmtItem(i: InboxItem): string {
   if (i.kind === "dm") return `[DM from ${fmtFrom(i)}] ${i.text}`;
   if (i.kind === "anycast") return `[@${i.service} from ${fmtFrom(i)}] ${i.text}`;
@@ -64,7 +70,7 @@ export function buildCotalTools(agent: MeshAgent, config: AgentConfig): Record<s
           ),
       },
       async execute({ text, channel, mentions }) {
-        const m = await agent.send(text, channel, mentions);
+        const m = await agent.send(stripFaceTags(text), channel, mentions);
         return `Sent to #${m.channel}${m.mentions?.length ? ` (mentioned @${m.mentions.join(", @")})` : ""}.`;
       },
     }),
@@ -73,7 +79,7 @@ export function buildCotalTools(agent: MeshAgent, config: AgentConfig): Record<s
       description: "Send a private message to one specific peer, by name (or instance id).",
       args: { to: z.string().describe("The peer's name (or instance id)."), text: z.string().describe("The message.") },
       async execute({ to, text }) {
-        const { peer } = await agent.dm(to, text);
+        const { peer } = await agent.dm(to, stripFaceTags(text));
         return `DM sent to ${peer.card.name}.`;
       },
     }),
@@ -83,7 +89,7 @@ export function buildCotalTools(agent: MeshAgent, config: AgentConfig): Record<s
         "Send a request to ANY one available agent of a given role (load-balanced). Use when you need 'a reviewer' rather than a specific person.",
       args: { role: z.string().describe("The role to address (e.g. reviewer)."), text: z.string().describe("The request.") },
       async execute({ role, text }) {
-        await agent.anycast(role, text);
+        await agent.anycast(role, stripFaceTags(text));
         return `Sent to one @${role}.`;
       },
     }),

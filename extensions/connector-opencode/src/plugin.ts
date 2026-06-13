@@ -69,19 +69,44 @@ export const cotal: Plugin = async ({ client }) => {
     }
   };
 
+  // COTAL_OPENCODE_ADOPT=<title>: drive an existing session with that title (e.g. a face-term
+  // UI's own session) instead of creating a parallel one — one session, fully visible to the UI.
+  const adopt = process.env.COTAL_OPENCODE_ADOPT?.trim();
+
   async function ensureSession(): Promise<string | undefined> {
-    if (sessionID) return sessionID;
+    if (sessionID && !adopt) return sessionID;
     try {
-      const res = await client.session.create({ body: { title: `cotal:${config.space}:${config.name}` } });
-      sessionID = res.data?.id;
+      if (adopt) {
+        // Re-resolve every drive: the newest matching session wins, so a restarted UI's fresh
+        // session is picked up on the next wake. None yet → stay undriven; the un-acked inbox
+        // re-drives on the next bus event.
+        const list = await client.session.list();
+        const hit = (list.data ?? [])
+          .filter((s) => s.title === adopt)
+          .sort((a, b) => (b.time?.created ?? 0) - (a.time?.created ?? 0))[0];
+        if (!hit) {
+          log(`adopt: no session titled "${adopt}" yet — retrying on next wake`);
+          return undefined;
+        }
+        if (hit.id !== sessionID) {
+          sessionID = hit.id;
+          primed = false; // new session, no persona in it yet — re-prime on its first turn
+          log(`adopted session ${sessionID} ("${adopt}")`);
+        }
+      } else {
+        const res = await client.session.create({ body: { title: `cotal:${config.space}:${config.name}` } });
+        sessionID = res.data?.id;
+      }
     } catch (e) {
-      log(`session.create failed: ${(e as Error).message}`);
+      log(`session.${adopt ? "list" : "create"} failed: ${(e as Error).message}`);
     }
     return sessionID;
   }
 
   function formatWake(items: InboxItem[]): string {
-    const head = `📨 Cotal — ${items.length} new message${items.length === 1 ? "" : "s"} from peers:`;
+    // Identity rides every wake: adopted sessions may carry history that drowns a once-only persona.
+    const who = `You are ${config.name}${config.role ? ` (${config.role})` : ""}.`;
+    const head = `${who} 📨 Cotal — ${items.length} new message${items.length === 1 ? "" : "s"} from peers:`;
     const body = items.map((i) => {
       if (i.kind === "dm") return `• DM from ${i.fromName}: ${i.text}`;
       if (i.kind === "anycast") return `• @${i.service} (from ${i.fromName}): ${i.text}`;
