@@ -15,7 +15,7 @@ import { resolveNatsServer } from "../lib/nats-bin.js";
 import { isOnboarded, markOnboarded } from "../lib/onboard.js";
 import { machineStatus, meshStatus, onPath } from "../lib/status.js";
 import { startMeshDetached, up } from "./up.js";
-import { spawn } from "./spawn.js";
+import { ensureWeb, webUp, WEB_URL } from "./web.js";
 
 const ONBOARD_VERSION = "1";
 const README_URL = "https://github.com/Cotal-AI/Cotal/blob/main/README.md";
@@ -91,6 +91,17 @@ async function runFirstRun(yes: boolean): Promise<void> {
   ];
   if (!(await runSteps(core, log, { yes }))) return abort();
 
+  // The web dashboard, in the background, so it's just there (best-effort; never blocks setup).
+  try {
+    const web = await ensureWeb({ space: "demo", server: DEFAULT_SERVER });
+    if (web.running) {
+      p.log.success(`Web dashboard at ${web.url} (stop with: cotal down)`);
+      log.line(`web: ${web.url}`);
+    }
+  } catch {
+    /* non-fatal: the card still shows how to start it */
+  }
+
   // Connectors: which agents should be able to join. Only Claude needs an install
   // (its wake channel binds to an installed plugin); Codex/OpenCode auto-wire at spawn.
   const found = { claude: onPath("claude"), codex: onPath("codex"), opencode: onPath("opencode") };
@@ -123,8 +134,8 @@ async function runFirstRun(yes: boolean): Promise<void> {
       `${ok("✓")} drive a session     ${dim("cotal spawn me")}`,
       `${ok("✓")} ask the engineer    ${dim("cotal spawn david")}`,
       `${ok("✓")} ask the guide       ${dim("cotal spawn sven")}`,
-      `${ok("✓")} watch in a browser  ${dim("cotal web --space demo")}`,
-      `${ok("✓")} stop the web        ${dim("cotal down")}`,
+      `${ok("✓")} open the dashboard  ${dim(WEB_URL)}`,
+      `${ok("✓")} stop everything     ${dim("cotal down")}`,
       "",
       dim('Cotal not working? Tell your agent to give us feedback and it sends it for you (built-in cotal_feedback), or run cotal feedback "<msg>".'),
     ].join("\n"),
@@ -189,37 +200,29 @@ function claudePluginStep(): Step {
   };
 }
 
-/** Finale: open a Claude the operator drives, with david and sven helping in the background.
- *  Inside cmux: background tabs for the experts + a focused console/driving pane. Otherwise:
- *  hand the terminal to the driving session. Offered (skipped under --yes). */
+/** Finale: a cmux-only live demo — a Claude the operator drives, with david and sven helping in
+ *  background cmux tabs. If cmux isn't available (or the demo is declined), fall back to the
+ *  `cotal · ready` quick-reference card. Skipped under --yes. */
 async function offerDemo(haveClaude: boolean): Promise<void> {
   const haveAgents = (["me", "david", "sven"] as const).every((n) => existsSync(resolve(".cotal/agents", `${n}.md`)));
-  if (!haveClaude || !haveAgents || !process.stdin.isTTY) return;
+  const canDemo = haveClaude && haveAgents && process.stdin.isTTY && cmux.available();
 
-  if (cmux.available()) {
+  if (canDemo) {
     const go = abortIfCancel(
       await p.confirm({
-        message: "Open a live demo? A Claude you drive, with david and sven helping in the background.",
+        message: "Open the cmux demo? A Claude you drive, with david and sven helping in cmux tabs.",
         initialValue: true,
       }),
     );
-    if (!go) return;
-    openCmuxDemo(process.cwd());
-    p.log.success("Demo open: drive the 'me' pane; david and sven are on the mesh in the background.");
-    return;
+    if (go) {
+      openCmuxDemo(process.cwd());
+      p.log.success("Demo open: drive the 'me' pane; david and sven are on the mesh in the background.");
+      return;
+    }
   }
 
-  const go = abortIfCancel(
-    await p.confirm({
-      message: "Spawn your driving session now? (open david and sven in other terminals to help)",
-      initialValue: false,
-    }),
-  );
-  if (go) {
-    p.outro(brand("Launching your session..."));
-    await spawn(["me"]);
-    process.exit(0);
-  }
+  // No cmux, or declined: leave them the quick-reference card.
+  await readyCard(process.cwd());
 }
 
 /** Greeting the driving session auto-submits on start (no apostrophes — it rides through
@@ -258,7 +261,7 @@ function openCmuxDemo(cwd: string): void {
   cmux.openWorkspace("cotal-demo", main, { focus: true });
 }
 
-/** The compact repeat-run: quietly ensure the mesh is up here, then a one-glance card. */
+/** The compact repeat-run: quietly ensure the mesh + web are up here, then a one-glance card. */
 async function runEnsure(): Promise<void> {
   let mesh = await meshStatus(process.cwd());
   if (!mesh.reachable) {
@@ -274,13 +277,23 @@ async function runEnsure(): Promise<void> {
     }
     mesh = await meshStatus(process.cwd());
   }
+  await ensureWeb({ space: mesh.space, server: mesh.server }).catch(() => {});
+  await readyCard(process.cwd());
+}
+
+/** The `cotal · ready` one-glance card: machine + mesh + web status, plus the key commands.
+ *  Shared by the repeat-run ensure and the first-run no-demo finale. */
+async function readyCard(cwd: string): Promise<void> {
+  const mesh = await meshStatus(cwd);
   const m = await machineStatus();
-  const line = (label: boolean, text: string) => `${label ? ok("✓") : dim("○")} ${text}`;
+  const web = await webUp();
+  const line = (on: boolean, text: string) => `${on ? ok("✓") : dim("○")} ${text}`;
   note(
     [
-      line(m.nats !== "missing", `NATS   ${dim(m.nats === "missing" ? "missing" : m.nats)}`),
-      line(m.claudePlugin, `plugin ${dim(m.claudePlugin ? "installed" : "not installed")}`),
-      line(mesh.reachable, `web    ${dim(`${mesh.server} · space ${mesh.space}`)}`),
+      line(m.nats !== "missing", `NATS    ${dim(m.nats === "missing" ? "missing" : m.nats)}`),
+      line(m.claudePlugin, `plugin  ${dim(m.claudePlugin ? "installed" : "not installed")}`),
+      line(mesh.reachable, `mesh    ${dim(`${mesh.server} · space ${mesh.space}`)}`),
+      line(web, `web     ${dim(WEB_URL)}`),
       "",
       `drive it:  ${dim("cotal spawn me")}   ${dim("(or david / sven)")}`,
       `more:      ${dim('cotal web · cotal down · cotal feedback "<msg>" · cotal --help')}`,

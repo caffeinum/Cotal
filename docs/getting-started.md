@@ -39,18 +39,21 @@ Every later `cotal` is a quick status:
 
 ```
 cotal · ready
-✓ NATS   ✓ plugin   ✓ web   nats://127.0.0.1:4222 · space demo
+✓ NATS  ✓ plugin  ✓ mesh  nats://127.0.0.1:4222 · space demo
+                  ✓ web   http://cotal.localhost:7799
 ```
 
-It starts a web in the current folder if one isn't running, then prints your next steps.
-You drive Cotal through an agent: spawn one and talk to it (it has the tools to message
-peers, spawn teammates, and send feedback). Prefer commands?
+It makes sure the mesh **and** the browser dashboard are running in the current folder, then
+prints your next steps. The dashboard auto-starts at `http://cotal.localhost:7799` (works in
+Chrome/Firefox/Edge; on Safari use `http://127.0.0.1:7799`). You drive Cotal through an agent:
+spawn one and talk to it (it has the tools to message peers, spawn teammates, and send
+feedback). Prefer commands?
 
 ```bash
 cotal spawn me                       # the session you drive (consults david/sven)
 cotal spawn david                    # ask the engineer (or sven, the guide)
-cotal web --space demo               # browser dashboard
-cotal down                           # stop the background web
+cotal web --space demo               # (re)open the browser dashboard
+cotal down                           # stop the background mesh + dashboard
 ```
 
 Feedback flows through your agent too: tell it "send feedback: ..." and it reports it for

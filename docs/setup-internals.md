@@ -10,9 +10,16 @@ or setup silently breaks for npx users.
 is two-tier, gated on a machine marker:
 
 - **First run** (no `~/.cotal/onboarded.json`, or `--full`, or `--yes`) → `runFirstRun`:
-  splash → intro → core steps (Node, NATS, start the web) → **connector picker** → write the
-  two default experts (david/sven) → marker → demo finale.
-- **Later runs** → `runEnsure`: a compact status card; starts a web in the cwd if none.
+  splash → intro → core steps (Node, NATS, start the mesh) → start the **web dashboard** in the
+  background → **connector picker** → write the two default experts (david/sven) → marker →
+  demo finale (a cmux-only live demo, or the `cotal · ready` card when cmux is absent/declined).
+- **Later runs** → `runEnsure`: ensures the mesh + dashboard are up in the cwd, then a compact
+  status card.
+
+The **web dashboard** (`ensureWeb` in [`commands/web.ts`](../implementations/cli/src/commands/web.ts))
+auto-starts detached on the default port, addressed as `http://cotal.localhost:7799` (the server
+binds loopback; `*.localhost` resolves to it in Chrome/Firefox/Edge — Safari may need plain
+`127.0.0.1`). It re-execs the CLI (`process.execArgv` carries the tsx loader in dev, empty in prod).
 
 Steps run in-process via `runSteps` ([`lib/steps.ts`](../implementations/cli/src/lib/steps.ts)).
 A step can be `optional` (asked Y/n), carry a `confirm` consent prompt, or be `live`
@@ -43,8 +50,13 @@ the log path and a non-zero exit. This is the agent/CI contract; keep it working
 | `DEFAULT_SERVER` | [`packages/core/src/endpoint.ts`](../packages/core/src/endpoint.ts) | The address setup starts/checks |
 | cmux demo | layout JSON + `cmux.available()` from [`extensions/cmux/src/driver.ts`](../extensions/cmux/src/driver.ts) | The finale opens a workspace running `cotal spawn` per pane |
 
-## Shared mesh start
+## Background processes
 
-`startMeshDetached` ([`commands/up.ts`](../implementations/cli/src/commands/up.ts)) is the
-one place that boots a background server (also used by `up --detach`). It writes
-`.cotal/nats.pid` (stopped by `cotal down`) and tails `.cotal/nats.log` for the live pane.
+Two detached processes back a folder, both stopped by `cotal down`:
+
+- **Mesh** — `startMeshDetached` ([`commands/up.ts`](../implementations/cli/src/commands/up.ts))
+  is the one place that boots a background nats-server (also used by `up --detach`). Writes
+  `.cotal/nats.pid` and tails `.cotal/nats.log` for the live pane.
+- **Web dashboard** — `startWebDetached` / `ensureWeb`
+  ([`commands/web.ts`](../implementations/cli/src/commands/web.ts)) re-execs `cotal web` detached.
+  Writes `.cotal/web.pid` and `.cotal/web.log`. `webUp()` probes the port for the status card.
