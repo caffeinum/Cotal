@@ -10,7 +10,8 @@
  *   channels: [general]    # channels this agent subscribes to (read)
  *   publish: [general]     # channels this agent may post to (write); omit = same as channels
  *   model: opus            # optional CLI/model override
- *   face: sven             # optional avatar id for face-capable viewers
+ *   face: sven             # any unmodelled key is kept verbatim in AgentDef.meta — e.g. the
+ *                          #   OpenCode connector reads meta.face for its avatar viewer
  *   ---
  *   <the Markdown body is the persona — an appended system prompt>
  *
@@ -36,8 +37,9 @@ export interface AgentDef {
   publish?: string[];
   /** Model override handed to the agent CLI (e.g. `claude --model`). */
   model?: string;
-  /** Avatar id for face-capable viewers (e.g. the face-term animated terminal view). */
-  face?: string;
+  /** Frontmatter keys not modelled above, kept verbatim so a connector can read its own launcher
+   *  hints without core knowing about each one (e.g. the OpenCode face viewer's `face:` avatar id). */
+  meta?: Record<string, string>;
   /** Markdown body — the agent's persona / appended system prompt. */
   persona?: string;
 }
@@ -100,6 +102,12 @@ export function loadAgentFile(path: string): AgentDef {
   if (kind && kind !== "agent" && kind !== "endpoint")
     throw new Error(`agent file ${path}: "kind" must be "agent" or "endpoint"`);
 
+  // Sweep every scalar frontmatter key we don't model into meta, verbatim — connector hints
+  // (face, etc.) ride here so core stays ignorant of surface-specific keys.
+  const known = new Set(["name", "role", "kind", "description", "tags", "channels", "publish", "model"]);
+  const meta: Record<string, string> = {};
+  for (const [k, v] of Object.entries(fm)) if (!known.has(k) && typeof v === "string") meta[k] = v;
+
   return {
     name,
     role: str("role"),
@@ -109,7 +117,7 @@ export function loadAgentFile(path: string): AgentDef {
     channels: list("channels"),
     publish: list("publish"),
     model: str("model"),
-    face: str("face"),
+    meta: Object.keys(meta).length ? meta : undefined,
     persona: persona || undefined,
   };
 }
@@ -128,7 +136,7 @@ export function saveAgentFile(path: string, def: AgentDef): void {
   if (def.channels?.length) lines.push(`channels: [${def.channels.map(fmItem).join(", ")}]`);
   if (def.publish?.length) lines.push(`publish: [${def.publish.map(fmItem).join(", ")}]`);
   if (def.model) lines.push(`model: ${fmScalar(def.model)}`);
-  if (def.face) lines.push(`face: ${fmScalar(def.face)}`);
+  if (def.meta) for (const [k, v] of Object.entries(def.meta)) lines.push(`${k}: ${fmScalar(v)}`);
   lines.push("---");
   const body = def.persona ? `${def.persona.trim()}\n` : "";
   mkdirSync(dirname(path), { recursive: true });
