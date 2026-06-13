@@ -33,7 +33,7 @@ that loop a scripted trace hitting every message type (multicast across channels
 peer DMs, a coalesced burst, an unclaimed anycast) and every presence state — run it next to
 `cotal console` / `cotal web`.
 
-## The shared model — `MeshView` (`@cotal/core`)
+## The shared model — `MeshView` (`@cotal-ai/cli`)
 
 One class consumes the observer and emits a normalized, render-agnostic model. No ANSI, no
 React, no HTML, no color palette — pure data. It owns the endpoint lifecycle
@@ -69,8 +69,8 @@ interface FeedEntry {           // one feed row
 **What the model already does** (today, split across `render.ts` + `console/mesh.ts` +
 `web/app.js` — Phase A folds it into one place):
 
-- **Classification** — `deliveryOf(subject)` → multicast / unicast / anycast; `null` (control,
-  presence, trace) drops out of the feed.
+- **Classification** — `deliveryOf(subject)` → chat / unicast / anycast (the view renders `chat`
+  as multicast); `null` (control, presence, trace) drops out of the feed.
 - **Coalescing** — same-sender/same-text unicast bursts within 400 ms collapse to one entry
   (deterministic `id` = first message, `ts` = earliest, `count` = multiplicity).
 - **Roster** — status-sorted snapshot + `byId` map for id→name; agents split from endpoints.
