@@ -1,5 +1,16 @@
 # @cotal-ai/connector-codex
 
+## 0.1.4
+
+### Patch Changes
+
+- 73b030f: Add the `cotal_feedback` sender: a connector tool (always exposed) and a `cotal feedback "<summary>"` CLI mode. With a `COTAL_FEEDBACK_KEY` feedback routes to the keyed broker intake as before; without one it goes to the public intake at `https://cotal.ai/v1/feedback`, which requires a contact email (`COTAL_FEEDBACK_EMAIL` → git config → ask). `COTAL_FEEDBACK_URL` overrides either URL for self-hosted intakes.
+- Updated dependencies [b3a790e]
+- Updated dependencies [73b030f]
+- Updated dependencies [739649a]
+  - @cotal-ai/core@0.1.3
+  - @cotal-ai/connector-core@0.2.0
+
 ## 0.1.3
 
 ### Patch Changes
