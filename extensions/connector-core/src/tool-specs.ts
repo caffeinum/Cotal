@@ -422,5 +422,56 @@ export function cotalToolSpecs(config: AgentConfig, source = "connector"): Cotal
         }
       },
     },
+    {
+      name: "cotal_despawn",
+      title: "Cotal: stop a teammate",
+      description:
+        "Ask the manager to tear a teammate down — it leaves the mesh and its process/tab is closed. Graceful by default (the session exits cleanly first); pass graceful:false for a hard, immediate kill. The inverse of cotal_spawn.",
+      schema: {
+        name: z.string().describe("Name of the peer to stop."),
+        graceful: z
+          .boolean()
+          .optional()
+          .describe("Default true: let the session exit cleanly. false = hard kill."),
+      },
+      async run(agent, _config, { name, graceful }: { name: string; graceful?: boolean }) {
+        try {
+          const reply = await agent.despawn(name, { graceful });
+          if (!reply.ok) return err(`Couldn't despawn ${name}: ${reply.error ?? "manager refused"}`);
+          return ok(`Stopping ${name}${graceful === false ? " (hard)" : ""} — it will leave the roster shortly.`);
+        } catch (e) {
+          return err(
+            `Couldn't despawn ${name}: no manager reachable (${(e as Error).message}). Is the manager running?`,
+          );
+        }
+      },
+    },
+    {
+      name: "cotal_persona",
+      title: "Cotal: define a persona",
+      description:
+        "Define a new persona and save it as config (the manager writes .cotal/agents/<name>.md), then announce it on the mesh. Afterwards cotal_spawn(name) launches a real agent wearing this persona/model. Use to grow the team with a custom role you describe on the fly.",
+      schema: {
+        name: z.string().describe("Unique name for the persona (also the spawn name)."),
+        prompt: z.string().describe("The persona — an appended system prompt describing who this agent is."),
+        role: z.string().optional().describe("Optional role label (e.g. reviewer, scout)."),
+        model: z.string().optional().describe("Optional model override (e.g. opus, sonnet)."),
+      },
+      async run(
+        agent,
+        _config,
+        { name, prompt, role, model }: { name: string; prompt: string; role?: string; model?: string },
+      ) {
+        try {
+          const reply = await agent.definePersona({ name, prompt, role, model });
+          if (!reply.ok) return err(`Couldn't define ${name}: ${reply.error ?? "manager refused"}`);
+          return ok(`Persona \`${name}\` saved — spawn it with cotal_spawn(name="${name}") to bring it online.`);
+        } catch (e) {
+          return err(
+            `Couldn't define ${name}: no manager reachable (${(e as Error).message}). Is the manager running?`,
+          );
+        }
+      },
+    },
   ];
 }

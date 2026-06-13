@@ -10,8 +10,9 @@ import {
   newIdentity,
   provisionAgent,
   registry,
+  saveAgentFile,
 } from "@cotal-ai/core";
-import type { Connector, ControlReply, ControlRequest, SpaceAuth } from "@cotal-ai/core";
+import type { AgentDef, Connector, ControlReply, ControlRequest, SpaceAuth } from "@cotal-ai/core";
 import {
   createRuntime,
   findWorkspaceRoot,
@@ -133,6 +134,8 @@ export class Manager {
         return this.opStart(args);
       case "stop":
         return this.opStop(args);
+      case "definePersona":
+        return this.opDefinePersona(args);
       case "attach":
         return this.opAttach(args);
       case "ps":
@@ -218,9 +221,32 @@ export class Manager {
     const name = String(args.name ?? "").trim();
     const a = this.agents.get(name);
     if (!a) return { ok: false, error: `no agent "${name}"` };
-    a.handle.stop();
+    const graceful = args.graceful !== false;
+    a.handle.stop({ graceful });
     this.agents.delete(name);
-    return { ok: true, data: { name, stopped: true } };
+    return { ok: true, data: { name, stopped: true, graceful } };
+  }
+
+  /** Persist a peer-defined persona as config. After this, `start name` auto-discovers
+   *  .cotal/agents/<name>.md and the connector applies its persona/model at spawn. */
+  private opDefinePersona(args: Record<string, unknown>): ControlReply {
+    const name = String(args.name ?? "").trim();
+    if (!name) return { ok: false, error: "name required" };
+    const persona = String(args.persona ?? "").trim();
+    if (!persona) return { ok: false, error: "persona required" };
+    const def: AgentDef = {
+      name,
+      role: args.role ? String(args.role) : undefined,
+      model: args.model ? String(args.model) : undefined,
+      persona,
+    };
+    const path = agentFilePath(this.workspaceRoot, name);
+    try {
+      saveAgentFile(path, def);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    return { ok: true, data: { name, path } };
   }
 
   private opAttach(args: Record<string, unknown>): ControlReply {
