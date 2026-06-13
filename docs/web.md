@@ -19,7 +19,7 @@ the dashboard is always the full god-view.
 The dashboard is still read-only. To purge retained history from a running space, use
 `cotal history clear --force [--dms]`.
 
-Flags: `--space` (default `demo`), `--server` (default local NATS), `--port` (7799),
+Flags: `--space` (default `main`), `--server` (default local NATS), `--port` (7799),
 `--no-open` (skip auto-launch), `--creds` (override the self-minted NATS credentials).
 
 ## How it works
