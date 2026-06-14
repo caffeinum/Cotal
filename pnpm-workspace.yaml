@@ -3,6 +3,7 @@ packages:
   - "extensions/*"
   - "implementations/*"
   - "examples/*"
+  - "examples/*/*"
 allowBuilds:
   esbuild: true
   msgpackr-extract: false

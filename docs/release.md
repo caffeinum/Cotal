@@ -1,8 +1,8 @@
 # Release & publish
 
 Cotal uses [Changesets](https://github.com/changesets/changesets) to version
-and publish the workspace packages (`packages/*`, `extensions/*`,
-`implementations/*`) to npm. `examples/*` is ignored — it's not published.
+and publish the workspace packages under `packages/*`, `extensions/*`, and
+`implementations/*` to npm. `examples/**` is ignored — it's not published.
 
 ## One-time npm setup: trusted publishing (OIDC)
 
@@ -13,7 +13,7 @@ configured once on npmjs.com.
 For **every** published package (`@cotal-ai/core`, `@cotal-ai/cli`,
 `@cotal-ai/manager`, `@cotal-ai/connector-core`,
 `@cotal-ai/connector-claude-code`, `@cotal-ai/connector-codex`,
-`@cotal-ai/cmux`, `@cotal-ai/openai-agents`, `@cotal-ai/vercel-ai`):
+`@cotal-ai/connector-opencode`, `@cotal-ai/cmux`):
 
 1. Go to `https://www.npmjs.com/package/<name>/access` (e.g.
    `https://www.npmjs.com/package/@cotal-ai/core/access`).
