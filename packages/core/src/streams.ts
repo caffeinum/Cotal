@@ -13,6 +13,8 @@ import { Kvm } from "@nats-io/kv";
 import {
   spacePrefix,
   chatStream,
+  chatSubject,
+  isConcreteChannel,
   dmStream,
   dmDurable,
   unicastSubject,
@@ -168,6 +170,41 @@ export async function clearSpaceHistory(opts: {
     if (!opts.includeDms) return { chat };
     const dm = (await jsm.streams.purge(dmStream(opts.space))).purged;
     return { chat, dm };
+  } finally {
+    await nc.drain();
+  }
+}
+
+/** Delete one channel and its content: purge every retained message on the channel (across
+ *  all senders, via the `*` sender slot) from the chat stream, then drop the channel's
+ *  registry config so it stops surfacing as an empty channel. Needs PURGE rights — pass
+ *  privileged creds (e.g. `manager`); a bare connection (open mode) has them by default.
+ *  Throws on a wildcard channel (a subtree is not a deletable channel). A missing channel
+ *  registry bucket/key is a no-op — the purge alone already emptied the channel. */
+export async function clearChannel(opts: {
+  servers: string;
+  space: string;
+  channel: string;
+  creds?: string;
+}): Promise<{ channel: string; purged: number }> {
+  if (!isConcreteChannel(opts.channel))
+    throw new Error(`"${opts.channel}" is a wildcard, not a deletable channel`);
+  const nc = await connect({
+    servers: opts.servers,
+    ...(opts.creds ? { authenticator: credsAuthenticator(new TextEncoder().encode(opts.creds)) } : {}),
+  });
+  try {
+    const jsm = await jetstreamManager(nc);
+    const { purged } = await jsm.streams.purge(chatStream(opts.space), {
+      filter: chatSubject(opts.space, "*", opts.channel),
+    });
+    try {
+      const registry = await new Kvm(nc).open(channelBucket(opts.space));
+      await registry.delete(opts.channel);
+    } catch {
+      /* no channel registry bucket or no config for this channel — purge already emptied it */
+    }
+    return { channel: opts.channel, purged };
   } finally {
     await nc.drain();
   }

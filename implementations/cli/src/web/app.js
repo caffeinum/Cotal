@@ -343,6 +343,7 @@ function renderChannel() {
           <span class="chip mode on">👥 ${plural(memberCount, "member")}</span>
           <span class="chip mode on">✦ summarize</span>
           <span class="chip static">🔕 mute</span>
+          ${isDemo ? "" : `<span class="chip danger" id="ch-del" title="Delete this channel and all its messages">🗑 delete</span>`}
         </div>
       </div>
       <div class="purpose">${esc(desc)}${plural(memberCount, "member")}  ·  ${plural(msgCount, "message")}</div>
@@ -350,6 +351,30 @@ function renderChannel() {
     <div class="clist">${items.length ? items.map(cmsgHTML).join("") : `<div class="empty">no messages</div>`}</div>`;
   const list = $("center").querySelector(".clist");
   list.scrollTop = list.scrollHeight;
+  const del = $("center").querySelector("#ch-del");
+  if (del) del.onclick = () => deleteChannel(name);
+}
+
+// Delete the channel and its content (steward action). Confirm first — purging the chat
+// stream is irreversible. On success the channel drops from the sidebar and the view falls
+// back to all-activity; a stray live message would recreate it (deletion clears, not bans).
+async function deleteChannel(name) {
+  if (!name || name === "*") return;
+  if (!confirm(`Delete #${name} and all its messages?\n\nThis purges the channel's history and cannot be undone.`)) return;
+  try {
+    const r = await fetch("/api/channel/delete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ channel: name }),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+    channels.delete(name);
+    unread.delete(name);
+    activity = activity.filter((e) => e.msg.channel !== name); // drop its rows from all-activity
+    select("*");
+  } catch (e) {
+    alert(`Couldn't delete #${name}: ${e.message}`);
+  }
 }
 
 // ── Direct-messages thread (centre) ───────────────────────────────────────────
@@ -473,8 +498,11 @@ function refreshDerived() {
   const oldest = waiting.length ? agoShort(Math.min(...waiting.map((p) => p.ts))) : "—";
   renderTiles(counts, oldest);
   $("online-c").textContent = roster.filter((p) => p.status !== "offline").length;
+  // The roster sidebar is the ONLINE list — offline peers drop out (their count still rides
+  // in the header tiles). They reappear here the moment presence flips them back on.
   renderRoster(
     [...roster]
+      .filter((p) => p.status !== "offline")
       .sort(
         (a, b) =>
           STATUS.indexOf(a.status) - STATUS.indexOf(b.status) ||

@@ -16,6 +16,7 @@ import {
   loadSpaceAuth,
   mintCreds,
   newIdentity,
+  clearChannel,
   type CotalMessage,
 } from "@cotal-ai/core";
 import { c } from "../ui.js";
@@ -48,18 +49,18 @@ export async function web(argv: string[]): Promise<void> {
   // and anycast. Auth mode (`.cotal/auth` present): self-mint an `admin` cred so it joins the
   // authed mesh with no manual --creds — like `cotal spawn`, it holds the space signing key.
   // An explicit --creds still wins. Open mode (no auth): connect bare.
+  // Loaded once at function scope: the observer connects with a read-only `admin` cred, but
+  // the channel-delete write path mints an ephemeral `manager` cred from this same material.
+  const auth = loadSpaceAuth(authDir(process.cwd()));
   let creds = values.creds ? readFileSync(values.creds, "utf8") : undefined;
-  if (!creds) {
-    const auth = loadSpaceAuth(authDir(process.cwd()));
-    if (auth) {
-      if (auth.space !== space) {
-        console.error(
-          c.red(`Auth here is for space "${auth.space}", not "${space}". Use --space ${auth.space} (or pass --creds).`),
-        );
-        process.exit(1);
-      }
-      creds = await mintCreds(auth, newIdentity(), "admin");
+  if (!creds && auth) {
+    if (auth.space !== space) {
+      console.error(
+        c.red(`Auth here is for space "${auth.space}", not "${space}". Use --space ${auth.space} (or pass --creds).`),
+      );
+      process.exit(1);
     }
+    creds = await mintCreds(auth, newIdentity(), "admin");
   }
   if (!(await isReachable(server, { creds }))) {
     console.error(c.red(`Can't reach NATS at ${server}. Run: pnpm cotal up`));
@@ -144,6 +145,28 @@ export async function web(argv: string[]): Promise<void> {
       const limit = query.get("limit") ? Number(query.get("limit")) : 200;
       return json(res, await ep.channelHistory(name, { limit }));
     }
+    // Delete a channel and its content. The only write path on this otherwise read-only
+    // dashboard, so it's POST-gated and guarded by a confirm in the UI. The observer's admin
+    // cred can't purge; mint an ephemeral manager cred (auth mode) for the op, else connect
+    // bare (open mode has full rights). A wildcard / missing channel is a 400.
+    if (path === "/api/channel/delete" && req.method === "POST") {
+      const body = await readBody(req).catch(() => ({}) as { channel?: string });
+      const channel = typeof body.channel === "string" ? body.channel : "";
+      if (!channel) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "channel required" }));
+        return;
+      }
+      try {
+        const purgeCreds = auth ? await mintCreds(auth, newIdentity(), "manager") : creds;
+        const result = await clearChannel({ servers: server, space, channel, creds: purgeCreds });
+        return json(res, { ok: true, ...result });
+      } catch (e) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: (e as Error).message }));
+        return;
+      }
+    }
 
     const file = PAGE[path];
     if (file) {
@@ -187,6 +210,13 @@ export async function web(argv: string[]): Promise<void> {
 function json(res: ServerResponse, data: unknown): void {
   res.writeHead(200, { "content-type": "application/json" });
   res.end(JSON.stringify(data));
+}
+
+async function readBody(req: IncomingMessage): Promise<{ channel?: string }> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  const raw = Buffer.concat(chunks).toString("utf8");
+  return raw ? JSON.parse(raw) : {};
 }
 
 /** Best-effort open of the dashboard in the default browser. The URL is already
