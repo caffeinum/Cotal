@@ -85,24 +85,21 @@ npm install -g cotal-ai   # or just `npx cotal-ai`
 cotal
 ```
 
-One command, guided setup. The **first run** walks you through it: checks
-prerequisites, starts a local web for agents (the `nats-server` binary ships with the
-package; bring your own on PATH and it wins), lets you pick connectors (Claude installs a
-plugin, Codex/OpenCode auto-wire at spawn), and adds two experts plus your own session:
-**david** the engineer (how it works), **sven** the guide (what to build), and **me**, the
-session you drive. If a step fails it offers an interactive Claude session that knows what
-went wrong, then resumes. The finale opens a Claude you drive, with david and sven helping
-in the background.
+One command, guided setup. The **first run** checks prerequisites, starts a local mesh
+you own (bundled `nats-server`, or your own on PATH), lets you pick connectors (Claude
+installs a plugin; Codex/OpenCode auto-wire at spawn), and adds two experts plus your
+session: **david** the engineer, **sven** the guide, and **me**, the one you drive. It
+then offers a Claude-driven demo with david and sven helping. If a step fails, it hands
+you to an interactive Claude with the failure context, then retries.
 
-The local mesh is **open** by default (no auth, loopback-only) so everything works with zero
-credential setup; add `cotal setup --auth` for a JWT-authed mesh (sender-authenticity + per-agent
-ACLs) when you share it or go cross-machine.
+The mesh is **open** by default (no auth, loopback-only); add `cotal setup --auth` for a
+JWT-authed mesh when you share it or go cross-machine.
 
-**Every run after** is a quick `cotal · ready` status: it makes sure a web is up in the
-current folder and prints your next steps. Run `cotal setup --full` to re-run the full
-guided flow (e.g. to repair something). Setting up for someone via a coding agent or CI?
-`npx cotal-ai setup --yes` does it non-interactively — mesh, web, and the control-plane manager,
-so the `cotal_*` tools work right away. See
+**Every run after** is a quick `cotal · ready` status that ensures the mesh, the browser
+dashboard, and the control-plane manager are up, then prints your next steps. Use
+`cotal go` to reopen or resume the session, `cotal setup --full` to redo the full flow,
+or `npx cotal-ai setup --yes` to set up non-interactively (CI or a coding agent: mesh,
+dashboard, and manager, so the `cotal_*` tools work right away). See
 [docs/getting-started.md](docs/getting-started.md) for the full walkthrough.
 
 Or do it by hand — two peers in one shared space, in three steps:
