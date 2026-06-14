@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
@@ -16,12 +16,15 @@ import { isOnboarded, markOnboarded } from "../lib/onboard.js";
 import { machineStatus, meshStatus, onPath, resolveSpace } from "../lib/status.js";
 import { startMeshDetached, up } from "./up.js";
 import { ensureWeb, webUp, WEB_URL } from "./web.js";
-import { ensureManager, managerUp, stopManager } from "../lib/manager-proc.js";
+import { cmuxManagerRunning, ensureManager, managerUp, pgrepMatches, stopManager } from "../lib/manager-proc.js";
 import { selfCotal } from "../lib/self-exec.js";
-import { cotalPath } from "../lib/paths.js";
+import { cotalPath, cotalRoot } from "../lib/paths.js";
 import { spawn } from "./spawn.js";
 
 const ONBOARD_VERSION = "1";
+/** The teammates the cmux/background demo pre-spawns (manager-owned, so they're despawnable). One
+ *  source of truth for both the `--spawn` list and the `cotal-<n>` tabs we clean up on restart. */
+const DEMO_TEAM = ["david", "sven"] as const;
 const README_URL = "https://github.com/Cotal-AI/Cotal/blob/main/README.md";
 const CC_DOCS_URL = "https://github.com/Cotal-AI/Cotal/blob/main/docs/claude-code-integration.md";
 const NATS_RELEASES_URL = "https://github.com/nats-io/nats-server/releases";
@@ -134,11 +137,12 @@ async function runFirstRun(yes: boolean, open: boolean): Promise<void> {
     }
   }
 
-  // Two experts plus your own driving session, by default.
+  // Two experts plus your own driving session, by default. These are setup-managed: refreshed when
+  // DEMO_AGENTS changes (so persona edits actually land), but a file you've taken ownership of is
+  // backed up first, never silently lost — see writeDemoAgent.
   mkdirSync(cotalPath("agents"), { recursive: true });
   for (const [name, body] of Object.entries(DEMO_AGENTS)) {
-    const path = cotalPath("agents", `${name}.md`);
-    if (!existsSync(path)) writeFileSync(path, body);
+    writeDemoAgent(cotalPath("agents", `${name}.md`), body);
   }
   p.log.success("Added david (the engineer), sven (the guide), and your session (me); they join when you spawn them or open the demo");
   log.line("demo-agents: wrote david + sven + me");
@@ -247,13 +251,13 @@ async function offerDemo(haveClaude: boolean): Promise<void> {
     );
     if (go) {
       if (cmux) {
-        ensureCmuxSession(process.cwd());
+        ensureCmuxSession(cotalRoot());
         p.log.success("Session open: drive the 'cotal-main' pane; david and sven are on the mesh in the background.");
         return;
       }
       // Non-cmux: a background pty manager pre-spawns david/sven (managed, despawnable), then we
       // hand this terminal to the driving session.
-      ensureManager({ space: resolveSpace(process.cwd()), server: DEFAULT_SERVER, spawn: ["david", "sven"] });
+      ensureManager({ space: resolveSpace(process.cwd()), server: DEFAULT_SERVER, spawn: [...DEMO_TEAM] });
       p.outro(brand("Launching your session... david and sven are warming up in the background."));
       await spawn(["me", "--prompt", ME_GREETING]);
       process.exit(0);
@@ -316,17 +320,26 @@ function ensureCmuxSession(cwd: string): void {
   const space = resolveSpace(cwd);
 
   // Control plane: a cmux-runtime manager that pre-spawns david/sven into their own tabs and owns
-  // them (so cotal_despawn / cotal_spawn work). Open it only if it isn't already up (idempotent).
-  if (!cmux.workspaceExists("cotal-manager")) {
-    cmux.openWorkspace("cotal-manager", JSON.stringify(term(`${cotal} cmux --space ${space} --spawn david,sven`)), {
-      focus: false,
-    });
+  // them (so cotal_despawn / cotal_spawn work). A cmux tab persists after its process dies, so
+  // "workspace exists" != "manager running" — gate on the live process. When none is up, drop the
+  // dead manager + teammate tabs first, then open a fresh one; otherwise re-runs keep skipping a
+  // never-restarted manager and david/sven never join.
+  if (!cmuxManagerRunning(space)) {
+    for (const ws of ["cotal-manager", ...DEMO_TEAM.map((n) => `cotal-${n}`)]) closeStaleWorkspaces(ws);
+    cmux.openWorkspace(
+      "cotal-manager",
+      JSON.stringify(term(`${cotal} cmux --space ${space} --spawn ${DEMO_TEAM.join(",")}`)),
+      { focus: false },
+    );
   }
 
-  // Your focused driver: console + the "me" session. cmux runs pane commands through the login
-  // shell (which may be nushell) before bash, so keep the command free of embedded single quotes:
-  // pass the greeting base64-encoded and decode it in bash.
-  if (!cmux.workspaceExists("cotal-main")) {
+  // Your focused driver: console + the "me" session. Gate on the live driving session (not the
+  // persistent tab) so a session you're driving is never disturbed; a dead/closed one gets its stale
+  // tab dropped and reopened. cmux runs pane commands through the login shell (which may be nushell)
+  // before bash, so keep the command free of embedded single quotes: pass the greeting base64-encoded
+  // and decode it in bash.
+  if (!pgrepMatches(`spawn me --space ${space}`)) {
+    closeStaleWorkspaces("cotal-main");
     const greetB64 = Buffer.from(ME_GREETING, "utf8").toString("base64");
     const meCmd = `${cotal} spawn me --space ${space} --prompt "$(echo ${greetB64} | base64 -d)"`;
     const main = JSON.stringify({
@@ -335,6 +348,18 @@ function ensureCmuxSession(cwd: string): void {
       children: [term(`${cotal} console --space ${space}`), confirmTerm(meCmd)],
     });
     cmux.openWorkspace("cotal-main", main, { focus: true });
+  }
+}
+
+/** Close any lingering cmux tabs labelled `name` (dead tabs persist in the workspace list after
+ *  their process exits) so a freshly opened one is the only instance. */
+function closeStaleWorkspaces(name: string): void {
+  for (const ref of cmux.workspaceRefs(name)) {
+    try {
+      cmux.closeWorkspace(ref);
+    } catch {
+      /* already gone */
+    }
   }
 }
 
@@ -358,7 +383,7 @@ async function runEnsure(): Promise<void> {
   // Inside cmux, re-running setup reopens your session (idempotent: reuse the live manager +
   // david/sven, open only missing tabs). Otherwise bring up the background pty control plane.
   try {
-    if (inCmuxSurface()) ensureCmuxSession(process.cwd());
+    if (inCmuxSurface()) ensureCmuxSession(cotalRoot());
     else ensureManager({ space: mesh.space, server: mesh.server });
   } catch {
     /* non-fatal */
@@ -372,8 +397,9 @@ async function readyCard(cwd: string): Promise<void> {
   const mesh = await meshStatus(cwd);
   const m = await machineStatus();
   const web = await webUp();
-  // The control plane is either the detached pty manager (pid file) or the cmux-tab manager.
-  const mgr = managerUp() || (inCmuxSurface() && cmux.workspaceExists("cotal-manager"));
+  // The control plane is either the detached pty manager (pid file) or a live cmux-tab manager
+  // (its tab lingers after it exits, so check the process, not the workspace list).
+  const mgr = managerUp() || (inCmuxSurface() && cmuxManagerRunning(mesh.space));
   const line = (on: boolean, text: string) => `${on ? ok("✓") : dim("○")} ${text}`;
   note(
     [
@@ -445,8 +471,25 @@ function claude(...args: string[]): { status: number | null; output: string } {
   return { status: r.status, output: `${r.stdout ?? ""}${r.stderr ?? ""}`.trim() };
 }
 
+/** Frontmatter marker (a comment line — the parser ignores `#` lines) stamping a demo persona as
+ *  setup-managed, so re-runs may refresh it; remove the line to take ownership. */
+const MANAGED_MARKER = "# managed by cotal-setup";
+
+/** Write a setup-managed demo persona, refreshing it when its DEMO_AGENTS body changes — but never
+ *  silently clobber a file the user has taken ownership of (one without the marker): back it up to
+ *  `<name>.md.bak` first. Missing or marker-carrying files are written in place. */
+function writeDemoAgent(path: string, body: string): void {
+  if (existsSync(path)) {
+    const cur = readFileSync(path, "utf8");
+    if (cur === body) return; // already current
+    if (!cur.includes(MANAGED_MARKER)) writeFileSync(`${path}.bak`, cur); // preserve a user/pre-marker edit
+  }
+  writeFileSync(path, body);
+}
+
 const DEMO_AGENTS: Record<string, string> = {
   david: `---
+${MANAGED_MARKER} — edit DEMO_AGENTS in the cotal CLI; delete this line to keep local changes
 name: david
 role: cotal-tech
 description: "the engineer: how Cotal works (the wire, NATS, connectors, integration)."
@@ -458,14 +501,16 @@ You are david, Cotal's engineer, live on the web for agents with the operator wh
 up. You help them set up and experiment. Your topic is how Cotal works: the wire contract (subjects,
 message schemas, presence), NATS and JetStream underneath, the endpoint/connector model, the
 delivery modes (multicast, unicast, anycast), and how to get any agent or framework onto the mesh.
-You ground every answer in the real thing, never a guess. Before answering how something works or
-how to integrate it, read the relevant source — the docs in \`docs/\` (OVERVIEW.md, architecture.md,
-claude-code-integration.md, setup-internals.md) and, in a source checkout, \`packages/\` and
-\`extensions/\`. If they aren't on disk, look them up at https://github.com/Cotal-AI/Cotal. Quote the
-exact subjects, message kinds, config, and commands; if the docs don't cover it, say so rather than
-inventing. If a question is really about use-cases or what to build, hand it to your peer sven.
+You ground every answer in the real thing, never a guess. Start from \`docs/OVERVIEW.md\` (what Cotal
+is and its core primitives) and \`docs/getting-started.md\`, then read the source for your topic —
+\`docs/architecture.md\`, \`docs/claude-code-integration.md\`, \`docs/setup-internals.md\`, and, in a
+source checkout, \`packages/\` and \`extensions/\`. Quote the exact subjects, message kinds, config, and
+commands; if the docs don't cover it, say so rather than inventing. If they aren't on disk, look
+them up at https://github.com/Cotal-AI/Cotal. If a question is really about use-cases or what to
+build, hand it to your peer sven.
 `,
   sven: `---
+${MANAGED_MARKER} — edit DEMO_AGENTS in the cotal CLI; delete this line to keep local changes
 name: sven
 role: cotal-guide
 description: "the guide: what to build with Cotal (examples, setups, getting the most out of it)."
@@ -474,14 +519,17 @@ channels: [general]
 ---
 
 You are sven, Cotal's guide, live on the web for agents with the operator who just set Cotal up.
-You help them set up and experiment. You love dreaming up multi-agent setups: who should be on a
-space, how they'd coordinate, what's worth trying — but you ground them in the real example
-projects, not made-up ones. Before sketching a setup, read the matching example — \`examples/*/README.md\`
-(indexed in \`docs/examples.md\`); if they aren't on disk, look them up at https://github.com/Cotal-AI/Cotal.
-Riff concretely, and cite the example you're drawing on. For deep how-it-works or integration
-details, pull in your peer david.
+You help them set up and experiment. You design multi-agent setups: who should be on a space, how
+they'd coordinate, what's worth trying — grounded in what Cotal can actually do, never made-up
+features. Start from \`docs/OVERVIEW.md\` (what Cotal is and its core primitives — channels, anycast,
+presence, spawn, personas, delivery modes) and \`docs/getting-started.md\`; read the matching example
+in \`examples/*/README.md\` (indexed in \`docs/examples.md\`) before sketching, and reach for
+\`docs/architecture.md\` when you need a primitive to design something new. Cite the example or
+primitive you're drawing on. If they aren't on disk, look them up at https://github.com/Cotal-AI/Cotal.
+For deep how-it-works or integration details, pull in your peer david.
 `,
   me: `---
+${MANAGED_MARKER} — edit DEMO_AGENTS in the cotal CLI; delete this line to keep local changes
 name: me
 role: operator
 description: "your own session on the Cotal mesh."

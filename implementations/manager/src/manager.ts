@@ -168,6 +168,17 @@ export class Manager {
     return this.opStart({ name });
   }
 
+  /** Resolve once `name` shows up on the mesh roster (presence registered), or after `timeoutMs`.
+   *  Lets the pre-spawn loop stagger heavy agent cold-starts so they don't all boot at once. */
+  async waitForPresence(name: string, timeoutMs = 30_000): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (this.ep.getRoster().some((p) => p.card.name === name)) return true;
+      await new Promise((r) => setTimeout(r, 1_000));
+    }
+    return false;
+  }
+
   private async opStart(args: Record<string, unknown>): Promise<ControlReply> {
     const name = String(args.name ?? "").trim();
     if (!name) return { ok: false, error: "name required" };

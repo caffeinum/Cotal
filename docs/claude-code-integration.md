@@ -22,12 +22,20 @@ Claude — it's an ordinary session that happens to be on the mesh.
 launch the manager runs:
 
 ```
-claude --dangerously-load-development-channels plugin:cotal@cotal-mesh
+claude --strict-mcp-config --mcp-config '{"mcpServers":{"cotal":{"command":"node","args":["<plugin>/dist/mcp.cjs"]}}}' \
+       --dangerously-load-development-channels server:cotal
 # env: COTAL_SPACE, COTAL_NAME, COTAL_ROLE, COTAL_SERVERS, COTAL_CHANNEL=1
 ```
 
+- **MCP isolation.** A spawned agent runs with **only** the cotal MCP server: `--strict-mcp-config`
+  ignores every other MCP source (crucially the operator's personal `~/.claude.json` servers — a
+  meshed teammate needs none of them, and several spawns each booting a Chromium/DB/etc. helper would
+  starve memory and kill the sessions before they register presence), and `--mcp-config` re-supplies
+  cotal. Because the plugin's own MCP server is suppressed, the channel ref is the manually-configured
+  server tagged `server:cotal` (not `plugin:cotal@cotal-mesh`); the plugin stays installed for its
+  hooks (message delivery), independent of the wake nudge.
 - **Installed, not `--plugin-dir`.** The plugin is installed once
-  (`claude plugin install cotal@cotal-mesh --scope local`) — the wake channel only binds to an
+  (`claude plugin install cotal@cotal-mesh --scope local`) — its hooks bind only to an
   *installed* plugin, so `--plugin-dir` (which loads but doesn't "install") isn't enough. Local
   scope keeps it to this repo (a gitignored `.claude/settings.local.json`), never user-global.
   In a clone, the marketplace is the repo root's [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json);
@@ -298,8 +306,10 @@ Two things move a message from the inbox to the model — **one delivers, one on
   wakes an *idle* session into a turn, so the hook drain runs *now* instead of at the next prompt.
   The nudge never acks or removes anything — if the channel can't run, delivery still happens at the
   next turn. It takes three things together: the plugin's MCP declares the `claude/channel`
-  capability, the session is launched with `--dangerously-load-development-channels
-  plugin:cotal@cotal-mesh` (research preview), **and** `COTAL_CHANNEL=1`. The last one matters:
+  capability, the session is launched with `--dangerously-load-development-channels server:cotal`
+  (research preview; `server:<name>` because cotal is supplied via `--mcp-config` under MCP isolation
+  — a `plugin:…@…` ref would point at the strict-suppressed plugin server), **and** `COTAL_CHANNEL=1`.
+  The last one matters:
   Claude does not echo `claude/channel` back in its MCP client capabilities, so the connector would
   auto-detect the channel as *off* and never send the nudge — the env flag forces it on.
 

@@ -2,12 +2,22 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadAgentFile, registry, type Connector, type LaunchOpts, type LaunchSpec } from "@cotal-ai/core";
 
-/** Channel ref for the locally-installed `cotal` plugin (marketplace `cotal-mesh`).
- *  `--dangerously-load-development-channels <ref>` turns on the plugin's
- *  `claude/channel` capability so an idle session wakes the instant a peer message
- *  arrives. The plugin must be *installed* (not `--plugin-dir`) for the channel to
- *  bind; the connector's identity guard keeps it inert in non-managed sessions. */
-const CHANNEL_REF = "plugin:cotal@cotal-mesh";
+/** Name the cotal MCP server is registered under via --mcp-config (see buildLaunch). */
+const MCP_SERVER_NAME = "cotal";
+/** Channel ref for `--dangerously-load-development-channels`, which turns on the cotal MCP server's
+ *  `claude/channel` capability so an idle session wakes the instant a peer message arrives. Because
+ *  we isolate the session with --strict-mcp-config the plugin's own MCP server is suppressed and
+ *  cotal is re-supplied via --mcp-config, so the ref is the manually-configured server tagged
+ *  `server:<name>` (the CLI rejects a plugin ref or a bare name here). The plugin stays installed
+ *  for its hooks, which do message delivery independent of this wake nudge. */
+const CHANNEL_REF = `server:${MCP_SERVER_NAME}`;
+
+/** Package root (parent of dist/), which doubles as the installable plugin dir: it carries
+ *  .claude-plugin/, .mcp.json, hooks/ and the dist/*.cjs bundles. */
+const PLUGIN_ROOT = fileURLToPath(new URL("..", import.meta.url));
+/** The cotal MCP server bundle, supplied explicitly so a spawned session can run with ONLY this
+ *  MCP server (see buildLaunch's --strict-mcp-config). */
+const MCP_CJS = resolve(PLUGIN_ROOT, "dist", "mcp.cjs");
 
 /**
  * The Claude Code connector: launches the real `claude` with the Cotal identity in
@@ -18,9 +28,7 @@ const CHANNEL_REF = "plugin:cotal@cotal-mesh";
 export const claudeConnector: Connector = {
   kind: "connector",
   name: "claude",
-  // Package root (parent of dist/), which doubles as the installable plugin dir:
-  // it carries .claude-plugin/, .mcp.json, hooks/ and the dist/*.cjs bundles.
-  pluginRoot: fileURLToPath(new URL("..", import.meta.url)),
+  pluginRoot: PLUGIN_ROOT,
   buildLaunch(opts: LaunchOpts): LaunchSpec {
     const env: Record<string, string> = {
       COTAL_SPACE: opts.space,
@@ -47,6 +55,18 @@ export const claudeConnector: Connector = {
     // can look something up under `npx` (no repo on disk) without prompting the operator
     // mid-demo. Additive under the default permission mode — leaves other tools as-is.
     args.push("--allowedTools", "WebFetch(domain:github.com),WebFetch(domain:raw.githubusercontent.com)");
+
+    // Isolate the spawned session's MCP to ONLY the cotal server. --strict-mcp-config drops every
+    // other MCP source — including the operator's personal ~/.claude.json servers (e.g. a headless
+    // Chromium, a DB server) that a meshed teammate never needs and that, multiplied across several
+    // spawns on a busy machine, starve memory and kill the session before it registers presence —
+    // and --mcp-config re-supplies cotal so its tools + presence still load. The plugin itself stays
+    // enabled (its hooks + the dev-channels wake path are unaffected; only MCP config is scoped).
+    args.push(
+      "--strict-mcp-config",
+      "--mcp-config",
+      JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: { command: "node", args: [MCP_CJS] } } }),
+    );
 
     // An agent file carries identity (read in-session via COTAL_AGENT_FILE) plus
     // persona + model, which can only be applied to a `claude` session at launch.

@@ -202,11 +202,22 @@ async function runManager(argv: string[], runtime: RuntimeMode): Promise<void> {
       c.dim("\n  spawn: cotal start --name <n>   ·   stop: cotal stop --name <n>   (Ctrl-C to shut down)"),
   );
   // Pre-spawn teammates the manager owns (e.g. the demo's david/sven), so they're despawnable.
+  // Stagger them: wait for each to register presence before launching the next, so several heavy
+  // Claude cold-starts don't boot simultaneously and spike memory. The last one needs no wait.
   if (v.spawn) {
-    for (const name of v.spawn.split(",").map((s) => s.trim()).filter(Boolean)) {
+    const names = v.spawn.split(",").map((s) => s.trim()).filter(Boolean);
+    for (let i = 0; i < names.length; i++) {
+      const name = names[i];
       const reply = await mgr.startByName(name);
-      if (reply.ok) console.log(c.green(`✓ spawned ${name}`));
-      else console.error(c.red(`✗ couldn't spawn ${name}: ${reply.error ?? "unknown error"}`));
+      if (!reply.ok) {
+        console.error(c.red(`✗ couldn't spawn ${name}: ${reply.error ?? "unknown error"}`));
+        continue;
+      }
+      console.log(c.green(`✓ spawned ${name}`));
+      if (i < names.length - 1) {
+        const joined = await mgr.waitForPresence(name);
+        console.log(c.dim(joined ? `  ${name} joined; starting next` : `  ${name} still starting; continuing`));
+      }
     }
   }
   const shutdown = () => void mgr.stop().then(() => process.exit(0));

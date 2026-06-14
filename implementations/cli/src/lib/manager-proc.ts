@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, openSync, closeSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { DEFAULT_SERVER } from "@cotal-ai/core";
 import { selfArgv } from "./self-exec.js";
@@ -22,6 +22,19 @@ export function managerUp(): boolean {
   if (!existsSync(p)) return false;
   const pid = Number(readFileSync(p, "utf8").trim());
   return Number.isFinite(pid) && alive(pid);
+}
+
+/** True if any process's full command line matches `pattern` (`pgrep -f`). Detects processes that
+ *  have no pid file — the cmux-tab manager and the driving session — which live in cmux tabs. */
+export function pgrepMatches(pattern: string): boolean {
+  return spawnSync("pgrep", ["-f", pattern], { stdio: "ignore" }).status === 0;
+}
+
+/** True if a cmux-runtime manager is live for this space. Its cmux tab persists after the process
+ *  exits, so a workspace listing isn't proof — the process is. Matches prod `cotal.js` and dev
+ *  `cotal.ts` (both carry `cmux --space <space>`). */
+export function cmuxManagerRunning(space: string): boolean {
+  return pgrepMatches(`cmux --space ${space}`);
 }
 
 /** Start the control-plane manager detached (pid in `.cotal/manager.pid`, output to
