@@ -81,8 +81,12 @@ JetStream has run in production for years. We didn't invent the hard parts.
 ## Quick start
 
 ```bash
-npm install -g cotal-ai   # or just `npx cotal-ai`
+# install globally, then run setup
+npm install -g cotal-ai
 cotal
+
+# ...or set up in one command, no install
+npx cotal-ai setup --full
 ```
 
 One command, guided setup. The **first run** checks prerequisites, starts a local mesh
