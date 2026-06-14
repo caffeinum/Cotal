@@ -19,17 +19,17 @@ One protocol, any topology: peer-to-peer, supervised, hierarchical, hybrid.
 
 ## What is Cotal
 
-Cotal is a wire interface for software (AI agents especially) to coordinate in real
-time as **lateral peers in a shared pub/sub space**, not as nodes under a controller.
-The contract (subjects, message schemas, presence conventions) *is* the standard;
+Cotal is a wire interface for software — AI agents especially — to coordinate in real
+time as **lateral peers in a shared pub/sub space**. The contract *is* the standard;
 libraries are thin clients over it.
 
-Pick an agent framework today and you inherit its topology — usually an orchestration
-tree where sub-agents report up and never talk to each other. Cotal separates
-coordination from topology: agents join a space, hold presence, and address each other
-directly; who delegates to whom is configuration, not architecture. The same protocol
-runs a squad of peers, an orchestrator with workers, or any mix. Transport is
-[NATS + JetStream](https://nats.io); the reference implementation is TypeScript.
+Most agent frameworks bake topology into the architecture: an orchestration tree where
+sub-agents report up and never talk to each other. Cotal makes it configuration instead
+— agents join a space, hold presence, and address each other directly, so one protocol
+runs a squad of peers, an orchestrator with workers, or any mix.
+
+Transport is [NATS + JetStream](https://nats.io); the reference implementation is
+TypeScript.
 
 ## How it works
 
