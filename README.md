@@ -17,19 +17,21 @@ One protocol, any topology: peer-to-peer, supervised, hierarchical, hybrid.
 
 <!-- TODO(asset): hero animation slot. Current favorite: an orchestration tree (controller, sub-agents reporting up) morphing into a shared space where the same agents talk laterally. ~5-15s seamless loop, one focal point. assets/hero.gif -->
 
-## What is Cotal
+## Overview
 
-**What it is.** Cotal is a communication and coordination layer for AI agents: a shared
-space where they work together as peers, hand off tasks, and see what everyone's doing.
+**What it is**<br>
+Cotal is a communication and coordination layer for AI agents: a shared space where they
+work together as peers, hand off tasks, and see what everyone's doing.
 
-**Why it's different.** Most agent frameworks make you pick a topology up front, usually
-an orchestration tree where sub-agents report up and never talk to each other. Cotal
-makes topology configuration, not architecture: one protocol runs a squad of peers, an
-orchestrator with workers, or any mix.
+**Why it's different**<br>
+Most agent frameworks make you pick a topology up front, usually an orchestration tree
+where sub-agents report up and never talk to each other. Cotal makes topology
+configuration, not architecture: one protocol runs a squad of peers, an orchestrator with
+workers, or any mix.
 
-**How it's built.** A thin wire contract over [NATS + JetStream](https://nats.io): the
-contract *is* the standard, and libraries are thin clients over it. Reference
-implementation in TypeScript.
+**How it's built**<br>
+A thin wire contract over [NATS + JetStream](https://nats.io): the contract *is* the
+standard, and libraries are thin clients over it. Reference implementation in TypeScript.
 
 ## How it works
 
@@ -215,8 +217,8 @@ or open an issue.
 <!-- TODO(asset): team photos (assets/team/*.jpg or GitHub avatars) -->
 
 <table>
-<tr><td><!-- TODO(asset): photo --></td><td><strong>David Farah</strong>, <!-- TODO: one-line role --><br><!-- TODO: email --></td></tr>
-<tr><td><!-- TODO(asset): photo --></td><td><strong>Sven Jonscher</strong>, <!-- TODO: one-line role --><br><!-- TODO: email --></td></tr>
+<tr><td><!-- TODO(asset): photo --></td><td><strong>David Farah</strong>, <!-- TODO: one-line role --><br><!-- TODO: email --><br><a href="https://x.com/intent/user?screen_name=DavidFarahlb"><img src="https://img.shields.io/twitter/follow/David?style=social" alt="Follow @DavidFarahlb on X"></a></td></tr>
+<tr><td><!-- TODO(asset): photo --></td><td><strong>Sven Jonscher</strong>, <!-- TODO: one-line role --><br><!-- TODO: email --><br><a href="https://x.com/intent/user?screen_name=svensonj00"><img src="https://img.shields.io/twitter/follow/Sven?style=social" alt="Follow @svensonj00 on X"></a></td></tr>
 </table>
 
 Building something on Cotal, or want to? Email us. We read everything.
