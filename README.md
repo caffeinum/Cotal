@@ -24,16 +24,12 @@ time as **lateral peers in a shared pub/sub space**, not as nodes under a contro
 The contract (subjects, message schemas, presence conventions) *is* the standard;
 libraries are thin clients over it.
 
-Pick an agent framework today and you inherit its topology. Most hand you an
-orchestration tree: one controller, sub-agents that report up and never talk to each
-other. The few that don't give you raw point-to-point messaging with no shared space:
-no roster, no history, no notion of "who else is here."
-
-Cotal separates coordination from topology. Agents join a space, hold presence, and
-address each other directly; who delegates to whom is configuration, not architecture.
-The same protocol runs a squad of peers, an orchestrator with workers, a hierarchy, or
-any mix. Transport is [NATS + JetStream](https://nats.io); the reference implementation
-is TypeScript.
+Pick an agent framework today and you inherit its topology — usually an orchestration
+tree where sub-agents report up and never talk to each other. Cotal separates
+coordination from topology: agents join a space, hold presence, and address each other
+directly; who delegates to whom is configuration, not architecture. The same protocol
+runs a squad of peers, an orchestrator with workers, or any mix. Transport is
+[NATS + JetStream](https://nats.io); the reference implementation is TypeScript.
 
 ## How it works
 
@@ -45,21 +41,19 @@ Agents in a space address each other three ways.
 <img src="assets/anycast.webp" width="32%" alt="Anycast: a message addressed to the reviewer role; exactly one free reviewer instance claims it">
 </p>
 
-**Multicast: broadcast to a channel.** A message on a named channel (`#general`,
-`#review`) reaches everyone subscribed to it. This is how a group stays in sync.
+**Multicast** — a message on a named channel (`#general`, `#review`) reaches everyone
+subscribed. This is how a group stays in sync.
 
-**Unicast: message one peer.** Addressed to a specific instance and delivered durably:
-a message to a busy or offline agent waits on the stream until it is read; nothing is
-lost.
+**Unicast** — addressed to one instance and delivered durably: a message to a busy or
+offline agent waits until it is read; nothing is lost.
 
-**Anycast: reach any one of a role.** Address a *service* ("whoever is a reviewer")
-and exactly one available instance picks the work up. Delegation and load-balancing
-without naming a worker.
+**Anycast** — addressed to a *role* ("whoever is a reviewer"); exactly one available
+instance picks the work up. Delegation and load-balancing without naming a worker.
 
-Underneath all three: **presence**. Every agent publishes a live state (`idle` /
-`waiting` / `working` / `offline`) and its [A2A](https://a2a-protocol.org)
-`AgentCard`. Anyone in the space can read the roster and see who is doing what, which
-is what makes lateral coordination possible without a central scheduler.
+Underneath all three is **presence**: every agent publishes a live state (`idle` /
+`working` / `offline`) and its [A2A](https://a2a-protocol.org) `AgentCard`, so anyone
+can read the roster and see who is doing what — lateral coordination without a central
+scheduler.
 
 ## Why a protocol?
 
@@ -73,10 +67,10 @@ them.
   channels, durable delivery, and the three addressing modes as one model.
 
 Cotal reuses A2A's data shapes to stay interoperable: identity is an A2A `AgentCard`
-(its `role` is the addressable service that anycast resolves to), and wire messages
-reuse A2A `Message`/`Part`. It does not adopt A2A's HTTP/JSON-RPC transport, `Task`
-RPCs, or request/response server model. Only the shapes carry over. Underneath, NATS +
-JetStream has run in production for years. We didn't invent the hard parts.
+(its `role` is the service anycast resolves to), and wire messages reuse A2A
+`Message`/`Part` — without A2A's HTTP/JSON-RPC transport or request/response model.
+Underneath, NATS + JetStream has run in production for years. We didn't invent the hard
+parts.
 
 ## Quick start
 
@@ -85,25 +79,11 @@ npm install -g cotal-ai   # or just `npx cotal-ai`
 cotal
 ```
 
-One command, guided setup. The **first run** walks you through it: checks
-prerequisites, starts a local web for agents (the `nats-server` binary ships with the
-package; bring your own on PATH and it wins), lets you pick connectors (Claude installs a
-plugin, Codex/OpenCode auto-wire at spawn), and adds two experts plus your own session:
-**david** the engineer (how it works), **sven** the guide (what to build), and **me**, the
-session you drive. If a step fails it offers an interactive Claude session that knows what
-went wrong, then resumes. The finale opens a Claude you drive, with david and sven helping
-in the background.
-
-The local mesh is **open** by default (no auth, loopback-only) so everything works with zero
-credential setup; add `cotal setup --auth` for a JWT-authed mesh (sender-authenticity + per-agent
-ACLs) when you share it or go cross-machine.
-
-**Every run after** is a quick `cotal · ready` status: it makes sure a web is up in the
-current folder and prints your next steps. Run `cotal setup --full` to re-run the full
-guided flow (e.g. to repair something). Setting up for someone via a coding agent or CI?
-`npx cotal-ai setup --yes` does it non-interactively — mesh, web, and the control-plane manager,
-so the `cotal_*` tools work right away. See
-[docs/getting-started.md](docs/getting-started.md) for the full walkthrough.
+One command, guided setup: it checks prerequisites, starts a local mesh, lets you pick
+connectors, and drops you into a Claude session with two expert agents helping in the
+background. The mesh is **open** by default (no auth, loopback-only); add `--auth` to
+JWT-secure it when you share it. Full flow, CI usage (`--yes`), and re-running setup:
+[docs/getting-started.md](docs/getting-started.md).
 
 Or do it by hand — two peers in one shared space, in three steps:
 
@@ -134,57 +114,23 @@ Present: alice ○ idle
 Alice's terminal prints `→ bob/reviewer joined ○ idle` as he arrives. Type a line in
 either terminal and it lands in the other's `#general`. That is the whole primitive.
 
-`npx cotal-ai web --space main` opens the space in a browser, with the roster, channels,
-and live feed:
+`npx cotal-ai web --space main` opens the space in a browser — roster, channels, live
+feed:
 
 <p align="center"><img src="assets/dashboard.png" width="860" alt="The Cotal web dashboard: live roster on the left, the all-activity feed in the middle, attention queue on the right"></p>
 
-For the full walkthrough (manager-spawned peers, a real Claude Code agent joining the
-mesh), see [`examples/01-lateral-coordination`](examples/01-lateral-coordination).
+Full walkthrough (manager-spawned peers, a real Claude Code agent on the mesh):
+[`examples/01-lateral-coordination`](examples/01-lateral-coordination).
 
 ## What Cotal adds on top of NATS
 
-NATS is the transport; Cotal is the contract on top. Each capability maps to a concrete
-mechanism you can check against the code:
+NATS is the transport; Cotal is the contract on top — durable per-reader delivery
+(busy/offline agents resume, late joiners replay), sender authenticity (the sender rides
+the subject, policed by JWT — impersonation fails closed), per-agent ACLs, presence, and
+the three addressing modes as one model. The mechanics and the full security model are in
+[docs/architecture.md](docs/architecture.md).
 
-- **Sender authenticity.** Every subject carries the sender's token
-  (`cotal.<space>.inst.<target>.<sender>`), policed by the server against the
-  authenticated JWT rather than self-asserted; mismatches are rejected on every
-  receive path, fail-closed. An agent can only ever emit as itself; payload claims of
-  identity are ignored.
-- **Per-agent ACLs.** Decentralized JWT auth (`@nats-io/jwt`, no `nsc`) where
-  account = space and user = agent. The `agent`, `observer`, and `admin` profiles are
-  default-deny allow-lists (`manager` is the privileged allow-all profile, not
-  user-mintable); `cotal mint <name> --profile agent` writes a creds file.
-- **DM confidentiality by construction.** Two leak paths are closed: delivery is
-  ACL-gated by subject, and replay is gated because a privileged provisioner
-  pre-creates each agent's bind-only inbox consumer; every consumer-create form on the
-  DM and task streams is denied to agents. (DMs are plaintext and ACL-gated, not
-  encrypted.)
-- **Durable, per-reader delivery.** Three JetStream streams per space
-  (`CHAT_<space>`, `DM_<space>`, `TASK_<space>`), with a bookmark per reader. Busy and
-  offline agents read from where they left off; a late joiner replays history, then
-  goes live.
-- **Presence and a live channel registry.** Presence is a per-space NATS KV bucket
-  (key = instance, bucket TTL + heartbeat). Channels carry a registry (replay policy,
-  description, instructions) watched live over KV.
-- **Three delivery modes, one model.** Multicast, unicast, and anycast are one
-  addressing scheme (subjects `chat.>`, `inst.>`, `svc.>`) over the same space, not
-  three transports; the message class is derived from the subject that delivered it.
-- **Roles as addressable services.** A role is the anycast address: "send to any
-  reviewer" routes through a shared work queue, so specialization is part of the
-  addressing rather than glued on top.
-- **Push, not poll.** On push-capable hosts, a peer message wakes an idle agent the
-  instant it arrives, so a mesh of agents runs hands-free; pull-only hosts read on
-  their next turn.
-- **Attention modes.** Each agent sets what may interrupt it: `open` lets channel
-  chatter wake it, `dnd` holds chatter for its next turn, `focus` admits only direct
-  messages and assigned work. Coordination without constant interruption.
-- **Logging and tracing built in.** Every message rides a durable stream, so the whole
-  space is one replayable log: who said what to whom, in order, with no extra
-  instrumentation. `cotal watch` tails it live.
-
-### Ecosystem: what runs today
+## Ecosystem: what runs today
 
 | Package | What it is |
 |---|---|
@@ -196,18 +142,16 @@ mechanism you can check against the code:
 | [`@cotal-ai/connector-codex`](extensions/connector-codex) | [Codex](https://openai.com/codex/) adapter: pull-only MCP server injected via `codex -c`. |
 | [`@cotal-ai/connector-opencode`](extensions/connector-opencode) | [OpenCode](https://opencode.ai) adapter: native in-process plugin injected via config. |
 
-The connectors attach differently but expose the same `cotal_*` tools. Claude Code and
-OpenCode push: a peer message wakes an idle agent the instant it arrives. Codex pulls
-today, acting on messages on its next turn; push support is coming soon.
+All connectors expose the same `cotal_*` tools. Claude Code and OpenCode push (a peer
+message wakes an idle agent instantly); Codex pulls today, acting on its next turn.
 
 ## Example: one change across three repos
 
 In [`examples/02-cmux-handoff`](examples/02-cmux-handoff), real Claude Code agents ship
-a single feature spanning three repositories. An orchestrator spawns the workers and
-fans the tasks out by direct message. When the web agent needs the exact `/tasks`
-contract, it asks the API agent directly over the mesh; the orchestrator isn't in that
-exchange. Supervision and lateral handoff in the same space: the topology lives in
-the example's config, never in Cotal itself.
+one feature across three repos. An orchestrator fans tasks out by direct message, but
+when the web agent needs the exact `/tasks` contract it asks the API agent directly —
+the orchestrator isn't in that exchange. Supervision and lateral handoff in the same
+space: the topology lives in the example's config, never in Cotal itself.
 
 More scenarios in [`examples/`](examples/).
 
@@ -220,24 +164,12 @@ More scenarios in [`examples/`](examples/).
 ## FAQ
 
 <details>
-<summary><strong>Why not just A2A or MCP?</strong></summary>
-
-They solve different layers. MCP connects an agent to its tools; A2A connects two
-agents in a pairwise request/response. Neither gives you a live shared space with
-presence, channels, durable delivery, and topology-free coordination. That's the gap
-Cotal fills. Reusing A2A's `AgentCard` and `Message`/`Part` shapes keeps the two
-interoperable.
-
-</details>
-
-<details>
 <summary><strong>Is Cotal TypeScript-only?</strong></summary>
 
-The protocol isn't. Cotal is a contract over NATS (subjects, schemas, *and* required
-client behaviors like presence, ack-on-surface, and sender authenticity), and the layer
-is deliberately thin. TypeScript is the only implementation today; any language with a
-NATS client can implement the contract documented in [`docs/`](docs/), and official
-clients in other languages are planned.
+The protocol isn't. Cotal is a thin contract over NATS (subjects, schemas, and required
+client behaviors like presence and sender authenticity). TypeScript is the only
+implementation today, but any language with a NATS client can implement the contract in
+[`docs/`](docs/); official clients in other languages are planned.
 
 </details>
 
@@ -248,16 +180,6 @@ JetStream streams give durable delivery to busy or offline agents, per-reader
 bookmarks, and late-join history without Cotal reimplementing any of it. And yes: NATS
 clustering takes the same subjects, streams, and accounts from one machine to a
 distributed cluster unchanged.
-
-</details>
-
-<details>
-<summary><strong>Can an agent impersonate another?</strong></summary>
-
-No. The sender rides the NATS subject, which the server polices against the agent's
-JWT; a payload claiming a different sender is rejected. DMs are confidential by
-construction: a per-identity inbox served by a bind-only durable that agents can't
-re-create or re-target.
 
 </details>
 
