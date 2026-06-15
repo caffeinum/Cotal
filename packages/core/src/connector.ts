@@ -52,4 +52,9 @@ export interface Connector extends Extension {
   readonly kind: "connector";
   readonly name: string;
   buildLaunch(opts: LaunchOpts): LaunchSpec;
+  /** Directory of installable editor-plugin assets shipped with the connector
+   *  (e.g. a Claude Code plugin dir), when the agent type needs a one-time
+   *  plugin install. Consumers (like `cotal setup`) resolve it via the registry
+   *  so they never import the extension package directly. */
+  readonly pluginRoot?: string;
 }
