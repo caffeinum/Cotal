@@ -1,75 +1,76 @@
-# Cotal — Transport bindings & the capability contract
+# Cotal: transport bindings and the capability contract
 
-> What in Cotal is the *protocol* and what is the *transport*, and the contract any transport
-> binding has to satisfy. Proposal, not locked. Companion to the
+> What in Cotal is the *protocol*, what is the *transport*, and what a transport binding must
+> provide. Informative companion to the normative
+> [wire spec](../SPEC.md) and the
 > [NATS/JetStream mapping](architecture.md#technical-mapping-nats--jetstream).
 
-Cotal runs on NATS/JetStream today, and that is the *reference binding*, not the definition.
-This page draws the line so "transport-agnostic" is a checkable claim rather than a slogan. We
-do **not** add a transport abstraction layer in code yet — there is no second consumer — the
-decoupling here is at the spec level.
+Cotal runs on NATS/JetStream today. That is the reference binding, not the definition of the
+protocol. This page names the boundary so "transport-agnostic" means something testable. There
+is no transport abstraction layer in code yet because there is no second binding. For now, the
+separation is in the spec.
 
 ## The two layers
 
-- **The Cotal protocol** (transport-agnostic): the wire contract. The message shapes
-  ([`types.ts`](../packages/core/src/types.ts), already marked "transport-agnostic"), the
-  addressing model (hierarchical `space / service / instance`, three delivery modes), and the
-  coordination semantics (spaces, channels, presence, history/replay, discovery, and
-  *authenticated directedness* — sender and message-class derive from the delivery channel, not
-  the payload). **This is the standard.**
-- **A transport binding**: realizes that contract on a concrete substrate. NATS/JetStream is the
-  reference binding; [`subjects.ts`](../packages/core/src/subjects.ts) is its NATS encoding.
+- **The Cotal protocol** (transport-agnostic): the wire contract. This includes the message
+  shapes ([`types.ts`](../packages/core/src/types.ts), with a generated
+  [`cotal.schema.json`](../spec/cotal.schema.json)), the addressing model (`space / service /
+  instance`, three delivery modes, and `ctl` request/reply), and the coordination semantics:
+  spaces, channels, presence, history/replay, discovery, version/change rules, and
+  authenticated directedness. Sender and message class come from the delivering subject, not
+  from the payload. **This is the standard.**
+- **A transport binding**: an implementation of that contract on a concrete substrate.
+  NATS/JetStream is the reference binding; [`subjects.ts`](../packages/core/src/subjects.ts) is
+  its NATS encoding.
 
-The lateral-peer coordination model is the value and lives entirely in the first layer. The
-transport is an implementation detail underneath it.
+Cotal's coordination model lives in the protocol layer. The transport is the way a deployment
+implements it.
 
 ## The transport capability contract
 
-A conforming binding must provide each capability — or Cotal must supply it on top of the
-transport. There are five.
+A conforming binding must provide these capabilities, or Cotal has to supply them above the
+transport.
 
 | # | Capability | What it means |
 |---|---|---|
-| 1 | **Addressed routing** | Hierarchical names with wildcards; the three delivery modes — multicast (a channel + its subtree), unicast (one instance), anycast (one-of-N for a role, load-balanced). Sender **and** delivery-class must be attributable to the delivering channel, not the payload (the authenticity primitive). |
-| 2 | **Durable delivery & history** | Per-recipient bookmarks, store-and-forward so an offline / mid-turn agent misses nothing, explicit ack + redelivery, and bounded late-join replay. |
-| 3 | **Presence & registry state** | A small per-space key/value store (TTL/expiry) for presence (`idle`/`waiting`/`working`/`offline`) and channel config. |
-| 4 | **Identity** | A stable per-agent id the transport can bind delivery and authenticity to. |
+| 1 | **Addressed routing** | Hierarchical names with wildcards; the three delivery modes: multicast (publish to one concrete channel, subscribe to a channel or subtree), unicast (one instance), and anycast (one-of-N for a role, load-balanced). Also includes service-addressed control request/reply. Sender **and** delivery-class must be attributable to the delivering subject, not the payload. |
+| 2 | **Durable delivery & history** | At-least-once store-and-forward so an offline / mid-turn agent misses nothing: per-instance bookmarks for multicast/unicast, per-role queued work for anycast, explicit ack + redelivery, duplicate tolerance by message id, and bounded late-join replay. |
+| 3 | **Presence & registry state** | A small per-space key/value store: own-key presence writes keyed by instance id, TTL/stale/delete-derived `offline`, and durable channel config. |
+| 4 | **Identity** | A stable per-instance id the transport can bind delivery and authenticity to. |
 | 5 | **Authorization & isolation** | A per-space boundary: an agent emits only as itself, only to its declared channels, reads only its own DMs; cross-space isolation. |
 
-Capabilities 1, 4, 5 are *transport-shaped* (routing, identity, authz are properties of the
-pipe). Capabilities 2 and 3 are *state* — a transport that is purely a live pipe does not have
-them, and then they become Cotal's job.
+Capabilities 1, 4, and 5 are transport-shaped: routing, identity, and authorization are
+properties of the pipe. Capabilities 2 and 3 are state. A live-only pipe does not provide them,
+so Cotal would have to add them.
 
 ## NATS reference binding
 
-NATS/JetStream satisfies all five natively, which is why Cotal is batteries-included today:
+NATS/JetStream satisfies all five capabilities:
 
 | Capability | NATS realization |
 |---|---|
-| Routing | Subjects `cotal.<space>.{chat\|inst\|svc\|ctl}.<sender|route>.…`; sender encoded in the subject (`parseSubject` is the sole authority); `*`/`>` wildcards; queue groups for anycast. |
-| Durability & history | JetStream streams `CHAT_/DM_/TASK_<space>`, per-reader durable consumers (`chat_/dm_/svc_`), ack-on-surface, Direct-Get backfill for late join. |
-| Presence & registry | KV buckets `cotal_presence_<space>` and `cotal_channels_<space>`. |
-| Identity | The agent's **nkey public key** = `card.id` = subject sender token = JWT subject = durable name ([`identity.ts`](../packages/core/src/identity.ts)). |
+| Routing | Subjects `cotal.<space>.{chat\|inst\|svc\|ctl}.<sender|route>.…`; sender encoded in the subject (`parseSubject` is the sole authority); `*`/`>` wildcards; queue groups for anycast; `ctl` request/reply for control. |
+| Durability & history | JetStream streams `CHAT_/DM_/TASK_<space>`, per-instance chat/DM durables (`chat_`/`dm_`), per-role task durables (`svc_`), at-least-once ack-on-surface, `Nats-Msg-Id` publish dedup, Direct-Get chat backfill for late join. |
+| Presence & registry | KV buckets `cotal_presence_<space>` (TTL/stale/delete-derived liveness) and `cotal_channels_<space>` (durable channel config). |
+| Identity | The instance's **nkey public key** = `card.id` = subject sender token = JWT subject = the id token used in per-instance durable names ([`identity.ts`](../packages/core/src/identity.ts)). |
 | Authz & isolation | Operator-signed **account per space** + per-profile JWT ACLs (agent/observer/admin/manager) built from the shared subject/stream builders ([`provision.ts`](../packages/core/src/provision.ts)). |
 
-Capabilities 2 and 3 are *offloaded to JetStream and KV* — Cotal does not implement history,
-presence, or exactly-once itself, it leans on the substrate (per the "use native NATS features,
-don't re-implement" rule). That is what makes NATS such a strong reference binding.
+Capabilities 2 and 3 are offloaded to JetStream and KV. Cotal does not implement history,
+presence, ack/redelivery, or publish dedup itself. It uses the native NATS mechanisms. Handlers
+still need to be idempotent; this is durable delivery, not exactly-once processing.
 
 ## Binding to another transport
 
-The contract is what a second binding implements against. The thing to watch: routing,
-identity, and authz (1, 4, 5) are properties most transports can offer, but **durability and
-presence (2, 3) are state, and a live-only transport does not have them.** On any transport
-without native store-and-forward and a presence/registry store, Cotal has to supply both layers
-itself. So decoupling is never "swap the pipe" — it is "re-supply the state that JetStream and
-KV give us for free." Budget for that before adopting any non-NATS substrate.
+The contract is what a second binding implements against. Routing, identity, and authorization
+(1, 4, 5) are properties many transports can provide. Durability and presence (2, 3) are state.
+A live-only transport does not have them. On any transport without native store-and-forward and
+a presence/registry store, Cotal has to supply those pieces itself. A non-NATS binding is
+therefore more than a pipe swap.
 
 ## What this means
 
-- The decouplable substance is real and it is the protocol layer (types + addressing +
-  coordination semantics). Owning it is what makes Cotal the coordination *standard* rather than
-  one app on one broker.
+- The portable part is the protocol layer: types/schema, addressing, delivery/control
+  semantics, presence/channel semantics, and change rules.
 - Keep NATS as the reference binding and **do not** build a pluggable transport interface in code
   until a second binding has a consumer. The contract above *is* the decoupling for now.
 - Any "transport-agnostic" claim must name capabilities 2 and 3 as transport-provided today (not
