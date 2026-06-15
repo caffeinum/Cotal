@@ -53,7 +53,7 @@ pnpm build         # tsc build across all packages
 
 Demo 1 (the lateral-coordination showcase, [examples/01](examples/01-lateral-coordination/README.md))
 is **done** — mesh, control plane, and the coding-agent connectors run end-to-end.
-Current work is public-facing: the README ([design doc](docs/plans/readme.md)), docs,
+Current work is public-facing: the README ([design doc](.internal/plans/readme.md)), docs,
 and the hosted onboarding funnel.
 
 ## Research & web tools
