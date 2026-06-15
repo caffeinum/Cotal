@@ -21,4 +21,6 @@ step offers a Claude handoff (skippable with `COTAL_SKIP_ASSIST=1`) that carries
 context and resumes setup on `/exit`. Adds `cotal up --detach` + `cotal down` for a
 background mesh, a `Connector.pluginRoot` contract so consumers can find a connector's installable
 plugin assets without importing the extension, and ships the Claude Code connector's plugin
-manifest files in its published package.
+manifest files in its published package. When run via `npx` without a global `cotal`, setup offers
+to `npm i -g cotal-ai` (default yes; non-interactive takes the default), best-effort — and the
+status-card hints render the right prefix (`cotal` / `npx cotal-ai` / `pnpm cotal`) for how you ran it.
