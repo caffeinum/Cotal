@@ -1,0 +1,125 @@
+bin/LICENSE
+  s_3bbd3baf54137a::t_459a7d702904ec 1-202
+implementations/cli/src/lib/steps.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 1-111
+implementations/cli/src/lib/nats-bin.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 1-23
+implementations/cli/src/lib/setup-log.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 1-22
+implementations/cli/src/commands/channels.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 15-16,43,89
+implementations/cli/install.smoke.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 1-62
+implementations/cli/src/commands/history.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 11-12,37,52
+extensions/cmux/src/driver.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 69-100
+extensions/connector-core/src/agent.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 357-366
+implementations/cli/src/commands/setup.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 1-313,316-317,319-356,358-465,468-594
+extensions/connector-claude-code/src/extension.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 2,5-20,31,48-76
+extensions/connector-core/src/tool-specs.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 456-483
+bin/cotal.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 1,3-5,9,21-23
+implementations/cli/src/lib/self-exec.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 1-50
+docs/claude-code-integration.md
+  s_3bbd3baf54137a::t_459a7d702904ec 10-11,24-25,29-35,37,40-47,57-63,96-100,315-318
+bin/package.json
+  s_3bbd3baf54137a::t_459a7d702904ec 4,8-25
+implementations/cli/src/index.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 3-4,22-35,43-49
+implementations/cli/src/lib/paths.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 1-14
+CLAUDE.md
+  s_3bbd3baf54137a::t_459a7d702904ec 12-14,27,32,34
+docs/architecture.md
+  s_3bbd3baf54137a::t_459a7d702904ec 260-261,266-267,316-317,333
+package.json
+  s_3bbd3baf54137a::t_459a7d702904ec 33-35
+docs/web.md
+  s_3bbd3baf54137a::t_459a7d702904ec 8-10
+implementations/cli/src/commands/demo.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 9,81
+bin/README.md
+  s_3bbd3baf54137a::t_459a7d702904ec 3-13
+implementations/cli/src/commands/join.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 15,38
+bin/tsconfig.json
+  s_3bbd3baf54137a::t_459a7d702904ec 1-10
+implementations/cli/src/lib/onboard.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 1-17
+implementations/cli/src/commands/mint.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 13,34,46
+implementations/cli/src/commands/up.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 2-11,29,31-32,44,53-67,69,74,78,82,92-164,166-187,190-192,199,218
+extensions/connector-claude-code/package.json
+  s_3bbd3baf54137a::t_12e64c99db1ab5 39,41
+implementations/cli/src/commands/web.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 4-5,21-22,24,27-34,55,57,64,201-203,226-270
+pnpm-lock.yaml
+  s_3bbd3baf54137a::t_12e64c99db1ab5 46-63,222-227,241-259,452-495,1504-1509,1513-1515,2121-2123,2601-2630,3538-3543,3546-3549,4169
+pnpm-workspace.yaml
+  s_3bbd3baf54137a::t_12e64c99db1ab5 7
+implementations/manager/attach.smoke.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 1-100
+implementations/cli/src/lib/status.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 1-74
+packages/core/src/provision.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 18,330-340
+implementations/cli/src/lib/live-window.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 1-69
+examples/01-lateral-coordination/README.md
+  s_3bbd3baf54137a::t_459a7d702904ec 30
+implementations/cli/src/lib/cancel.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 1-12
+implementations/cli/package.json
+  s_3bbd3baf54137a::t_459a7d702904ec 26-27,31-37
+implementations/manager/src/manager.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 5,8-9,73,141-142,165-181,234,262-280,309-317
+extensions/connector-opencode/src/extension.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 33-35
+packages/core/src/connector.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 20-28,54-58
+docs/getting-started.md
+  s_3bbd3baf54137a::t_459a7d702904ec 1-102
+docs/setup-internals.md
+  s_3bbd3baf54137a::t_459a7d702904ec 1-93
+implementations/cli/src/commands/console.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 15-16,42-46,48,57,80
+implementations/cli/src/lib/manager-proc.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 1-86
+implementations/manager/src/commands.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 2,10-12,24-29,42,45,107,112,128,137,176,191,206-224,236,290-291,306-320,383
+README.md
+  s_3bbd3baf54137a::t_459a7d702904ec 78-102,104,106-108,112,115,118,126,133
+implementations/cli/src/commands/spawn.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 19-20,46-47,56,61,73,82,102,118-119
+.changeset/cotal-ai-setup.md
+  s_3bbd3baf54137a::t_459a7d702904ec 1-26
+implementations/cli/src/commands/down.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 1-35
+implementations/cli/src/lib/assist.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 1-66
+implementations/cli/src/lib/theme.ts
+  s_3bbd3baf54137a::t_459a7d702904ec 1-69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "fdb84be16ace171160409ca5316ff37ee0732cb9",
+  "prompts": {},
+  "sessions": {
+    "s_3bbd3baf54137a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4bc9ebbe-841d-4811-9fb5-935017520815",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
