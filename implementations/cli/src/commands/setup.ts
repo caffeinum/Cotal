@@ -190,7 +190,7 @@ async function runFirstRun(yes: boolean, open: boolean): Promise<void> {
  *  `cotal`. Interactive: a Y/n prompt (default yes). Non-interactive (`--yes` / no TTY): takes the
  *  default and installs. Best-effort — `npm i -g` fails a lot (EACCES, nvm/fnm/volta), so on failure
  *  we warn with the manual command and continue; setup never aborts over a PATH convenience. */
-async function offerGlobalInstall(yes: boolean): Promise<void> {
+export async function offerGlobalInstall(yes: boolean): Promise<void> {
   if (!isNpx() || cotalOnPath()) return; // already have `cotal`, or not an npx run
 
   if (!yes && process.stdin.isTTY) {
