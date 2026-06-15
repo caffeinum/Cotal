@@ -121,7 +121,7 @@ mesh), see [`examples/01-lateral-coordination`](examples/01-lateral-coordination
 NATS is the transport; Cotal is the contract on top. Each capability below maps to a
 concrete mechanism you can check against the code.
 
-#### <img src="assets/icons/identity.svg" height="24" align="middle" alt=""> &nbsp; Identity and access
+#### <img src="assets/icons/identity.svg" height="40" align="middle" alt=""> &nbsp; Identity and access
 
 - **Sender authenticity.** The sender rides the subject
   (`cotal.<space>.inst.<target>.<sender>`), policed by the server against the agent's
@@ -134,7 +134,7 @@ concrete mechanism you can check against the code.
   bind-only consumer it cannot re-create. (DMs are plaintext and ACL-gated, not
   encrypted.)
 
-#### <img src="assets/icons/delivery.svg" height="24" align="middle" alt=""> &nbsp; Delivery and history
+#### <img src="assets/icons/delivery.svg" height="40" align="middle" alt=""> &nbsp; Delivery and history
 
 - **Durable, per-reader delivery.** Three JetStream streams per space, with a bookmark
   per reader: busy or offline agents resume where they left off, and a late joiner
@@ -148,7 +148,7 @@ concrete mechanism you can check against the code.
 - **Logging and tracing built in.** Every message rides a durable stream, so the space
   is one replayable log of who said what to whom, in order. `cotal watch` tails it live.
 
-#### <img src="assets/icons/presence.svg" height="24" align="middle" alt=""> &nbsp; Presence and attention
+#### <img src="assets/icons/presence.svg" height="40" align="middle" alt=""> &nbsp; Presence and attention
 
 - **Presence and a live channel registry.** Presence is a per-space NATS KV bucket
   (TTL + heartbeat); channels carry a registry (replay policy, description, instructions)
