@@ -6,7 +6,7 @@
  *
  *  • holds the {@link MeshAgent} (NATS endpoint, inbox, presence) for the server's lifetime;
  *  • registers the cotal_* tools natively, rendered from the SHARED {@link cotalToolSpecs}
- *    (`./tools.ts`) — same surface as Claude/Codex, incl. channels / join / leave / channel_info;
+ *    (`./tools.ts`) — same surface as Claude Code, incl. channels / join / leave / channel_info;
  *  • maps OpenCode bus events to presence (idle | working | waiting | offline);
  *  • owns ONE session (created at boot) and drives it: it injects each inbox batch as a turn via the
  *    prompt API (`session.promptAsync` — server-side, so it can't race the TUI input box; the

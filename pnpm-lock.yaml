@@ -17,9 +17,6 @@ importers:
       '@cotal-ai/connector-claude-code':
         specifier: workspace:*
         version: link:extensions/connector-claude-code
-      '@cotal-ai/connector-codex':
-        specifier: workspace:*
-        version: link:extensions/connector-codex
       '@cotal-ai/connector-opencode':
         specifier: workspace:*
         version: link:extensions/connector-opencode
@@ -166,22 +163,6 @@ importers:
       tsx:
         specifier: ^4.22.4
         version: 4.22.4
-
-  extensions/connector-codex:
-    dependencies:
-      '@cotal-ai/connector-core':
-        specifier: workspace:*
-        version: link:../connector-core
-      '@modelcontextprotocol/sdk':
-        specifier: ^1.29.0
-        version: 1.29.0(zod@4.4.3)
-      tsx:
-        specifier: ^4.22.4
-        version: 4.22.4
-    devDependencies:
-      '@cotal-ai/core':
-        specifier: workspace:*
-        version: link:../../packages/core
 
   extensions/connector-core:
     dependencies:

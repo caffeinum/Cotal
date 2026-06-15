@@ -11,7 +11,7 @@ who delegates to whom — is just how you set it up.
 > **Status:** the **walking skeleton** (manual CLI peers), the **control plane** (manager +
 > `pty` runtime + web console), and the **Claude Code adapter** run today — `cotal start --agent
 > claude` spawns a real Claude session that joins the mesh, flips presence from its lifecycle
-> hooks, and wakes on incoming peer messages. The Codex adapter lands next.
+> hooks, and wakes on incoming peer messages.
 
 ## What it demonstrates
 

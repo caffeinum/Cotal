@@ -168,12 +168,10 @@ concrete mechanism you can check against the code.
 | [`@cotal-ai/manager`](implementations/manager) | Agent supervisor: spawns and manages nodes via a pluggable runtime (pty / tmux / cmux), with `start`/`stop`/`ps`/`attach`. |
 | [`@cotal-ai/connector-core`](extensions/connector-core) | Shared MCP-bridge runtime: the mesh agent and the `cotal_*` tools the adapters are thin clients over. |
 | [`@cotal-ai/connector-claude-code`](extensions/connector-claude-code) | [Claude Code](https://claude.com/product/claude-code) adapter: installed plugin + lifecycle hooks. |
-| [`@cotal-ai/connector-codex`](extensions/connector-codex) | [Codex](https://openai.com/codex/) adapter: pull-only MCP server injected via `codex -c`. |
 | [`@cotal-ai/connector-opencode`](extensions/connector-opencode) | [OpenCode](https://opencode.ai) adapter: native in-process plugin injected via config. |
 
 The connectors attach differently but expose the same `cotal_*` tools. Claude Code and
-OpenCode push: a peer message wakes an idle agent the instant it arrives. Codex pulls
-today, acting on messages on its next turn; push support is coming soon.
+OpenCode both push: a peer message wakes an idle agent the instant it arrives.
 
 ## Example: one change across three repos
 

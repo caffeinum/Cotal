@@ -3,9 +3,9 @@
  *
  * Each {@link CotalToolSpec} is a name + description + optional Zod arg shape + a `run`
  * that drives the {@link MeshAgent}. Renderers turn the set into their host's tool API:
- * {@link registerCotalTools} (in `tools.ts`) renders onto an MCP server (Claude Code,
- * Codex); the OpenCode connector renders the same specs as native plugin tools. One
- * source of truth, so the cotal_* surface can't drift across adapters.
+ * {@link registerCotalTools} (in `tools.ts`) renders onto an MCP server (Claude Code);
+ * the OpenCode connector renders the same specs as native plugin tools. One source of
+ * truth, so the cotal_* surface can't drift across adapters.
  */
 import { execFileSync } from "node:child_process";
 import { z } from "zod";

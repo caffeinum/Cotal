@@ -32,7 +32,7 @@ export interface LaunchSpec {
 }
 
 /**
- * A bridge that knows how to launch one agent type (Claude Code, Codex, the CLI
+ * A bridge that knows how to launch one agent type (Claude Code, OpenCode, the CLI
  * peer …) as a Cotal mesh node — an {@link Extension} of kind `"connector"`.
  * `name` is the agent type it handles — the key the manager resolves by.
  * Connectors self-register on import; the manager resolves them from the registry,

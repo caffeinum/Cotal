@@ -12,8 +12,7 @@ Claude — it's an ordinary session that happens to be on the mesh.
 
 > The mesh runtime — agent, `cotal_*` tools, hook relay — lives in
 > [`@cotal-ai/connector-core`](../extensions/connector-core); this package is the Claude-specific adapter
-> over it (its siblings are [`@cotal-ai/connector-codex`](../extensions/connector-codex), a pull-only
-> MCP adapter, and [`@cotal-ai/connector-opencode`](../extensions/connector-opencode), a native plugin).
+> over it (its sibling is [`@cotal-ai/connector-opencode`](../extensions/connector-opencode), a native plugin).
 
 ## How a session joins
 

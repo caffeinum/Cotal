@@ -67,7 +67,7 @@ Four core capabilities, plus observability, history, and isolation.
 
 ## The first demo
 
-Role-specialized agents (Claude Code + Codex) join one shared space, each in its own
+Role-specialized agents join one shared space, each in its own
 terminal, and coordinate laterally — presence, addressing, messaging, and a control
 plane — configurable, not hardwired (the *topology* is how you set it up, not baked in).
 

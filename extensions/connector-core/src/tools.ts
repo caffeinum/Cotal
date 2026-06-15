@@ -2,10 +2,10 @@
  * MCP renderer for the Cotal tool surface.
  *
  * The tools themselves are defined once, platform-neutrally, in {@link cotalToolSpecs}
- * ({@link ./tool-specs.ts}); this just renders each onto an {@link McpServer}. Both the
- * Claude Code and Codex connectors build their own server (with platform-specific
- * capabilities) and call {@link registerCotalTools}. The OpenCode connector renders the
- * same specs as native plugin tools — so the surface stays identical across adapters.
+ * ({@link ./tool-specs.ts}); this just renders each onto an {@link McpServer}. The
+ * Claude Code connector builds its own server (with platform-specific capabilities) and
+ * calls {@link registerCotalTools}. The OpenCode connector renders the same specs as
+ * native plugin tools — so the surface stays identical across adapters.
  */
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { cotalToolSpecs, type ToolResult } from "./tool-specs.js";

@@ -1,6 +1,6 @@
 /**
  * The Cotal tool surface for OpenCode, rendered from the **shared** {@link cotalToolSpecs}
- * (the same source the Claude Code / Codex MCP connectors render) as OpenCode-native plugin
+ * (the same source the Claude Code MCP connector renders) as OpenCode-native plugin
  * tools (the `tool()` helper). One source of truth → the cotal_* surface can't drift across
  * adapters: an OpenCode peer gets the same tools (incl. channels / join / leave / channel_info).
  *

@@ -12,8 +12,8 @@ configured once on npmjs.com.
 
 For **every** published package (`@cotal-ai/core`, `@cotal-ai/cli`,
 `@cotal-ai/manager`, `@cotal-ai/connector-core`,
-`@cotal-ai/connector-claude-code`, `@cotal-ai/connector-codex`,
-`@cotal-ai/connector-opencode`, `@cotal-ai/cmux`):
+`@cotal-ai/connector-claude-code`, `@cotal-ai/connector-opencode`,
+`@cotal-ai/cmux`):
 
 1. Go to `https://www.npmjs.com/package/<name>/access` (e.g.
    `https://www.npmjs.com/package/@cotal-ai/core/access`).

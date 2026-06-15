@@ -3,12 +3,11 @@
  * self-registers its commands into the shared registry — base mesh commands plus
  * `spawn`/`console` (@cotal-ai/cli) and the manager's control plane + daemon runners
  * (@cotal-ai/manager). The root just picks which surfaces to pull in; `runCli` resolves
- * whatever registered. A new surface (a Codex control client …) is one more import line.
+ * whatever registered. A new surface (another connector, a control client …) is one more import line.
  */
 import { runCli } from "@cotal-ai/cli"; // self-registers up / join / watch / spawn / console
 import "@cotal-ai/manager"; // self-registers supervise / cmux / start / stop / ps / attach
 import "@cotal-ai/connector-claude-code"; // registers the `claude` connector that spawn / start resolve
-import "@cotal-ai/connector-codex"; // registers the `codex` connector (pull-only MCP adapter)
 import "@cotal-ai/connector-opencode"; // registers the `opencode` connector (native in-process plugin)
 import "@cotal-ai/cmux"; // opt into the cmux integration — registers the `cmux` runtime
 import { claudeConnector } from "@cotal-ai/connector-claude-code";

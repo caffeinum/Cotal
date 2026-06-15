@@ -4,7 +4,7 @@
  * The agent runtime runs a hook on a lifecycle event and pipes the event JSON (which
  * includes `hook_event_name`) on stdin. We forward it to this session's connector over
  * its local control socket and print the reply for the runtime to apply. It must NEVER
- * block the session: any error → exit 0, no output. Both the Claude Code and Codex hook
+ * block the session: any error → exit 0, no output. The Claude Code hook
  * entry points are one-liners over {@link runHookRelay}.
  */
 import { connect } from "node:net";
