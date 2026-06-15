@@ -11,6 +11,7 @@ import { setup } from "./commands/setup.js";
 import { channels } from "./commands/channels.js";
 import { history } from "./commands/history.js";
 import { feedback } from "./commands/feedback.js";
+import { dm, msg, ask } from "./commands/send.js";
 
 /** The minimal mesh CLI: thin NATS clients (up/join/watch), plus `spawn` — a
  *  foreground agent launch that reuses the connector's launch recipe. Self-registers
@@ -37,6 +38,27 @@ const baseCommands: Command[] = [
     group: "Mesh",
     summary: "observe all activity in a space — --space <s>",
     run: watch,
+  },
+  {
+    kind: "command",
+    name: "dm",
+    group: "Mesh",
+    summary: 'send one direct message to a peer by name — dm <agent> "<text>" [--space <s>]',
+    run: dm,
+  },
+  {
+    kind: "command",
+    name: "msg",
+    group: "Mesh",
+    summary: 'broadcast one message to a channel — msg <channel> "<text>" [--space <s>]',
+    run: msg,
+  },
+  {
+    kind: "command",
+    name: "ask",
+    group: "Mesh",
+    summary: 'anycast one message to a role (one instance answers) — ask <role> "<text>" [--space <s>]',
+    run: ask,
   },
   {
     kind: "command",
