@@ -19,42 +19,37 @@ One protocol, any topology: peer-to-peer, supervised, hierarchical, hybrid.
 
 ## What is Cotal
 
-Cotal is a wire interface for software (AI agents especially) to coordinate in real
-time as **lateral peers in a shared pub/sub space**, not as nodes under a controller.
-The contract (subjects, message schemas, presence conventions) *is* the standard;
-libraries are thin clients over it.
+**Cotal is an open standard for AI agents to work together in one shared space, where
+the structure (their topology) is yours to define.** Every agent sees who else is there
+and messages anyone directly.
 
-Pick an agent framework today and you inherit its topology. Most hand you an
-orchestration tree: one controller, sub-agents that report up and never talk to each
-other. The few that don't give you raw point-to-point messaging with no shared space:
-no roster, no history, no notion of "who else is here."
+Most agent tools lock that structure in for you: usually a tree, where one controller
+hands out work and the workers never talk to each other, or bare one-to-one messaging
+with no shared space at all. With Cotal it is configuration: who delegates to whom, or
+whether anyone is in charge, is something you set, so the same standard runs a **flat team
+of peers**, a **manager with workers**, a **chain of command**, or **any mix**.
 
-Cotal separates coordination from topology. Agents join a space, hold presence, and
-address each other directly; who delegates to whom is configuration, not architecture.
-The same protocol runs a squad of peers, an orchestrator with workers, a hierarchy, or
-any mix. Transport is [NATS + JetStream](https://nats.io); the reference implementation
-is TypeScript.
+Because the standard is open, you extend it the same way: bring your own agents, or
+connect anything that speaks the contract. It runs on [NATS and JetStream](https://nats.io),
+messaging infrastructure proven in production for years; the reference implementation is
+TypeScript.
 
 ## How it works
 
 Agents in a space address each other three ways.
 
-<p align="center">
-<img src="assets/multicast.webp" width="32%" alt="Multicast: alice posts to the #general channel and every subscriber receives it">
-<img src="assets/unicast.webp" width="32%" alt="Unicast: alice messages bob directly; the message waits in his durable inbox while he is busy and is delivered when he frees up">
-<img src="assets/anycast.webp" width="32%" alt="Anycast: a message addressed to the reviewer role; exactly one free reviewer instance claims it">
-</p>
-
-**Multicast: broadcast to a channel.** A message on a named channel (`#general`,
-`#review`) reaches everyone subscribed to it. This is how a group stays in sync.
-
-**Unicast: message one peer.** Addressed to a specific instance and delivered durably:
-a message to a busy or offline agent waits on the stream until it is read; nothing is
-lost.
-
-**Anycast: reach any one of a role.** Address a *service* ("whoever is a reviewer")
-and exactly one available instance picks the work up. Delegation and load-balancing
-without naming a worker.
+<table>
+<tr align="center">
+<td width="33%"><img src="assets/multicast.webp" width="100%" alt="Multicast: alice posts to the #general channel and every subscriber receives it"></td>
+<td width="33%"><img src="assets/unicast.webp" width="100%" alt="Unicast: alice messages bob directly; the message waits in his durable inbox while he is busy and is delivered when he frees up"></td>
+<td width="33%"><img src="assets/anycast.webp" width="100%" alt="Anycast: a message addressed to the reviewer role; exactly one free reviewer instance claims it"></td>
+</tr>
+<tr valign="top">
+<td><strong>Multicast: broadcast to a channel.</strong><br>A message on a named channel (<code>#general</code>, <code>#review</code>) reaches everyone subscribed to it. This is how a group stays in sync.</td>
+<td><strong>Unicast: message one peer.</strong><br>Addressed to a specific instance and delivered durably: a message to a busy or offline agent waits on the stream until it is read, so nothing is lost.</td>
+<td><strong>Anycast: reach any one of a role.</strong><br>Address a <em>service</em> ("whoever is a reviewer") and exactly one available instance picks the work up. Delegation and load-balancing without naming a worker.</td>
+</tr>
+</table>
 
 Underneath all three: **presence**. Every agent publishes a live state (`idle` /
 `waiting` / `working` / `offline`) and its [A2A](https://a2a-protocol.org)
@@ -116,6 +111,7 @@ either terminal and it lands in the other's `#general`. That is the whole primit
 and live feed:
 
 <p align="center"><img src="assets/dashboard.png" width="860" alt="The Cotal web dashboard: live roster on the left, the all-activity feed in the middle, attention queue on the right"></p>
+<p align="center"><sub>Live roster, the all-activity feed, and the attention queue, in the browser.</sub></p>
 
 For the full walkthrough (manager-spawned peers, a real Claude Code agent joining the
 mesh), see [`examples/01-lateral-coordination`](examples/01-lateral-coordination).
