@@ -9,6 +9,7 @@ import { runCli } from "@cotal-ai/cli"; // self-registers up / join / watch / sp
 import "@cotal-ai/manager"; // self-registers supervise / cmux / start / stop / ps / attach
 import "@cotal-ai/connector-claude-code"; // registers the `claude` connector that spawn / start resolve
 import "@cotal-ai/connector-opencode"; // registers the `opencode` connector (native in-process plugin)
+import "@cotal-ai/connector-hermes"; // registers the `hermes` connector (Nous Research gateway as a mesh peer)
 import "@cotal-ai/cmux"; // opt into the cmux integration — registers the `cmux` runtime
 import { claudeConnector } from "@cotal-ai/connector-claude-code";
 import { registry } from "@cotal-ai/core";

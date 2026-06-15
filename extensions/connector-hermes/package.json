@@ -1,0 +1,46 @@
+{
+  "name": "@cotal-ai/connector-hermes",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Cotal-AI/Cotal.git",
+    "directory": "extensions/connector-hermes"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx tool-parity.smoke.ts",
+    "build": "tsc -p tsconfig.json && pnpm run bundle",
+    "bundle": "esbuild src/standalone.ts --bundle --platform=node --format=cjs --target=node20 --outfile=dist/standalone.cjs",
+    "prepublishOnly": "pnpm run build"
+  },
+  "dependencies": {
+    "@cotal-ai/connector-core": "workspace:*",
+    "tsx": "^4.22.4",
+    "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "@cotal-ai/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@cotal-ai/core": "workspace:*",
+    "esbuild": "^0.28.0"
+  },
+  "files": [
+    "dist",
+    "plugin",
+    "pyproject.toml"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
