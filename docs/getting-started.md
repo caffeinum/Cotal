@@ -10,9 +10,11 @@ npm install -g cotal-ai   # recommended — puts `cotal` (and `cotal go`) on you
 cotal                      # runs setup
 ```
 
-`npx cotal-ai` works too (no global install); the cmux session still opens either way (it invokes
-its own resolved path, not a global `cotal`). You need Node ≥ 20. The `nats-server` binary ships
-with the package; if you already have one on your PATH, Cotal uses that instead.
+`npx cotal-ai` works too; setup then offers to install `cotal` globally (default yes) so you can
+just type `cotal` — decline and the hints stay `npx cotal-ai …` (everything still works, since the
+cmux session and background processes invoke their own resolved path, not a global `cotal`). You
+need Node ≥ 20. The `nats-server` binary ships with the package; if you already have one on your
+PATH, Cotal uses that instead.
 
 ## First run
 
