@@ -75,6 +75,9 @@ model — those don't fit lateral pub/sub.
 
 We do **not** adopt SLIM's Rust data plane, gRPC transport, or MLS encryption — NATS/
 JetStream replaces that layer and adds the durability + presence SLIM leaves to the app.
+See [transport.md](transport.md) for the protocol-vs-transport split and the capability
+contract any second binding would have to satisfy — i.e. exactly what NATS gives us for
+free and a live-only transport would not.
 
 **Identity** is an A2A `AgentCard` whose `instance` id is a throwaway UUID today, shaped
 to later become a **DID** (`did:key` — a self-certifying public-key identifier) so identity
