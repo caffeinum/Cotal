@@ -9,6 +9,9 @@ tree. The wire contract (subjects, message schemas, presence/discovery conventio
 *is* the standard; libraries are thin clients over it. Transport is **NATS + JetStream**;
 reference implementation is **TypeScript**.
 
+New here? [docs/getting-started.md](docs/getting-started.md) is the fastest path to a
+running mesh; [docs/setup-internals.md](docs/setup-internals.md) documents the `cotal setup`
+flow + the invariants a repo change must keep in sync.
 See [docs/OVERVIEW.md](docs/OVERVIEW.md) for *what* it does,
 [docs/architecture.md](docs/architecture.md) for *how*, and
 [docs/claude-code-integration.md](docs/claude-code-integration.md) for the Claude Code
@@ -21,15 +24,15 @@ pnpm + TypeScript ESM monorepo — four dependency tiers, one-way deps, Node ≥
 - **`packages/*` — the protocol** (generic, the standard).
   - **@cotal-ai/core** — endpoint, subjects, message types; the NATS client layer + extension contracts (`Connector`, `Command`) and the `Registry` they self-register into.
 - **`extensions/*` — pluggable adapters** (peer-depend core; self-register on import).
-  - **@cotal-ai/connector-core** — shared MCP-bridge runtime (mesh agent, `cotal_*` tool specs incl. `cotal_spawn` / `cotal_persona` / `cotal_despawn`, hook relay); the adapters are thin clients over it.
+  - **@cotal-ai/connector-core** — shared MCP-bridge runtime (mesh agent, `cotal_*` tool specs incl. `cotal_spawn` / `cotal_persona` / `cotal_despawn` / `cotal_purge`, hook relay); the adapters are thin clients over it.
   - **@cotal-ai/connector-claude-code** — Claude Code adapter (installed plugin + `claude/channel` push).
   - **@cotal-ai/connector-codex** — Codex adapter (pull-only MCP server injected via `codex -c`; no plugin, no hooks).
   - **@cotal-ai/connector-opencode** — OpenCode adapter (native in-process plugin injected via `OPENCODE_CONFIG_CONTENT`; renders the shared `cotal_*` tool specs as plugin tools).
   - **@cotal-ai/cmux** — the cmux integration: a thin driver over the [cmux](https://github.com/) CLI (open/close a tab, send keys) **plus a self-registering `cmux` Runtime**. Importing it registers the runtime with the core `Registry`, so the manager spawns into cmux tabs without depending on this package (opt-in via one import; the `cotal` binary does it).
 - **`implementations/*` — opinionated surfaces** over core (self-contained; never import each other).
-  - **@cotal-ai/cli** — mesh CLI: `up`, `join`, `watch`, `console` (thin NATS clients) plus `spawn` — a foreground agent launch reusing the connector's launch recipe.
+  - **@cotal-ai/cli** — mesh CLI: `up`/`down`, `join`, `watch`, `console` (thin NATS clients), `spawn` — a foreground agent launch reusing the connector's launch recipe — and `setup`, the two-tier guided flow (bundled NATS binary, Claude plugin install, interactive Claude handoff on failures). First run (no `~/.cotal/onboarded.json`) is the full narrated/clack flow; later runs are a compact ensure+status; `setup --full` forces the full flow.
   - **@cotal-ai/manager** — agent supervisor: a mesh endpoint that spawns/manages nodes via a pluggable `Runtime` (`pty` default / `tmux` / `cmux`), plus its own control-plane commands (`start`/`stop`/`ps`/`attach`) and a WS attach endpoint.
-- **`bin/cotal.ts` — composition root** for the `cotal` binary: imports the implementations it wants (which self-register their commands) and runs them.
+- **`bin/` — the published `cotal-ai` package**: `cotal.ts` is the composition root for the `cotal` binary — imports the implementations it wants (which self-register their commands) and runs them. `npx cotal-ai` with no args runs the guided `setup`.
 - **`examples/*` — use-cases** (composition roots; private, never published).
 
 Tiers depend one-way: `examples → implementations → packages ← (peer) extensions`. An

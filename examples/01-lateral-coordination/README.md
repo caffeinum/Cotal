@@ -27,7 +27,7 @@ who delegates to whom — is just how you set it up.
 
 ## Prerequisites
 
-- Node ≥ 20, pnpm, and `nats-server` (v2.11+). macOS: `brew install nats-server`.
+- Node ≥ 20 and pnpm. (`cotal up` finds `nats-server` on PATH or uses the bundled binary.)
 - Install deps once, from the repo root: `pnpm install`.
 
 ## Run it

@@ -80,24 +80,47 @@ JetStream has run in production for years. We didn't invent the hard parts.
 
 ## Quick start
 
-Two peers in one shared space, in three steps.
+```bash
+# install globally, then run setup
+npm install -g cotal-ai
+cotal
 
-> [!IMPORTANT]
-> You need Node ≥20 and `nats-server` with JetStream (v2.11+). On macOS:
-> `brew install nats-server`. `cotal up` starts a local one, or reuses one already
-> listening on `:4222`.
+# ...or set up in one command, no install
+npx cotal-ai setup --full
+```
 
-<!-- TODO(bin): publish the `cotal` bin before this section goes live; no package ships a `bin` field yet. Until then the honest invocation is `pnpm cotal <cmd>` from a clone. -->
+One command, guided setup. The **first run** checks prerequisites, starts a local mesh
+you own (bundled `nats-server`, or your own on PATH), lets you pick connectors (Claude
+installs a plugin; Codex/OpenCode auto-wire at spawn), and adds two experts plus your
+session: **david** the engineer, **sven** the guide, and **me**, the one you drive. It
+then offers a Claude-driven demo with david and sven helping. If a step fails, it hands
+you to an interactive Claude with the failure context, then retries.
+
+The mesh is **open** by default (no auth, loopback-only); add `cotal setup --auth` for a
+JWT-authed mesh when you share it or go cross-machine.
+
+**Every run after** is a quick `cotal · ready` status that ensures the mesh, the browser
+dashboard, and the control-plane manager are up, then prints your next steps. Use
+`cotal go` to reopen or resume the session, `cotal setup --full` to redo the full flow,
+or `npx cotal-ai setup --yes` to set up non-interactively (CI or a coding agent: mesh,
+dashboard, and manager, so the `cotal_*` tools work right away). See
+[docs/getting-started.md](docs/getting-started.md) for the full walkthrough.
+
+Or do it by hand — two peers in one shared space, in three steps:
+
+> [!NOTE]
+> Node ≥20 required. `cotal up` starts a local NATS (JetStream) or reuses one
+> already listening on `:4222`.
 
 ```bash
 # 1. start a local mesh (NATS + JetStream, open dev mode)
-npx cotal up --open
+npx cotal-ai up --open
 
 # 2. join as alice (second terminal)
-npx cotal join --space demo --name alice --role coder
+npx cotal-ai join --space main --name alice --role coder
 
 # 3. join as bob (third terminal) and watch presence light up in both
-npx cotal join --space demo --name bob --role reviewer
+npx cotal-ai join --space main --name bob --role reviewer
 ```
 
 Bob's terminal greets him with who's already there:
@@ -105,14 +128,14 @@ Bob's terminal greets him with who's already there:
 <!-- TODO(asset): VHS terminal GIF. assets/quickstart.tape committed, rendered to assets/quickstart.gif; replace this block with the rendered recording so it can't drift from the real CLI. -->
 
 ```
-Joined demo as bob/reviewer on #general.
+Joined main as bob/reviewer on #general.
 Present: alice ○ idle
 ```
 
 Alice's terminal prints `→ bob/reviewer joined ○ idle` as he arrives. Type a line in
 either terminal and it lands in the other's `#general`. That is the whole primitive.
 
-`npx cotal web --space demo` opens the space in a browser, with the roster, channels,
+`npx cotal-ai web --space main` opens the space in a browser, with the roster, channels,
 and live feed:
 
 <p align="center"><img src="assets/dashboard.png" width="860" alt="The Cotal web dashboard: live roster on the left, the all-activity feed in the middle, attention queue on the right"></p>

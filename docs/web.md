@@ -5,9 +5,9 @@ channels, the direct messages, and the live feed. It sees everything (chat, DMs,
 but never publishes, needs no manager, and binds only to loopback.
 
 ```bash
-pnpm cotal web --space demo            # opens http://127.0.0.1:7799 in your browser
-pnpm cotal web --space demo --port 8080 --no-open
-pnpm cotal web --space demo --creds ./admin.creds   # use a cred you minted yourself
+pnpm cotal web --space main            # opens http://127.0.0.1:7799 in your browser
+pnpm cotal web --space main --port 8080 --no-open
+pnpm cotal web --space main --creds ./admin.creds   # use a cred you minted yourself
 ```
 
 In **auth mode** (`.cotal/auth` present) `web` self-mints its own read-only **admin** cred —
