@@ -41,6 +41,8 @@ export async function spawn(argv: string[]): Promise<void> {
       server: { type: "string" },
       agent: { type: "string" },
       role: { type: "string" },
+      prompt: { type: "string" },
+      resume: { type: "string" },
     },
   });
 
@@ -49,7 +51,7 @@ export async function spawn(argv: string[]): Promise<void> {
   const ref = values.config ?? positionals[0] ?? values.name;
   if (!ref) {
     console.error(
-      "usage: cotal spawn <name-or-path> | --config <path> | --name <n>  [--agent <a>] [--role <r>] [--space <s>] [--server <url>]",
+      "usage: cotal spawn <name-or-path> | --config <path> | --name <n>  [--agent <a>] [--role <r>] [--resume <id>] [--space <s>] [--server <url>] [--prompt <text>]",
     );
     process.exit(1);
   }
@@ -111,6 +113,8 @@ export async function spawn(argv: string[]): Promise<void> {
     creds: credsPath,
     servers: server,
     configPath: path,
+    prompt: values.prompt,
+    resume: values.resume,
   });
 
   console.error(

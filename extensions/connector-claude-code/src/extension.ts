@@ -33,7 +33,35 @@ export const claudeConnector: Connector = {
     if (opts.creds) env.COTAL_CREDS = opts.creds;
     if (opts.servers) env.COTAL_SERVERS = opts.servers;
 
-    const args = ["--dangerously-load-development-channels", CHANNEL_REF];
+    // A leading positional is claude's first message, auto-submitted on start — so a driving
+    // session can greet the operator the moment it joins. A resumed session already carries its
+    // own context, so skip the greeting and reattach the prior conversation instead.
+    const args = opts.prompt && !opts.resume
+      ? [opts.prompt, "--dangerously-load-development-channels", CHANNEL_REF]
+      : ["--dangerously-load-development-channels", CHANNEL_REF];
+
+    // Resume a prior conversation into the mesh. --fork-session makes claude mint a fresh session
+    // id from the resumed history, so the original session this id points at keeps running
+    // untouched (we adopt its context, not its identity). Composes with the strict-MCP isolation
+    // below — the forked process still loads only the cotal server.
+    if (opts.resume) args.push("--resume", opts.resume, "--fork-session");
+
+    // Pre-allow fetching the public Cotal docs so a doc-grounded persona (e.g. david)
+    // can look something up under `npx` (no repo on disk) without prompting the operator
+    // mid-demo. Additive under the default permission mode — leaves other tools as-is.
+    args.push("--allowedTools", "WebFetch(domain:github.com),WebFetch(domain:raw.githubusercontent.com)");
+
+    // Isolate the spawned session's MCP to ONLY the cotal server. --strict-mcp-config drops every
+    // other MCP source — including the operator's personal ~/.claude.json servers (e.g. a headless
+    // Chromium, a DB server) that a meshed teammate never needs and that, multiplied across several
+    // spawns on a busy machine, starve memory and kill the session before it registers presence —
+    // and --mcp-config re-supplies cotal so its tools + presence still load. The plugin itself stays
+    // enabled (its hooks + the dev-channels wake path are unaffected; only MCP config is scoped).
+    args.push(
+      "--strict-mcp-config",
+      "--mcp-config",
+      JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: { command: "node", args: [MCP_CJS] } } }),
+    );
 
     // An agent file carries identity (read in-session via COTAL_AGENT_FILE) plus
     // persona + model, which can only be applied to a `claude` session at launch.
