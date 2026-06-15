@@ -11,5 +11,8 @@ export interface Command extends Extension {
   readonly summary: string;
   /** Help grouping header (e.g. "Mesh", "Control plane"). Defaults to "Commands". */
   readonly group?: string;
+  /** One-line usage shown by `cotal <cmd> --help` and on an invalid-argument error.
+   *  Falls back to `summary` when unset. */
+  readonly usage?: string;
   run(argv: string[]): Promise<void>;
 }
