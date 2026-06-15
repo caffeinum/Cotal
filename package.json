@@ -11,7 +11,7 @@
   "scripts": {
     "typecheck": "pnpm build && pnpm -r typecheck",
     "build": "pnpm -r build",
-    "gen:schema": "ts-json-schema-generator -p packages/core/src/types.ts -t CotalMessage Presence AgentCard ChannelConfig ChannelDefaults ControlRequest ControlReply --additional-properties -o spec/cotal.schema.json",
+    "gen:schema": "node scripts/generate-cotal-schema.mjs",
     "test": "pnpm -r --if-present test",
     "check": "pnpm typecheck && pnpm test && pnpm smoke:view",
     "clean:dry": "git clean -ndX -- node_modules .pnpm-store packages extensions implementations examples remotion",

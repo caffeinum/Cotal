@@ -140,10 +140,12 @@ Delivery messages are UTF-8 JSON objects with this shape (`CotalMessage`):
 | `replyTo` | string | MAY | id of the message replied to |
 | `contextId` | string | MAY | thread/conversation correlation id |
 
-`Part` is one of:
+`Part` is one of the two core shapes, or an extension object whose `kind` is namespaced
+as described in §11:
 
 - `{ "kind": "text", "text": string }`
 - `{ "kind": "data", "data": <any JSON value> }`
+- `{ "kind": "<reverse-DNS extension kind>", ... }`
 
 `EndpointRef` is `{ "id": string, "name": string, "role"?: string }`.
 
@@ -160,16 +162,17 @@ A control server MUST verify `ControlRequest.from.id` equals the `ctl` subject s
 before acting. A rejected request SHOULD reply `{ "ok": false, "error": string }`.
 Replies use the transport reply subject; they are not Cotal delivery messages.
 
-Receivers MUST ignore unknown object fields. Unknown `Part.kind` values MUST be ignored
-unless the receiver explicitly supports that extension. Messages MUST fit the broker's
-configured maximum payload. v0 has no artifact transfer part; large payload transport is
-reserved for a future Object Store extension.
+Receivers MUST ignore unknown object fields. Unknown conformant extension `Part.kind` values
+MUST be ignored unless the receiver explicitly supports that extension. Bare unrecognized
+core-kind values are not conformant. Messages MUST fit the broker's configured maximum payload.
+v0 has no artifact transfer part; large payload transport is reserved for a future Object Store
+extension.
 
-**Schema.** The authoritative machine-readable schema for these types is
+**Schema.** The authoritative machine-readable source for the delivery-message type is
 [`packages/core/src/types.ts`](packages/core/src/types.ts). A JSON Schema (draft-07) is
-generated from it at [`spec/cotal.schema.json`](spec/cotal.schema.json) (`pnpm gen:schema`) for
-validators; it is derived from the source, so the source wins on any divergence. A conformant
-delivery message MUST validate against it.
+generated from `CotalMessage` at [`spec/cotal.schema.json`](spec/cotal.schema.json)
+(`pnpm gen:schema`) for validators; it is derived from the source, so the source wins on any
+divergence. A conformant delivery message MUST validate against it.
 
 **Rejection reasons.** The three permanent anomalies in §4 are terminated, never redelivered.
 These reason tokens are advisory (for logs and `ControlReply.error`); the action is uniform:
@@ -361,8 +364,8 @@ reserved for a later version. v0 authenticated onboarding is out-of-band credent
 
 ## 11. Versioning and extensibility
 
-- Wire contract version is v0.2, tracking the package release line; it is pre-1.0 (the v0.x
-  line) and may still change. `AgentCard.protocolVersion` (§6) carries this string.
+- Wire contract version is v0.2. It is pre-1.0 (the v0.x line) and may still change.
+  `AgentCard.protocolVersion` (§6) carries this string.
 - v0 has no in-band capability negotiation. Deployments MUST agree on the binding and
   version out of band. A participant MAY advertise the version it speaks via
   `AgentCard.protocolVersion` (§6) as a one-way change signal; v0 defines no behavior on a

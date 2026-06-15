@@ -30,6 +30,7 @@ import type {
   ChannelDefaults,
   ControlReply,
   ControlRequest,
+  ControlRequestInit,
   Delivery,
   EndpointRef,
   MessageMeta,
@@ -425,13 +426,14 @@ export class CotalEndpoint extends EventEmitter {
   /** Send a control request to a service and await its reply (client side). */
   async requestControl(
     service: string,
-    req: ControlRequest,
+    req: ControlRequestInit,
     timeoutMs = 5000,
   ): Promise<ControlReply> {
     if (!this.nc) throw new Error("endpoint not started");
+    const body: ControlRequest = { ...req, from: req.from ?? this.ref() };
     const m = await this.nc.request(
       controlServiceSubject(this.space, service, this.card.id),
-      JSON.stringify({ ...req, from: req.from ?? this.ref() }),
+      JSON.stringify(body),
       { timeout: timeoutMs },
     );
     return m.json<ControlReply>();
