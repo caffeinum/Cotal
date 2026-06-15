@@ -8,9 +8,22 @@ import {
   DEFAULT_SPACE,
   authDir,
   loadSpaceAuth,
+  unicastSubject,
   type Presence,
+  type CotalMessage,
 } from "@cotal-ai/core";
 import { c } from "../ui.js";
+
+/** How long to wait for a reply with `--wait` before giving up (ms). */
+const DEFAULT_WAIT_MS = 60_000;
+
+/** Render a message's text parts into one line. */
+function renderText(msg: CotalMessage): string {
+  return msg.parts
+    .map((p) => (p.kind === "text" ? p.text : `[${p.kind}]`))
+    .join(" ")
+    .trim();
+}
 
 /** How long to wait for the presence roster to replay before giving up on a name lookup.
  *  The observer's KV watch fills the roster asynchronously after start(); a target that's
@@ -57,15 +70,22 @@ export async function dm(argv: string[]): Promise<void> {
       space: { type: "string" },
       server: { type: "string" },
       creds: { type: "string" },
+      wait: { type: "boolean" },
+      timeout: { type: "string" },
     },
   });
 
   const name = positionals[0];
   const text = positionals[1];
   if (!name || !text) {
-    console.error(c.red('usage: cotal dm <name> "<message>" [--space <s>] [--server <url>] [--creds <path>]'));
+    console.error(
+      c.red('usage: cotal dm <name> "<message>" [--wait] [--timeout <s>] [--space <s>] [--server <url>] [--creds <path>]'),
+    );
     process.exit(1);
   }
+
+  const waitForReply = values.wait ?? false;
+  const waitMs = values.timeout ? Number(values.timeout) * 1000 : DEFAULT_WAIT_MS;
 
   const server = values.server ?? DEFAULT_SERVER;
   let creds = values.creds ? readFileSync(values.creds, "utf8") : undefined;
@@ -114,7 +134,10 @@ export async function dm(argv: string[]): Promise<void> {
     creds,
     channels: [],
     consume: false, // request/publish only — binds no durables
-    registerPresence: false, // invisible on the roster; the DM still carries `operator` as `from`
+    // Invisible by default (the DM still carries `operator` as `from`). With --wait we must be
+    // addressable: the agent resolves its reply target off the roster, so register presence so
+    // it can DM us back — by name or id — for the duration of the wait.
+    registerPresence: waitForReply,
     watchPresence: true, // need the roster to resolve name → instance id
     card: { name: operator, kind: "endpoint" },
   });
@@ -126,8 +149,37 @@ export async function dm(argv: string[]): Promise<void> {
       console.error(c.red(`✗ no agent "${name}" present in space "${s}"`));
       process.exit(1);
     }
+
+    // With --wait, tap our own inbox (inst.<me>.*) BEFORE sending so we don't miss a fast reply.
+    let replied: Promise<CotalMessage | undefined> | undefined;
+    if (waitForReply) {
+      replied = new Promise<CotalMessage | undefined>((resolve) => {
+        const timer = setTimeout(() => resolve(undefined), waitMs);
+        ep.tap(
+          (_subject, msg) => {
+            // only the agent we DMed, and only its replies (not our own echo)
+            if (msg && msg.from.id === target.card.id) {
+              clearTimeout(timer);
+              resolve(msg);
+            }
+          },
+          { subject: unicastSubject(s, ep.ref().id, "*") },
+        );
+      });
+    }
+
     await ep.unicast(target.card.id, text);
     console.log(c.green(`✓ DM → ${c.bold(target.card.name)}`) + c.dim(` (${target.card.id})`));
+
+    if (replied) {
+      console.log(c.dim(`  waiting for reply (${Math.round(waitMs / 1000)}s)…`));
+      const reply = await replied;
+      if (reply) {
+        console.log(c.green(`← ${c.bold(target.card.name)}: `) + renderText(reply));
+      } else {
+        console.log(c.dim(`  no reply within ${Math.round(waitMs / 1000)}s — watch the feed: cotal watch --space ${s}`));
+      }
+    }
   } finally {
     await ep.stop();
   }
