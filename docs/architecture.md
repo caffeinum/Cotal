@@ -317,7 +317,8 @@ dashboard, or an agent) can send; spawning is policy-gated. `definePersona` writ
 **Emergent payoff:** an agent can grow *and* shape the team without a human — ask the manager for
 a teammate (`cotal_spawn`), mint a brand-new persona on the fly (`cotal_persona` → saved as config
 → spawnable), or tear one down (`cotal_despawn`, graceful or hard). The new agent is a *peer*, not
-a child.
+a child. Cleanup rides the same control plane: `cotal_purge` has the manager clear the space's
+retained chat backlog (the privileged `STREAM.PURGE` regular agents are denied).
 
 ## Hosting & onboarding
 
@@ -333,7 +334,7 @@ Under the hood the manager runs the *real* `claude` with the plugin attached and
 environment — an ordinary Claude Code terminal, no wrapper in front of it:
 
 ```
-COTAL_SPACE=demo COTAL_NAME=alice COTAL_ROLE=planner \
+COTAL_SPACE=main COTAL_NAME=alice COTAL_ROLE=planner \
   claude --dangerously-load-development-channels plugin:cotal@cotal-mesh
 ```
 

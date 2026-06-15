@@ -2,8 +2,11 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import {
   CotalEndpoint,
+  DEFAULT_SERVER,
   agentFilePath,
   authDir,
+  clearSpaceHistory,
+  findCotalRoot,
   loadAgentFile,
   loadSpaceAuth,
   mintCreds,
@@ -15,7 +18,6 @@ import {
 import type { AgentDef, Connector, ControlReply, ControlRequest, SpaceAuth } from "@cotal-ai/core";
 import {
   createRuntime,
-  findWorkspaceRoot,
   type AgentHandle,
   type Runtime,
   type RuntimeMode,
@@ -68,7 +70,7 @@ export class Manager {
     this.space = opts.space;
     this.servers = opts.servers;
     this.name = opts.name ?? "manager";
-    this.workspaceRoot = opts.workspaceRoot ?? findWorkspaceRoot();
+    this.workspaceRoot = opts.workspaceRoot ?? findCotalRoot();
     this.runtime = createRuntime(opts.runtime ?? "auto", `cotal-${this.space}`);
     this.attach = new AttachEndpoint(
       (name) => this.agents.get(name)?.handle,
@@ -136,6 +138,8 @@ export class Manager {
         return this.opStop(args);
       case "definePersona":
         return this.opDefinePersona(args);
+      case "purge":
+        return this.opPurge(args);
       case "attach":
         return this.opAttach(args);
       case "ps":
@@ -156,6 +160,23 @@ export class Manager {
     return /^[A-Za-z0-9_-]+$/.test(name)
       ? undefined
       : `unsafe name ${JSON.stringify(name)} (allowed: letters, digits, _ -)`;
+  }
+
+  /** Spawn a teammate by name (loads `.cotal/agents/<name>.md`), as if a peer asked via the
+   *  control plane. Used to pre-spawn the demo's experts at startup so the manager owns them. */
+  async startByName(name: string): Promise<ControlReply> {
+    return this.opStart({ name });
+  }
+
+  /** Resolve once `name` shows up on the mesh roster (presence registered), or after `timeoutMs`.
+   *  Lets the pre-spawn loop stagger heavy agent cold-starts so they don't all boot at once. */
+  async waitForPresence(name: string, timeoutMs = 30_000): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (this.ep.getRoster().some((p) => p.card.name === name)) return true;
+      await new Promise((r) => setTimeout(r, 1_000));
+    }
+    return false;
   }
 
   private async opStart(args: Record<string, unknown>): Promise<ControlReply> {
@@ -235,6 +256,25 @@ export class Manager {
     a.handle.stop({ graceful });
     this.agents.delete(name);
     return { ok: true, data: { name, stopped: true, graceful } };
+  }
+
+  /** Purge the space's retained message backlog (chat, optionally DMs). Privileged — the
+   *  manager mints its own "manager" creds (same as `cotal history clear`); regular agents are
+   *  denied STREAM.PURGE under auth. Cleanup only: leaves live agents and the TASK queue alone. */
+  private async opPurge(args: Record<string, unknown>): Promise<ControlReply> {
+    const includeDms = args.includeDms === true;
+    try {
+      const creds = this.auth ? await mintCreds(this.auth, newIdentity(), "manager") : undefined;
+      const result = await clearSpaceHistory({
+        servers: this.servers ?? DEFAULT_SERVER,
+        space: this.space,
+        creds,
+        includeDms,
+      });
+      return { ok: true, data: result };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
   }
 
   /** Persist a peer-defined persona as config. After this, `start name` auto-discovers

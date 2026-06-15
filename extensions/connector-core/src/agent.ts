@@ -354,6 +354,16 @@ export class MeshAgent extends EventEmitter {
     });
   }
 
+  /** Ask the manager to purge the space's retained chat backlog (its `purge` op). Cleanup only —
+   *  it doesn't touch live agents or the anycast work queue. `includeDms` also clears DM history. */
+  async purgeHistory(opts?: { includeDms?: boolean }): Promise<ControlReply> {
+    this.assertConnected();
+    return this.ep.requestControl("manager", {
+      op: "purge",
+      args: { includeDms: opts?.includeDms ?? false },
+    });
+  }
+
   /** Define a persona and persist it as config (the manager's `definePersona` op writes
    *  .cotal/agents/<name>.md). On success, announce it on the channel — the "send it out"
    *  half — so peers see the new persona; `spawn(name)` then launches an agent wearing it. */
