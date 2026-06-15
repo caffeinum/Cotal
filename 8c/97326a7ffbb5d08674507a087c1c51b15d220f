@@ -1,0 +1,23 @@
+implementations/cli/src/commands/dm.ts
+  s_3bbd3baf54137a::t_ca4326840ef3e5 1-10,12,14-16,28-72,75-80,84-86,90-136,141-150,171-172,183-186,26
+  s_3bbd3baf54137a::t_18b687175f7de9 151,19,27,89,152-170,173-182
+  s_3bbd3baf54137a::t_02714a5d2840b5 11,13,17-18,20-25
+  s_3bbd3baf54137a::t_de4f64ee85be22 73-74,81-83,87-88
+  s_3bbd3baf54137a::t_675711b37e4ea4 137-140
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "8c97326a7ffbb5d08674507a087c1c51b15d220f",
+  "prompts": {},
+  "sessions": {
+    "s_3bbd3baf54137a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4bc9ebbe-841d-4811-9fb5-935017520815",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
