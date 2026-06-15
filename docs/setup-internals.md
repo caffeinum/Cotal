@@ -13,8 +13,8 @@ is two-tier, gated on a machine marker:
   the mesh runs **open** (no auth) by default — `--auth` flips it to a JWT-authed mesh. (Open means
   no `.cotal/auth`, so every read/control CLI connects bare; matches `cotal cmux go`.) Then:
   splash → intro → core steps (Node, NATS, start the mesh) → start the **web dashboard** in the
-  background → **connector picker** → write the two default experts (david/sven) → marker → demo
-  finale (`offerDemo`). The finale needs Claude Code and, if accepted: **in cmux**, opens a
+  background → **connector picker** → write the two default experts (david/sven) →
+  **offer a global install** (`offerGlobalInstall`) → marker → demo finale (`offerDemo`). The finale needs Claude Code and, if accepted: **in cmux**, opens a
   **cmux-runtime manager** (`cotal cmux --spawn david,sven`, via `ensureCmuxSession`) that owns
   david/sven plus a focused console + `me` pane; **otherwise**, a background **pty manager**
   (`ensureManager({spawn:["david","sven"]})`) pre-spawns david/sven and the terminal is handed to a
@@ -79,6 +79,13 @@ All re-execs and the cmux pane commands resolve this CLI via `selfArgv()` / `sel
 (tsx loader in dev, compiled JS in prod) — so they never need `cotal` on PATH. The cmux session
 therefore opens identically via `npx`, `npm i -g`, and a dev clone. `cotal go` is an alias of
 `cotal setup` (open/resume vs install/update names).
+
+For ergonomics only, an npx run with no global `cotal` offers to `npm i -g cotal-ai`
+(`offerGlobalInstall`, pinned to the running version): gated on `isNpx()` + a PATH scan
+(`cotalOnPath()` — not `onPath("cotal")`, since `cotal --version` isn't a real command), interactive
+prompt defaults to yes, non-interactive (`--yes` / no TTY) takes the default, and a failed install is
+non-fatal (warn + manual command). The same `self-exec.ts` exposes `displayCmd()` — the prefix
+(`cotal` / `npx cotal-ai` / `pnpm cotal`) used in the status-card hints so they match how you ran it.
 - **Manager** — `startManagerDetached` / `ensureManager`
   ([`lib/manager-proc.ts`](../implementations/cli/src/lib/manager-proc.ts)) re-execs `cotal supervise`
   detached (pty runtime); it answers the control plane (`cotal_spawn`/`despawn`/`purge`/`persona`).

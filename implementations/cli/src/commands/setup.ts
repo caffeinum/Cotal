@@ -17,7 +17,7 @@ import { machineStatus, meshStatus, onPath, resolveSpace } from "../lib/status.j
 import { startMeshDetached, up } from "./up.js";
 import { ensureWeb, webUp, WEB_URL } from "./web.js";
 import { cmuxManagerRunning, ensureManager, managerUp, pgrepMatches, stopManager } from "../lib/manager-proc.js";
-import { selfCotal } from "../lib/self-exec.js";
+import { cotalOnPath, displayCmd, isNpx, selfCotal } from "../lib/self-exec.js";
 import { cotalPath, cotalRoot } from "../lib/paths.js";
 import { spawn } from "./spawn.js";
 
@@ -102,7 +102,7 @@ async function runFirstRun(yes: boolean, open: boolean): Promise<void> {
         pane.start("Booting nats-server");
         try {
           const { server } = await startMeshDetached({ onLine: (l) => pane.push(l), open });
-          return `running at ${server} (stop with: cotal down)`;
+          return `running at ${server} (stop with: ${displayCmd()} down)`;
         } finally {
           pane.clear();
         }
@@ -115,7 +115,7 @@ async function runFirstRun(yes: boolean, open: boolean): Promise<void> {
   try {
     const web = await ensureWeb({ space: resolveSpace(process.cwd()), server: DEFAULT_SERVER });
     if (web.running) {
-      p.log.success(`Web dashboard at ${web.url} (stop with: cotal down)`);
+      p.log.success(`Web dashboard at ${web.url} (stop with: ${displayCmd()} down)`);
       log.line(`web: ${web.url}`);
     }
   } catch {
@@ -127,7 +127,8 @@ async function runFirstRun(yes: boolean, open: boolean): Promise<void> {
   const found = { claude: onPath("claude"), codex: onPath("codex"), opencode: onPath("opencode") };
   const selected = await pickConnectors(found, yes);
   if (selected.has("claude")) {
-    if (!found.claude) p.log.warn("claude isn't on PATH. Install it (https://claude.com/claude-code), then re-run setup.");
+    if (!found.claude)
+      p.log.warn(`claude isn't on PATH. Install it (https://claude.com/claude-code), then re-run ${displayCmd()} setup.`);
     else if (!(await runSteps([claudePluginStep()], log, { yes }))) return abort();
   }
   for (const name of ["codex", "opencode"] as const) {
@@ -147,20 +148,23 @@ async function runFirstRun(yes: boolean, open: boolean): Promise<void> {
   p.log.success("Added david (the engineer), sven (the guide), and your session (me); they join when you spawn them or open the demo");
   log.line("demo-agents: wrote david + sven + me");
 
+  await offerGlobalInstall(yes);
+
   markOnboarded(ONBOARD_VERSION);
+  const cmd = displayCmd();
   note(
     [
       "Your agent has direct access to Cotal: spawn one and just talk to it (it can message peers, spawn teammates, and send feedback). Now any agent can join and collaborate. You can also use the CLI.",
       "",
-      `${ok("✓")} drive a session     ${dim("cotal spawn me")}`,
-      `${ok("✓")} ask the engineer    ${dim("cotal spawn david")}`,
-      `${ok("✓")} ask the guide       ${dim("cotal spawn sven")}`,
-      `${ok("✓")} watch the mesh      ${dim("cotal console")}`,
+      `${ok("✓")} drive a session     ${dim(`${cmd} spawn me`)}`,
+      `${ok("✓")} ask the engineer    ${dim(`${cmd} spawn david`)}`,
+      `${ok("✓")} ask the guide       ${dim(`${cmd} spawn sven`)}`,
+      `${ok("✓")} watch the mesh      ${dim(`${cmd} console`)}`,
       `${ok("✓")} open the dashboard  ${dim(WEB_URL)}`,
-      `${ok("✓")} resume later        ${dim("cotal go")}`,
-      `${ok("✓")} stop everything     ${dim("cotal down")}`,
+      `${ok("✓")} resume later        ${dim(`${cmd} go`)}`,
+      `${ok("✓")} stop everything     ${dim(`${cmd} down`)}`,
       "",
-      dim('Cotal not working? Tell your agent to give us feedback and it sends it for you (built-in cotal_feedback), or run cotal feedback "<msg>".'),
+      dim(`Cotal not working? Tell your agent to give us feedback and it sends it for you (built-in cotal_feedback), or run ${cmd} feedback "<msg>".`),
     ].join("\n"),
     "You're set",
   );
@@ -177,8 +181,51 @@ async function runFirstRun(yes: boolean, open: boolean): Promise<void> {
   p.outro(brand(yes ? "Cotal is ready." : "Happy meshing."));
 
   function abort() {
-    p.outro(brand("Setup paused. Fix the step above and run `cotal setup` again."));
+    p.outro(brand(`Setup paused. Fix the step above and run \`${displayCmd()} setup\` again.`));
     process.exitCode = 1;
+  }
+}
+
+/** When run via `npx` without a global `cotal`, offer to install it so the user can just type
+ *  `cotal`. Interactive: a Y/n prompt (default yes). Non-interactive (`--yes` / no TTY): takes the
+ *  default and installs. Best-effort — `npm i -g` fails a lot (EACCES, nvm/fnm/volta), so on failure
+ *  we warn with the manual command and continue; setup never aborts over a PATH convenience. */
+async function offerGlobalInstall(yes: boolean): Promise<void> {
+  if (!isNpx() || cotalOnPath()) return; // already have `cotal`, or not an npx run
+
+  if (!yes && process.stdin.isTTY) {
+    const go = abortIfCancel(
+      await p.confirm({ message: "Install `cotal` globally so you can just type `cotal`?", initialValue: true }),
+    );
+    if (!go) {
+      p.log.info(`No problem — keep using ${dim("npx cotal-ai")}. Install later with ${dim("npm i -g cotal-ai")}.`);
+      return;
+    }
+  }
+
+  const pkg = `cotal-ai@${runningVersion() ?? "latest"}`;
+  const s = p.spinner();
+  s.start("Installing cotal globally");
+  const r = spawnSync("npm", ["install", "-g", pkg], { encoding: "utf8" });
+  if (r.status === 0) {
+    s.stop("Installed — you can now run `cotal`");
+  } else {
+    s.stop("Couldn't install globally");
+    const tail = `${r.stdout ?? ""}${r.stderr ?? ""}`.trim().split("\n").slice(-3).join("\n");
+    p.log.warn(
+      `${tail ? `${tail}\n\n` : ""}Install it yourself with ${dim("npm i -g cotal-ai")}, or keep using ${dim("npx cotal-ai")}.`,
+    );
+  }
+}
+
+/** The version of the running `cotal-ai` package (from the package.json next to the entry script),
+ *  so a global install pins the same version npx just ran. Null if it can't be read. */
+function runningVersion(): string | null {
+  try {
+    const pkg = JSON.parse(readFileSync(join(process.argv[1], "..", "..", "package.json"), "utf8"));
+    return typeof pkg.version === "string" ? pkg.version : null;
+  } catch {
+    return null;
   }
 }
 
@@ -263,7 +310,7 @@ async function offerDemo(haveClaude: boolean): Promise<void> {
       process.exit(0);
     }
   } else if (isTTY && haveAgents && !haveClaude) {
-    p.log.info("The demo needs Claude Code. Install it (https://claude.com/claude-code), then run `cotal go`.");
+    p.log.info(`The demo needs Claude Code. Install it (https://claude.com/claude-code), then run \`${displayCmd()} go\`.`);
   }
 
   // Declined, or no Claude: start the background (pty) control plane so cotal_spawn / despawn /
@@ -400,6 +447,7 @@ async function readyCard(cwd: string): Promise<void> {
   // The control plane is either the detached pty manager (pid file) or a live cmux-tab manager
   // (its tab lingers after it exits, so check the process, not the workspace list).
   const mgr = managerUp() || (inCmuxSurface() && cmuxManagerRunning(mesh.space));
+  const cmd = displayCmd();
   const line = (on: boolean, text: string) => `${on ? ok("✓") : dim("○")} ${text}`;
   note(
     [
@@ -409,10 +457,10 @@ async function readyCard(cwd: string): Promise<void> {
       line(web, `web      ${dim(WEB_URL)}`),
       line(mgr, `manager  ${dim(mgr ? "running" : "not running")}`),
       "",
-      `resume:    ${dim("cotal go")}   ${dim("(reopen this session anytime)")}`,
-      `watch it:  ${dim("cotal console")}   ${dim("(live TUI in this terminal)")}`,
-      `drive it:  ${dim("cotal spawn me")}   ${dim("(or david / sven)")}`,
-      `more:      ${dim('cotal web · cotal down · cotal feedback "<msg>" · cotal --help')}`,
+      `resume:    ${dim(`${cmd} go`)}   ${dim("(reopen this session anytime)")}`,
+      `watch it:  ${dim(`${cmd} console`)}   ${dim("(live TUI in this terminal)")}`,
+      `drive it:  ${dim(`${cmd} spawn me`)}   ${dim("(or david / sven)")}`,
+      `more:      ${dim(`${cmd} web · ${cmd} down · ${cmd} feedback "<msg>" · ${cmd} --help`)}`,
     ].join("\n"),
     brandBold("cotal · ready"),
   );
