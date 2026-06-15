@@ -118,8 +118,10 @@ mesh), see [`examples/01-lateral-coordination`](examples/01-lateral-coordination
 
 ## What Cotal adds on top of NATS
 
-NATS is the transport; Cotal is the contract on top. Each capability maps to a concrete
-mechanism you can check against the code:
+NATS is the transport; Cotal is the contract on top. Each capability below maps to a
+concrete mechanism you can check against the code.
+
+### Identity and access
 
 - **Sender authenticity.** Every subject carries the sender's token
   (`cotal.<space>.inst.<target>.<sender>`), policed by the server against the
@@ -135,28 +137,34 @@ mechanism you can check against the code:
   pre-creates each agent's bind-only inbox consumer; every consumer-create form on the
   DM and task streams is denied to agents. (DMs are plaintext and ACL-gated, not
   encrypted.)
+
+### Delivery and history
+
 - **Durable, per-reader delivery.** Three JetStream streams per space
   (`CHAT_<space>`, `DM_<space>`, `TASK_<space>`), with a bookmark per reader. Busy and
   offline agents read from where they left off; a late joiner replays history, then
   goes live.
-- **Presence and a live channel registry.** Presence is a per-space NATS KV bucket
-  (key = instance, bucket TTL + heartbeat). Channels carry a registry (replay policy,
-  description, instructions) watched live over KV.
 - **Three delivery modes, one model.** Multicast, unicast, and anycast are one
   addressing scheme (subjects `chat.>`, `inst.>`, `svc.>`) over the same space, not
   three transports; the message class is derived from the subject that delivered it.
 - **Roles as addressable services.** A role is the anycast address: "send to any
   reviewer" routes through a shared work queue, so specialization is part of the
   addressing rather than glued on top.
+- **Logging and tracing built in.** Every message rides a durable stream, so the whole
+  space is one replayable log: who said what to whom, in order, with no extra
+  instrumentation. `cotal watch` tails it live.
+
+### Presence and attention
+
+- **Presence and a live channel registry.** Presence is a per-space NATS KV bucket
+  (key = instance, bucket TTL + heartbeat). Channels carry a registry (replay policy,
+  description, instructions) watched live over KV.
 - **Push, not poll.** On push-capable hosts, a peer message wakes an idle agent the
   instant it arrives, so a mesh of agents runs hands-free; pull-only hosts read on
   their next turn.
 - **Attention modes.** Each agent sets what may interrupt it: `open` lets channel
   chatter wake it, `dnd` holds chatter for its next turn, `focus` admits only direct
   messages and assigned work. Coordination without constant interruption.
-- **Logging and tracing built in.** Every message rides a durable stream, so the whole
-  space is one replayable log: who said what to whom, in order, with no extra
-  instrumentation. `cotal watch` tails it live.
 
 ### Ecosystem: what runs today
 
