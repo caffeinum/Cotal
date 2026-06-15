@@ -1,0 +1,298 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "AgentCard": {
+      "description": "A2A-inspired identity record for an endpoint or agent.",
+      "properties": {
+        "description": {
+          "description": "A2A-style one-line summary of what this agent does (discovery / observability).",
+          "type": "string"
+        },
+        "id": {
+          "description": "Unique, stable for the lifetime of this connection.",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/EndpointKind",
+          "description": "'agent' (participates in coordination) or a plain 'endpoint' (logger, dashboard…)."
+        },
+        "meta": {
+          "additionalProperties": {},
+          "type": "object"
+        },
+        "name": {
+          "description": "Human-readable display name.",
+          "type": "string"
+        },
+        "protocolVersion": {
+          "description": "Wire-contract version this participant speaks (the SPEC.md version, `\"0.2\"` today). A change signal, not negotiation: v0 has none, but a peer can detect a mismatch instead of silently misreading a future envelope. Omitted ⇒ assume the v0.x line.",
+          "type": "string"
+        },
+        "role": {
+          "description": "Cotal addition: the role this participant plays (planner, reviewer, …).",
+          "type": "string"
+        },
+        "skills": {
+          "items": {
+            "$ref": "#/definitions/AgentSkill"
+          },
+          "type": "array"
+        },
+        "tags": {
+          "description": "Cotal: free-form \"what it can do\" tags (A2A skill-tags, flattened) — discovery only.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "AgentSkill": {
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "ChannelConfig": {
+      "description": "Channel registry entry — channel-global config, stored in the per-space channels KV (one entry per channel; the space-wide default lives under  {@link  CHANNEL_DEFAULTS_KEY  } ). Shared across every peer, not a per-subscriber choice. `description`/`instructions` reach the model, so this is a prompt-injection surface: writes are privileged and both text fields are length-bounded at the write path (see channels.ts).",
+      "properties": {
+        "description": {
+          "description": "One-line \"what this channel is for\".",
+          "type": "string"
+        },
+        "instructions": {
+          "description": "Longer \"how to use it\" — surfaced to joiners as advisory, attributed data.",
+          "type": "string"
+        },
+        "replay": {
+          "description": "Override the space default for history replay-on-join.",
+          "type": "boolean"
+        },
+        "replayWindow": {
+          "description": "How far back a joiner's backfill reaches — a duration like `\"24h\"`, `\"30m\"`, `\"7d\"`. Maps to a native Direct-Get `start_time` (now − window). Unset + `replay` ⇒ the full retained window; ignored when replay is off.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ChannelDefaults": {
+      "description": "Space-wide channel defaults, stored under  {@link  CHANNEL_DEFAULTS_KEY  } .",
+      "properties": {
+        "replay": {
+          "type": "boolean"
+        },
+        "replayWindow": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ControlReply": {
+      "properties": {
+        "data": {},
+        "error": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ok"
+      ],
+      "type": "object"
+    },
+    "ControlRequest": {
+      "description": "Control-plane request/reply (e.g. CLI → manager).",
+      "properties": {
+        "args": {
+          "additionalProperties": {},
+          "type": "object"
+        },
+        "from": {
+          "$ref": "#/definitions/EndpointRef"
+        },
+        "op": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    "CotalMessage": {
+      "description": "A message on the mesh (chat / direct message for now; extensible to other families).",
+      "properties": {
+        "channel": {
+          "description": "Channel name — multicast (broadcast to everyone on the channel).",
+          "type": "string"
+        },
+        "contextId": {
+          "description": "Conversation / thread correlation id.",
+          "type": "string"
+        },
+        "from": {
+          "$ref": "#/definitions/EndpointRef"
+        },
+        "id": {
+          "description": "Unique message id.",
+          "type": "string"
+        },
+        "mentions": {
+          "description": "Lowercased peer names called out within a `channel` message — a priority/wake hint, not a routing target: the message still multicasts to the whole channel. Omitted when empty.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "parts": {
+          "items": {
+            "$ref": "#/definitions/Part"
+          },
+          "type": "array"
+        },
+        "replyTo": {
+          "description": "Id of the message being replied to.",
+          "type": "string"
+        },
+        "space": {
+          "type": "string"
+        },
+        "to": {
+          "description": "Instance id — unicast (direct to one specific endpoint).",
+          "type": "string"
+        },
+        "toService": {
+          "description": "Service / role — anycast (any one instance of the service receives it).",
+          "type": "string"
+        },
+        "ts": {
+          "description": "Epoch ms.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "ts",
+        "space",
+        "from",
+        "parts"
+      ],
+      "type": "object"
+    },
+    "EndpointKind": {
+      "description": "Cotal wire types (v0).\n\nThese are the shapes that travel on the mesh. They are intentionally A2A-inspired (AgentCard / Message / Part) but transport-agnostic. This file IS part of the \"wire contract\" — treat changes here as protocol changes.",
+      "enum": [
+        "agent",
+        "endpoint"
+      ],
+      "type": "string"
+    },
+    "EndpointRef": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "Part": {
+      "anyOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "text",
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {},
+            "kind": {
+              "const": "data",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "data"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Presence": {
+      "description": "Live presence record. Stored in the space's KV bucket under key = card.id.",
+      "properties": {
+        "activity": {
+          "description": "Freeform \"what I'm doing right now\".",
+          "type": "string"
+        },
+        "card": {
+          "$ref": "#/definitions/AgentCard"
+        },
+        "status": {
+          "$ref": "#/definitions/PresenceStatus"
+        },
+        "ts": {
+          "description": "Epoch ms of the last heartbeat.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "card",
+        "status",
+        "ts"
+      ],
+      "type": "object"
+    },
+    "PresenceStatus": {
+      "description": "Lifecycle status of a participant.\n- `idle`: connected, no active task\n- `waiting`: blocked — awaiting input, approval, or a peer\n- `working`: actively executing a task / in a turn\n- `offline`: disconnected or heartbeat lapsed (derived by observers, not self-set while live)",
+      "enum": [
+        "idle",
+        "waiting",
+        "working",
+        "offline"
+      ],
+      "type": "string"
+    }
+  }
+}

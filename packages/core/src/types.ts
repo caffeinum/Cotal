@@ -30,6 +30,10 @@ export interface AgentCard {
   tags?: string[];
   skills?: AgentSkill[];
   meta?: Record<string, unknown>;
+  /** Wire-contract version this participant speaks (the SPEC.md version, `"0.2"` today). A change
+   *  signal, not negotiation: v0 has none, but a peer can detect a mismatch instead of silently
+   *  misreading a future envelope. Omitted ⇒ assume the v0.x line. */
+  protocolVersion?: string;
 }
 
 /**

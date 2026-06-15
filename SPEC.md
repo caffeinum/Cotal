@@ -1,6 +1,6 @@
 # Cotal Wire Specification
 
-> **Status:** Draft (v0). This document is the normative wire contract. Libraries
+> **Status:** Draft, v0.2. This document is the normative wire contract. Libraries
 > (including the reference TypeScript implementation) are thin clients over it; where a
 > client disagrees with this document, this document wins.
 >
@@ -12,7 +12,8 @@ and [RFC 8174](https://www.rfc-editor.org/rfc/rfc8174).
 
 Sections 3 to 7 define the transport-agnostic Cotal contract. Sections 8 to 10 define
 the NATS + JetStream binding (v0). A conformant deployment implements one binding; the
-NATS binding is the only one defined today.
+NATS binding is the only one defined today. External specifications this document relies on
+are listed in Appendix C.
 
 ---
 
@@ -164,6 +165,21 @@ unless the receiver explicitly supports that extension. Messages MUST fit the br
 configured maximum payload. v0 has no artifact transfer part; large payload transport is
 reserved for a future Object Store extension.
 
+**Schema.** The authoritative machine-readable schema for these types is
+[`packages/core/src/types.ts`](packages/core/src/types.ts). A JSON Schema (draft-07) is
+generated from it at [`spec/cotal.schema.json`](spec/cotal.schema.json) (`pnpm gen:schema`) for
+validators; it is derived from the source, so the source wins on any divergence. A conformant
+delivery message MUST validate against it.
+
+**Rejection reasons.** The three permanent anomalies in §4 are terminated, never redelivered.
+These reason tokens are advisory (for logs and `ControlReply.error`); the action is uniform:
+
+| Reason | Trigger |
+| --- | --- |
+| `malformed-subject` | the delivery subject does not parse (§3) |
+| `sender-mismatch` | `from` is missing, or `from.id` does not equal the subject sender (§5) |
+| `malformed-json` | the payload is not valid UTF-8 JSON |
+
 ---
 
 ## 6. Presence and discovery
@@ -192,6 +208,7 @@ Presence is a per-space directory keyed by instance id. NATS binding: JetStream 
 | `tags` | string[] | MAY | capability tags |
 | `skills` | `AgentSkill[]` | MAY | `{ id, name, description? }` |
 | `meta` | object | MAY | free-form metadata |
+| `protocolVersion` | string | MAY | wire version spoken (§11); `"0.2"` today, omitted means the v0.x line. A change signal, not negotiation |
 
 An instance MUST refresh its own presence entry on the heartbeat interval, default 2000 ms.
 The liveness window defaults to 6000 ms. A peer whose `ts` is older than the liveness window
@@ -344,15 +361,32 @@ reserved for a later version. v0 authenticated onboarding is out-of-band credent
 
 ## 11. Versioning and extensibility
 
-- Wire version is v0; this document is versioned with the protocol.
+- Wire contract version is v0.2, tracking the package release line; it is pre-1.0 (the v0.x
+  line) and may still change. `AgentCard.protocolVersion` (§6) carries this string.
 - v0 has no in-band capability negotiation. Deployments MUST agree on the binding and
-  version out of band.
+  version out of band. A participant MAY advertise the version it speaks via
+  `AgentCard.protocolVersion` (§6) as a one-way change signal; v0 defines no behavior on a
+  mismatch beyond rejecting messages it cannot parse.
 - New message families, subjects, and routing kinds are added in the core contract,
   generalized for all deployments, not in one example.
 - Receivers MUST ignore unknown object fields and MUST NOT treat an unknown field as an
   error.
 - A future v1 MUST either keep v0 subjects backward-compatible or use an explicit new
   version marker in subjects, credentials, or deployment config.
+
+**Change process.** This document is the change-control point: a change lands here first,
+generalized into `core`, and the reference implementation follows. Additive changes (a new
+optional field, a new namespaced `Part.kind`, a new subject) are backward-compatible and ship as
+a minor bump, since receivers ignore what they do not recognize. Changing the meaning of an
+existing field or subject, or removing or renaming one, is breaking: it ships as a major bump
+(v1) under a new version marker in subjects, credentials, or deployment config.
+
+**Extension namespacing.** Core `Part.kind` values, `meta` keys, and `tags` are bare and reserved
+to this spec (`text`, `data`, and future core additions). A non-core extension MUST namespace its
+custom `Part.kind` values and `meta` keys reverse-DNS, under a domain its author controls, e.g.
+`{ "kind": "com.acme.snapshot" }` or `meta["com.acme.region"]`; Cotal's own non-core extensions
+use `ai.cotal.*`. This keeps third-party names from colliding with each other or with future core
+names, with no central registry.
 
 Reserved future work: signed envelopes, `did:key` identity, artifact/object-store parts,
 auth-callout bootstrap tokens, manager profile scoping, revocation/TTL for minted creds, and
@@ -554,3 +588,14 @@ Admin still has no application publish grants.
 Manager is allow-all in v0. It is the provisioner host and is responsible for pre-creating
 `dm_<id>` and `svc_<role>` durables and minting scoped credentials. It MUST NOT be issued to
 ordinary agents.
+
+## Appendix C: Normative references
+
+| Reference | Used for |
+| --- | --- |
+| RFC 2119, RFC 8174 | requirement keywords |
+| RFC 8259 | UTF-8 JSON envelopes (§5) |
+| RFC 4648 | base32 instance-id encoding (§2) |
+| RFC 8032 | Ed25519 keypairs behind nkeys (§2) |
+| [NATS client protocol](https://docs.nats.io/reference/reference-protocols/nats-protocol) + [JetStream](https://docs.nats.io/nats-concepts/jetstream) | the v0 transport binding (§8) |
+| [NATS decentralized JWT auth](https://docs.nats.io/running-a-nats-service/configuration/securing_nats/auth_intro/jwt) + nkeys | identity and authorization (§2, §9) |
