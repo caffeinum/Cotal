@@ -32,7 +32,14 @@ def _is_managed() -> bool:
 
 
 def _have_identity() -> bool:
-    return bool(os.environ.get("COTAL_SPACE") and os.environ.get("COTAL_NAME"))
+    """Mirror core's hasIdentity: a name, a join link, or an agent file is the explicit opt-in.
+    A COTAL_LINK (cotal://token@host/space) carries space + server + auth on its own, so a peer
+    can join with just the link (+ an optional COTAL_NAME)."""
+    return bool(
+        os.environ.get("COTAL_NAME")
+        or os.environ.get("COTAL_LINK")
+        or os.environ.get("COTAL_AGENT_FILE")
+    )
 
 
 def _check_requirements() -> bool:
@@ -67,8 +74,10 @@ def _bootstrap_standalone_sidecar() -> None:
     socket + tools file. Sets the three path env vars first so the sidecar and the rest of this
     registration agree on them."""
     run_dir = Path(tempfile.mkdtemp(prefix="cotal-hermes-"))
-    space = os.environ["COTAL_SPACE"]
-    name = os.environ["COTAL_NAME"]
+    # Identity may come entirely from COTAL_LINK (which carries the space), so neither of these is
+    # guaranteed — they're only used for the readiness error below.
+    name = os.environ.get("COTAL_NAME") or "hermes"
+    space = os.environ.get("COTAL_SPACE") or "(from COTAL_LINK)"
     os.environ.setdefault("COTAL_BRIDGE_SOCKET", str(run_dir / "bridge.sock"))
     os.environ.setdefault("COTAL_CONTROL_SOCKET", str(run_dir / "control.sock"))
     os.environ.setdefault("COTAL_TOOLS_FILE", str(run_dir / "cotal-tools.json"))
