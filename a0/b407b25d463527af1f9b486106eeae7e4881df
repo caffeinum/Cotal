@@ -1,0 +1,27 @@
+implementations/manager/src/commands.ts
+  s_3bbd3baf54137a::t_da5198792ed12b 33,102,338
+docs/claude-code-integration.md
+  s_3bbd3baf54137a::t_da5198792ed12b 41-47
+extensions/connector-opencode/src/extension.ts
+  s_3bbd3baf54137a::t_da5198792ed12b 33-35
+extensions/connector-codex/src/extension.ts
+  s_3bbd3baf54137a::t_da5198792ed12b 25-27
+implementations/manager/src/manager.ts
+  s_3bbd3baf54137a::t_da5198792ed12b 213
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "a0b407b25d463527af1f9b486106eeae7e4881df",
+  "prompts": {},
+  "sessions": {
+    "s_3bbd3baf54137a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4bc9ebbe-841d-4811-9fb5-935017520815",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
