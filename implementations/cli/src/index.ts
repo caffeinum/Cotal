@@ -65,7 +65,9 @@ const baseCommands: Command[] = [
     kind: "command",
     name: "dm",
     group: "Mesh",
-    summary: 'send one direct message to a peer by name — dm <agent> "<text>" [--space <s>]',
+    summary: 'send one direct message to a peer by name — dm <agent> "<text>" [--wait] [--space <s>]',
+    usage:
+      'cotal dm <agent> "<text>"  [--wait] [--timeout <s>] [--space <s>] [--server <url>] [--creds <path>]',
     run: dm,
   },
   {
