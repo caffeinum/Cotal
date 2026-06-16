@@ -42,22 +42,22 @@ def _check_requirements() -> bool:
 
 
 def _resolve_sidecar_js() -> Path:
-    """Locate the bundled standalone sidecar (esbuild → dist/standalone.cjs). Honors an explicit
-    COTAL_SIDECAR_JS override; otherwise resolves it relative to the installed package root. Throws
-    if absent — no silent fallback. (Packaging across npm-install vs `hermes plugins install`
-    layouts is finalized at distribution time; see docs/hermes-integration.md.)"""
+    """Locate the bundled standalone sidecar (esbuild → cotal/_sidecar/standalone.cjs). Honors an
+    explicit COTAL_SIDECAR_JS override; otherwise resolves it relative to THIS plugin dir. The
+    bundle ships inside the plugin dir on purpose, so it travels with the plugin in every layout
+    (monorepo, managed copy into HERMES_HOME, `hermes plugins install`, npm). Throws if absent —
+    no silent fallback."""
     override = os.environ.get("COTAL_SIDECAR_JS")
     if override:
         p = Path(override)
         if not p.is_file():
             raise RuntimeError(f"COTAL_SIDECAR_JS={override} does not exist")
         return p
-    # plugin/cotal/__init__.py → package root is two parents up; the bundle sits in dist/.
-    candidate = Path(__file__).resolve().parents[2] / "dist" / "standalone.cjs"
+    candidate = Path(__file__).resolve().parent / "_sidecar" / "standalone.cjs"
     if not candidate.is_file():
         raise RuntimeError(
             f"bundled sidecar not found at {candidate} — build the connector (pnpm build) or set "
-            "COTAL_SIDECAR_JS to dist/standalone.cjs"
+            "COTAL_SIDECAR_JS"
         )
     return candidate
 
@@ -104,11 +104,21 @@ def register(ctx: Any) -> None:
     # Gateway platform adapter (imported lazily so a non-gateway context still loads tools/hooks).
     from .adapter import CotalAdapter
 
+    # Cotal mesh peers are already authorized by the NATS JWT, and an autonomous gateway has no
+    # operator to approve a pairing code or pick a home channel — both are first-contact gateway
+    # prompts that would otherwise intercept a peer's first message. Suppress them for the cotal
+    # platform ONLY (per-platform allow-all + a sentinel home channel), so a standalone user's
+    # other platforms (Telegram, …) keep their own access control.
+    os.environ.setdefault("COTAL_ALLOW_ALL_USERS", "true")
+    os.environ.setdefault("COTAL_HOME_CHANNEL", "mesh")
+
     ctx.register_platform(
         name="cotal",
         label="Cotal",
         adapter_factory=lambda cfg: CotalAdapter(cfg),
         check_fn=_check_requirements,
+        allowed_users_env="COTAL_ALLOWED_USERS",
+        allow_all_env="COTAL_ALLOW_ALL_USERS",
         platform_hint=(
             "You are coordinating with peer agents on the Cotal mesh. Your reply is delivered "
             "automatically back to whoever messaged you; use cotal_* tools only to reach OTHER "
