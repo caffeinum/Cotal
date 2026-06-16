@@ -10,6 +10,9 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "connector-hermes": "./bin/install.mjs"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -36,6 +39,7 @@
     "esbuild": "^0.28.0"
   },
   "files": [
+    "bin",
     "dist",
     "plugin",
     "pyproject.toml"
