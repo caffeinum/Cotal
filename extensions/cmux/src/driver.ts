@@ -66,6 +66,32 @@ export function closeWorkspace(workspace: string): void {
   cmux(["close-workspace", "--workspace", workspace]);
 }
 
+/** All open workspace lines (name + ref), or `[]` if cmux can't be reached. */
+export function listWorkspaces(): string[] {
+  try {
+    return cmux(["list-workspaces"]).split("\n").map((l) => l.trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/** Workspace refs (e.g. "workspace:55") whose label is exactly `name`. cmux lists tabs as
+ *  "[*] <ref>  [glyph] <label> [\[selected\]]"; matching the whole label keeps "cotal-main" from
+ *  matching "cotal-manager". Used to close stale tabs that linger after their process exits. */
+export function workspaceRefs(name: string): string[] {
+  const refs: string[] = [];
+  for (const line of listWorkspaces()) {
+    const ref = (line.match(/workspace:\d+/) ?? line.match(UUID))?.[0];
+    if (!ref) continue;
+    const label = line
+      .slice(line.indexOf(ref) + ref.length)
+      .replace(/\s*\[selected\]\s*$/, "")
+      .trim();
+    if (label === name || label.endsWith(` ${name}`)) refs.push(ref);
+  }
+  return refs;
+}
+
 /** Split the focused pane; the new pane becomes focused. */
 export function newSplit(direction: "left" | "right" | "up" | "down"): void {
   cmux(["new-split", direction]);

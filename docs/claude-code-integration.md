@@ -7,7 +7,8 @@ session joins NATS, maps lifecycle hooks to presence, and exposes the mesh tools
 presence, and team supervision: `cotal_spawn` (grow the team; the new teammate joins as a
 lateral peer), `cotal_despawn` (tear one down — it leaves the mesh and its process/tab closes),
 and `cotal_persona` (define a persona on the fly; it's saved as config and becomes spawnable),
-plus optional `cotal_feedback` for beta reports. The manager spawns it in a PTY; nothing wraps
+plus `cotal_purge` (clear the space's retained chat backlog) and optional `cotal_feedback` for
+beta reports. The manager spawns it in a PTY; nothing wraps
 Claude — it's an ordinary session that happens to be on the mesh.
 
 > The mesh runtime — agent, `cotal_*` tools, hook relay — lives in
@@ -20,14 +21,30 @@ Claude — it's an ordinary session that happens to be on the mesh.
 launch the manager runs:
 
 ```
-claude --dangerously-load-development-channels plugin:cotal@cotal-mesh
+claude --strict-mcp-config --mcp-config '{"mcpServers":{"cotal":{"command":"node","args":["<plugin>/dist/mcp.cjs"]}}}' \
+       --dangerously-load-development-channels server:cotal
 # env: COTAL_SPACE, COTAL_NAME, COTAL_ROLE, COTAL_SERVERS, COTAL_CHANNEL=1
 ```
 
+- **MCP isolation.** A spawned agent runs with **only** the cotal MCP server: `--strict-mcp-config`
+  ignores every other MCP source (crucially the operator's personal `~/.claude.json` servers — a
+  meshed teammate needs none of them, and several spawns each booting a Chromium/DB/etc. helper would
+  starve memory and kill the sessions before they register presence), and `--mcp-config` re-supplies
+  cotal. Because the plugin's own MCP server is suppressed, the channel ref is the manually-configured
+  server tagged `server:cotal` (not `plugin:cotal@cotal-mesh`); the plugin stays installed for its
+  hooks (message delivery), independent of the wake nudge.
 - **Installed, not `--plugin-dir`.** The plugin is installed once
-  (`claude plugin install cotal@cotal-mesh --scope local`) — the wake channel only binds to an
+  (`claude plugin install cotal@cotal-mesh --scope local`) — its hooks bind only to an
   *installed* plugin, so `--plugin-dir` (which loads but doesn't "install") isn't enough. Local
   scope keeps it to this repo (a gitignored `.claude/settings.local.json`), never user-global.
+  In a clone, the marketplace is the repo root's [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json);
+  `cotal setup` (npx, no clone) materializes the same marketplace at `~/.cotal/claude-plugin/`
+  from the published package's plugin assets and installs from there. The marketplace name is
+  `cotal-mesh` in both — the channel ref depends on it. `cotal setup` is two-tier: the first run
+  (no `~/.cotal/onboarded.json` marker) does this install as a narrated step; later runs just
+  verify it in the compact status. The plugin install is local-scope, so the enablement lives in
+  the working dir's `.claude/settings.local.json`. See [setup-internals.md](setup-internals.md)
+  for the full flow + the invariants that keep this install working.
 - **Bundled.** The MCP server and hooks are esbuild-bundled to `dist/*.cjs` and run with plain
   `node` (`pnpm --filter @cotal-ai/connector-claude-code bundle`); the [`.mcp.json`](../extensions/connector-claude-code/.mcp.json)
   and [`hooks.json`](../extensions/connector-claude-code/hooks/hooks.json) point at the bundles. Bundling is
@@ -69,6 +86,11 @@ You are a builder on a shared mesh of peer agents…   ← the body is the perso
   `configFromEnv`. Individual `COTAL_*` vars still override it.
 - **Persona is a short contract, not a title.** Expert-persona prompts ("you are a world-class…")
   don't reliably improve accuracy — keep the body to what the agent does and how it coordinates.
+  A persona that needs facts should point at the *source*, not assert them: the demo's `david`/`sven`
+  read the on-disk `docs/`/`examples/`/source (a managed session runs at the repo root) or, with no
+  repo present, fetch the public docs. `buildLaunch` pre-allows that fetch with
+  `--allowedTools "WebFetch(domain:github.com),WebFetch(domain:raw.githubusercontent.com)"` so the
+  lookup doesn't prompt the operator mid-session.
 - **The agent is told its lanes.** The MCP server `instructions` name the channels it reads and may
   post to (from `channels`/`publish`), so the model knows its scope up front instead of learning it
   from inbound tags and rejected sends.
@@ -283,8 +305,10 @@ Two things move a message from the inbox to the model — **one delivers, one on
   wakes an *idle* session into a turn, so the hook drain runs *now* instead of at the next prompt.
   The nudge never acks or removes anything — if the channel can't run, delivery still happens at the
   next turn. It takes three things together: the plugin's MCP declares the `claude/channel`
-  capability, the session is launched with `--dangerously-load-development-channels
-  plugin:cotal@cotal-mesh` (research preview), **and** `COTAL_CHANNEL=1`. The last one matters:
+  capability, the session is launched with `--dangerously-load-development-channels server:cotal`
+  (research preview; `server:<name>` because cotal is supplied via `--mcp-config` under MCP isolation
+  — a `plugin:…@…` ref would point at the strict-suppressed plugin server), **and** `COTAL_CHANNEL=1`.
+  The last one matters:
   Claude does not echo `claude/channel` back in its MCP client capabilities, so the connector would
   auto-detect the channel as *off* and never send the nudge — the env flag forces it on.
 

@@ -257,12 +257,14 @@ dependency on them). Selectable backends:
   or types in via `cotal attach <name>` (stream the PTY), and the manager keeps full OS-signal
   control (group-kill, restart). No external software to install.
 - **`tmux` / `iTerm2` (opt-in)** — for users already living in a multiplexer who want native
-  panes / persistence; auto-detect (if already inside tmux, use it).
+  panes / persistence; auto-detect (if already inside tmux, use it). You watch it natively, so
+  `cotal attach` points you at `tmux attach -t cotal-<space>:<name>` rather than streaming.
 - **`cmux` (integration)** — each agent gets its own [cmux](https://github.com/) tab. This is a
   true plug-in: the `cmux` runtime lives in **`@cotal-ai/cmux`** and self-registers a `RuntimeProvider`
   on import, so the manager spawns into tabs without depending on the package — a composition root
   opts in with one `import "@cotal-ai/cmux"` (the `cotal` binary does). Like tmux you watch it
-  natively, so `attach` points you at the tab rather than streaming. Teardown is real: the runtime
+  natively, so `cotal attach` points you at the `cotal-<name>` tab rather than streaming (it is
+  *not* tmux — cmux is its own CLI/app). Teardown is real: the runtime
   keeps the tab's workspace + surface ids, so `stop` types `/exit` for a clean leave then closes the
   tab (graceful) or closes it outright (hard). The manager must run inside a live cmux surface (cmux
   only authorizes its control socket from a real pane). Drives
@@ -311,7 +313,8 @@ dashboard, or an agent) can send; spawning is policy-gated. `definePersona` writ
 **Emergent payoff:** an agent can grow *and* shape the team without a human — ask the manager for
 a teammate (`cotal_spawn`), mint a brand-new persona on the fly (`cotal_persona` → saved as config
 → spawnable), or tear one down (`cotal_despawn`, graceful or hard). The new agent is a *peer*, not
-a child.
+a child. Cleanup rides the same control plane: `cotal_purge` has the manager clear the space's
+retained chat backlog (the privileged `STREAM.PURGE` regular agents are denied).
 
 ## Hosting & onboarding
 
@@ -327,7 +330,7 @@ Under the hood the manager runs the *real* `claude` with the plugin attached and
 environment — an ordinary Claude Code terminal, no wrapper in front of it:
 
 ```
-COTAL_SPACE=demo COTAL_NAME=alice COTAL_ROLE=planner \
+COTAL_SPACE=main COTAL_NAME=alice COTAL_ROLE=planner \
   claude --dangerously-load-development-channels plugin:cotal@cotal-mesh
 ```
 

@@ -64,3 +64,24 @@ export interface RuntimeProvider extends Extension {
    *  when the backend uses one (tmux); others may ignore it. */
   create(opts: { session: string }): Runtime;
 }
+
+/**
+ * A workspace surface an integration opens for an agent — an {@link Extension} of
+ * kind `"workspaces"`. `name` is the backend it provides (e.g. `"cmux"`), the key
+ * callers resolve by. Kept off the generic {@link Runtime} interface on purpose:
+ * pty/tmux have no workspace-layout concept, so only code that wants a specific
+ * backend (e.g. `cotal setup` opening cmux tabs) resolves this by name — never
+ * importing the extension package. Self-registers on import, like a connector.
+ */
+export interface Workspaces extends Extension {
+  readonly kind: "workspaces";
+  readonly name: string;
+  /** Whether the backend is reachable right now (e.g. the cmux app is running). */
+  available(): boolean;
+  /** Open a workspace `name` with the given JSON `layout`; returns its ref (id). */
+  open(name: string, layout: string, opts?: { focus?: boolean }): string;
+  /** Close a previously opened workspace by ref. */
+  close(ref: string): void;
+  /** Refs of every open workspace labelled `name` (dead tabs may linger). */
+  refs(name: string): string[];
+}

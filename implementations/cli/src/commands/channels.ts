@@ -12,6 +12,8 @@ import {
   type ChannelDefaults,
   type ChannelRegistryFile,
 } from "@cotal-ai/core";
+import { cotalRoot } from "../lib/paths.js";
+import { resolveSpace } from "../lib/status.js";
 import { c } from "../ui.js";
 
 /**
@@ -38,7 +40,7 @@ export async function channels(argv: string[]): Promise<void> {
     },
   });
   const server = values.server ?? DEFAULT_SERVER;
-  const space = values.space ?? "demo";
+  const space = values.space ?? resolveSpace(process.cwd());
   // Tri-state replay: --replay → true, --no-replay → false, neither → leave unchanged.
   const replay = values["no-replay"] ? false : values.replay ? true : undefined;
   const creds = await managerCreds(); // undefined ⇒ open mode
@@ -84,7 +86,7 @@ export async function channels(argv: string[]): Promise<void> {
 /** Privileged creds for a registry write: mint ephemeral manager creds from the space auth
  *  (auth mode), or undefined to connect open. Throws nothing — open mode is the no-auth dev mesh. */
 async function managerCreds(): Promise<string | undefined> {
-  const auth = loadSpaceAuth(authDir(process.cwd()));
+  const auth = loadSpaceAuth(authDir(cotalRoot()));
   if (!auth) return undefined;
   return mintCreds(auth, newIdentity(), "manager");
 }

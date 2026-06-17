@@ -7,6 +7,7 @@ import {
   type LaunchSpec,
   type Runtime,
   type RuntimeProvider,
+  type Workspaces,
 } from "@cotal-ai/core";
 import * as cmux from "./driver.js";
 
@@ -102,3 +103,17 @@ export const cmuxRuntimeProvider: RuntimeProvider = {
 };
 
 registry.register(cmuxRuntimeProvider);
+
+/** Self-registering workspaces provider — lets a caller (e.g. `cotal setup`) open/close
+ *  cmux tabs by resolving `registry.resolve("workspaces","cmux")`, so an implementation
+ *  drives cmux without importing this package. Forwards straight to the driver. */
+export const cmuxWorkspacesProvider: Workspaces = {
+  kind: "workspaces",
+  name: "cmux",
+  available: () => cmux.available(),
+  open: (name, layout, opts) => cmux.openWorkspace(name, layout, opts),
+  close: (ref) => cmux.closeWorkspace(ref),
+  refs: (name) => cmux.workspaceRefs(name),
+};
+
+registry.register(cmuxWorkspacesProvider);
