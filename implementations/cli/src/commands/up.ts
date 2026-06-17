@@ -176,17 +176,19 @@ async function waitReady(server: string, creds?: string): Promise<boolean> {
   return false;
 }
 
-/** One-time space infrastructure once the server accepts connections: pre-create the
- *  streams agents are denied STREAM.CREATE for (auth mode), and seed the channel registry. */
+/** One-time space infrastructure once the server accepts connections: pre-create the space's
+ *  streams + KV buckets, and seed the channel registry. Done for BOTH modes — auth needs it
+ *  (agents are denied STREAM.CREATE), and open needs it too so anything that touches a stream
+ *  before an endpoint has joined (e.g. `cotal spawn`'s DM-inbox provisioning, `cotal_purge`,
+ *  `history clear`) finds the streams instead of failing with StreamNotFound. Open connects
+ *  without creds (no authenticator). */
 async function postStart(
   server: string,
   space: string,
   setup?: { creds: string },
   seedFile?: ChannelRegistryFile,
 ): Promise<void> {
-  if (setup) {
-    await setupSpaceStreams({ servers: server, space, creds: setup.creds });
-  }
+  await setupSpaceStreams({ servers: server, space, creds: setup?.creds });
   if (seedFile) {
     await seedChannelRegistry({ servers: server, space, creds: setup?.creds, file: seedFile });
   }

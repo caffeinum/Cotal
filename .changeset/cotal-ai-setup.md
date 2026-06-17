@@ -42,7 +42,11 @@ Supporting changes across the stack:
   `--mcp-config`, channel ref `server:cotal`), `prompt` passthrough, and the plugin manifest files
   shipped in the published package.
 
-Adds `cotal up --detach` + `cotal down` for a background mesh. When run via `npx` without a global
+Adds `cotal up --detach` + `cotal down` for a background mesh. `cotal up` now pre-creates the
+space's JetStream streams + KV buckets for **both** modes (open connects without creds), so
+anything that touches a stream before an endpoint has joined — `cotal spawn`'s DM-inbox
+provisioning, `cotal_purge`, `history clear` — works on a fresh open mesh instead of failing with
+StreamNotFound. When run via `npx` without a global
 `cotal`, setup offers to `npm i -g cotal-ai` (default yes; non-interactive takes the default),
 best-effort — and the status-card hints render the right prefix (`cotal` / `npx cotal-ai` /
 `pnpm cotal`) for how you ran it.
