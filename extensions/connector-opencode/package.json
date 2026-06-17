@@ -26,7 +26,7 @@
     "@cotal-ai/connector-core": "workspace:*"
   },
   "peerDependencies": {
-    "@cotal-ai/core": "workspace:*",
+    "@cotal-ai/core": ">=0.1.0",
     "@opencode-ai/plugin": "^1.16.2",
     "@opencode-ai/sdk": "^1.16.2"
   },
