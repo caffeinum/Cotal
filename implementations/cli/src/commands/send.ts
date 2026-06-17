@@ -12,7 +12,7 @@ import {
 } from "@cotal-ai/core";
 import { c } from "../ui.js";
 import { cotalRoot } from "../lib/paths.js";
-import { mentionsIn } from "../console/commands.js";
+import { mentionsIn } from "../lib/mentions.js";
 
 /**
  * One-shot send commands — `cotal dm` / `cotal msg` / `cotal ask` — the headless equivalents of the

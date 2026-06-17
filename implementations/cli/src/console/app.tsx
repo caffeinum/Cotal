@@ -16,7 +16,8 @@ import { CommandPalette } from "./ui/CommandPalette.js";
 import { Confirm, type ConfirmTarget } from "./ui/Confirm.js";
 import { Prompt } from "./ui/Prompt.js";
 import { Detail, type DetailTarget } from "./ui/Detail.js";
-import { runCommand, mentionsIn, type CommandCtx } from "./commands.js";
+import { runCommand, type CommandCtx } from "./commands.js";
+import { mentionsIn } from "../lib/mentions.js";
 import type { FeedEntry, FocusId } from "./mesh.js";
 
 /** An in-progress compose: post to a channel, DM a peer, or reply to a feed message. */
