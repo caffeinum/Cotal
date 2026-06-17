@@ -4,9 +4,9 @@ import {
   CotalEndpoint,
   isReachable,
   DEFAULT_SERVER,
-  DEFAULT_SPACE,
   type PresenceStatus,
 } from "@cotal-ai/core";
+import { resolveSpace } from "../lib/status.js";
 import { c } from "../ui.js";
 
 /**
@@ -78,7 +78,7 @@ export async function demo(argv: string[]): Promise<void> {
       creds: { type: "string" },
     },
   });
-  const space = values.space ?? DEFAULT_SPACE;
+  const space = values.space ?? resolveSpace(process.cwd());
   const server = values.server ?? DEFAULT_SERVER;
   const interval = values.interval ? Number(values.interval) : 1200;
   const creds = values.creds ? readFileSync(values.creds, "utf8") : undefined;

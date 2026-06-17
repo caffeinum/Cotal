@@ -257,16 +257,23 @@ dependency on them). Selectable backends:
   or types in via `cotal attach <name>` (stream the PTY), and the manager keeps full OS-signal
   control (group-kill, restart). No external software to install.
 - **`tmux` / `iTerm2` (opt-in)** — for users already living in a multiplexer who want native
-  panes / persistence; auto-detect (if already inside tmux, use it).
+  panes / persistence; auto-detect (if already inside tmux, use it). You watch it natively, so
+  `cotal attach` points you at `tmux attach -t cotal-<space>:<name>` rather than streaming.
 - **`cmux` (integration)** — each agent gets its own [cmux](https://github.com/) tab. This is a
   true plug-in: the `cmux` runtime lives in **`@cotal-ai/cmux`** and self-registers a `RuntimeProvider`
   on import, so the manager spawns into tabs without depending on the package — a composition root
   opts in with one `import "@cotal-ai/cmux"` (the `cotal` binary does). Like tmux you watch it
-  natively, so `attach` points you at the tab rather than streaming. Teardown is real: the runtime
+  natively, so `cotal attach` points you at the `cotal-<name>` tab rather than streaming (it is
+  *not* tmux — cmux is its own CLI/app). Teardown is real: the runtime
   keeps the tab's workspace + surface ids, so `stop` types `/exit` for a clean leave then closes the
   tab (graceful) or closes it outright (hard). The manager must run inside a live cmux surface (cmux
   only authorizes its control socket from a real pane). Drives
-  [`examples/02`](../examples/02-cmux-handoff/README.md).
+  [`examples/02`](../examples/02-cmux-handoff/README.md). The package also self-registers a
+  **`TerminalLayout`** provider (a host-side extension contract, not wire protocol: open/close/list
+  editor tabs). The caller hands it a backend-agnostic `Tab` (panes as argv + an optional split),
+  and the provider builds the cmux-native layout — so `cotal setup` resolves it from the registry
+  (`registry.resolve("terminal","cmux")`) to lay out its manager/console/`me` tabs with no
+  cmux-specific shape (no layout JSON, no shell quoting) leaking into the CLI.
 - **`byo` (floor)** — the manager doesn't own the process; a human runs `cotal claude --role …`
   in their own terminal and the manager just tracks it via presence.
 - **`host` (upgrade)** — headless via the Agent SDK for structured control +
@@ -311,7 +318,8 @@ dashboard, or an agent) can send; spawning is policy-gated. `definePersona` writ
 **Emergent payoff:** an agent can grow *and* shape the team without a human — ask the manager for
 a teammate (`cotal_spawn`), mint a brand-new persona on the fly (`cotal_persona` → saved as config
 → spawnable), or tear one down (`cotal_despawn`, graceful or hard). The new agent is a *peer*, not
-a child.
+a child. Cleanup rides the same control plane: `cotal_purge` has the manager clear the space's
+retained chat backlog (the privileged `STREAM.PURGE` regular agents are denied).
 
 ## Hosting & onboarding
 
@@ -327,7 +335,7 @@ Under the hood the manager runs the *real* `claude` with the plugin attached and
 environment — an ordinary Claude Code terminal, no wrapper in front of it:
 
 ```
-COTAL_SPACE=demo COTAL_NAME=alice COTAL_ROLE=planner \
+COTAL_SPACE=main COTAL_NAME=alice COTAL_ROLE=planner \
   claude --dangerously-load-development-channels plugin:cotal@cotal-mesh
 ```
 
@@ -586,9 +594,12 @@ server, not by agent goodwill. It is containment + authenticity for a single tru
   role's queue. Fix: the privileged provisioner **pre-creates** the DM (`dm_<id>`, filter
   `inst.<id>.*`) and TASK (`svc_<role>`, filter `svc.<role>.*`) durables; agents **bind only**,
   and **all** create forms on `DM_<space>`/`TASK_<space>` are denied.
-- **Streams are infrastructure**, pre-created at `cotal up` (agents are denied
-  `STREAM.CREATE`); the presence KV bucket is a stream too, so it's pre-created and agents open
-  (not create) it. Open mode keeps the lazy first-endpoint create.
+- **Streams are infrastructure**, pre-created at `cotal up` for **both** modes (agents are denied
+  `STREAM.CREATE` under auth; open connects with no creds); the presence + channels KV buckets are
+  streams too, pre-created the same way. Open mode also keeps the endpoint's lazy first-join create,
+  so a mesh started without `cotal up` still works — but pre-creating means stream-touching ops that
+  run before any endpoint has joined (`cotal spawn`'s DM-inbox provisioning, `cotal_purge`,
+  `history clear`) find the streams instead of failing with `StreamNotFound`.
 - **Denials are loud, never silent** — NATS publish permission violations surface only on the
   connection status stream, so the endpoint routes them to its `error` event with a "denied,
   not absent" message. This is why an over-tight ACL shows up as a logged denial, not a peer

@@ -1,14 +1,14 @@
 import { parseArgs } from "node:util";
 import { spawn } from "node:child_process";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { readFileSync } from "node:fs";
+import { connect } from "node:net";
+import { readFileSync, writeFileSync, openSync, closeSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
   CotalEndpoint,
   isReachable,
   DEFAULT_SERVER,
-  DEFAULT_SPACE,
   deliveryOf,
   parseSubject,
   spaceWildcard,
@@ -17,11 +17,21 @@ import {
   mintCreds,
   newIdentity,
   clearChannel,
-  type CotalMessage,
 } from "@cotal-ai/core";
+import { resolveSpace } from "../lib/status.js";
+import { cotalPath, cotalRoot } from "../lib/paths.js";
 import { c } from "../ui.js";
+import { selfArgv } from "../lib/self-exec.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+/** The dashboard's default port and its branded address. The server binds loopback
+ *  (127.0.0.1) but serves any Host, so `cotal.localhost` — which Chrome/Firefox/Edge
+ *  resolve to loopback with no DNS setup — just works. (Safari may not resolve
+ *  `*.localhost`; plain http://127.0.0.1:7799 always does.) */
+export const WEB_PORT = 7799;
+export const WEB_URL = `http://cotal.localhost:${WEB_PORT}/`;
+
 const PAGE: Record<string, { path: string; type: string }> = {
   "/": { path: join(here, "../web/index.html"), type: "text/html; charset=utf-8" },
   "/app.js": { path: join(here, "../web/app.js"), type: "text/javascript; charset=utf-8" },
@@ -42,16 +52,16 @@ export async function web(argv: string[]): Promise<void> {
       creds: { type: "string" },
     },
   });
-  const space = values.space ?? DEFAULT_SPACE;
+  const space = values.space ?? resolveSpace(process.cwd());
   const server = values.server ?? DEFAULT_SERVER;
-  const port = values.port ? Number(values.port) : 7799;
+  const port = values.port ? Number(values.port) : WEB_PORT;
   // The dashboard is always an admin god-view (no read-only viewer mode) so it can show DMs
   // and anycast. Auth mode (`.cotal/auth` present): self-mint an `admin` cred so it joins the
   // authed mesh with no manual --creds — like `cotal spawn`, it holds the space signing key.
   // An explicit --creds still wins. Open mode (no auth): connect bare.
   // Loaded once at function scope: the observer connects with a read-only `admin` cred, but
   // the channel-delete write path mints an ephemeral `manager` cred from this same material.
-  const auth = loadSpaceAuth(authDir(process.cwd()));
+  const auth = loadSpaceAuth(authDir(cotalRoot()));
   let creds = values.creds ? readFileSync(values.creds, "utf8") : undefined;
   if (!creds && auth) {
     if (auth.space !== space) {
@@ -188,8 +198,9 @@ export async function web(argv: string[]): Promise<void> {
     process.exit(1);
   });
 
-  await new Promise<void>((resolve) => httpServer.listen(port, "127.0.0.1", resolve));
-  const url = `http://127.0.0.1:${port}/`;
+  await new Promise<void>((ready) => httpServer.listen(port, "127.0.0.1", ready));
+  // Branded URL only when on the default port; a custom --port keeps the plain loopback address.
+  const url = port === WEB_PORT ? WEB_URL : `http://127.0.0.1:${port}/`;
   console.log(`${c.bold("Cotal web")} — observing space ${c.bold(space)}`);
   console.log(c.dim("  god-view — DMs + anycast visible"));
   console.log(`  ${c.cyan(url)}  ${c.dim("(Ctrl-C to stop)")}`);
@@ -210,6 +221,53 @@ export async function web(argv: string[]): Promise<void> {
 function json(res: ServerResponse, data: unknown): void {
   res.writeHead(200, { "content-type": "application/json" });
   res.end(JSON.stringify(data));
+}
+
+/** True if something is already listening on the dashboard port (loopback). */
+export function webUp(port: number = WEB_PORT): Promise<boolean> {
+  return new Promise((res) => {
+    const sock = connect(port, "127.0.0.1");
+    sock.setTimeout(400);
+    const done = (up: boolean) => {
+      sock.destroy();
+      res(up);
+    };
+    sock.once("connect", () => done(true));
+    sock.once("timeout", () => done(false));
+    sock.once("error", () => done(false));
+  });
+}
+
+/** Start the dashboard in the background (pid in `.cotal/web.pid`, output to `.cotal/web.log`),
+ *  stopped by `cotal down`. Re-execs this same CLI — `process.execArgv` carries the tsx loader in
+ *  dev, and is empty in prod where `node <entry.js> web …` runs the compiled binary. */
+export function startWebDetached(o: { space?: string; server?: string } = {}): { pid: number; url: string } {
+  const fd = openSync(cotalPath("web.log"), "a");
+  const [node, ...self] = selfArgv();
+  const args = [
+    ...self,
+    "web",
+    "--no-open",
+    "--port",
+    String(WEB_PORT),
+    "--space",
+    o.space ?? resolveSpace(process.cwd()),
+    ...(o.server ? ["--server", o.server] : []),
+  ];
+  const child = spawn(node, args, { detached: true, stdio: ["ignore", fd, fd] });
+  closeSync(fd);
+  child.unref();
+  writeFileSync(cotalPath("web.pid"), String(child.pid));
+  return { pid: child.pid ?? 0, url: WEB_URL };
+}
+
+/** Make the dashboard available: reuse one already listening, else start it detached and wait
+ *  briefly for it to come up. Best-effort — callers treat a non-running result as non-fatal. */
+export async function ensureWeb(o: { space?: string; server?: string } = {}): Promise<{ url: string; running: boolean }> {
+  if (await webUp()) return { url: WEB_URL, running: true };
+  startWebDetached(o);
+  for (let i = 0; i < 20 && !(await webUp()); i++) await new Promise((r) => setTimeout(r, 150));
+  return { url: WEB_URL, running: await webUp() };
 }
 
 async function readBody(req: IncomingMessage): Promise<{ channel?: string }> {

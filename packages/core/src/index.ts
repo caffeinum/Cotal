@@ -11,4 +11,5 @@ export * from "./spaces.js";
 export * from "./connector.js";
 export * from "./command.js";
 export * from "./runtime.js";
+export * from "./terminal.js";
 export * from "./registry.js";

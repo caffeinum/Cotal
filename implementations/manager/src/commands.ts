@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync, rmSync } from "node:fs";
 import { execFileSync, spawn } from "node:child_process";
 import { join } from "node:path";
 import {
@@ -7,6 +7,9 @@ import {
   isReachable,
   DEFAULT_SERVER,
   DEFAULT_SPACE,
+  authDir,
+  findCotalRoot,
+  loadSpaceAuth,
   registry,
   type Command,
   type ControlReply,
@@ -18,6 +21,12 @@ import { attachClient } from "./attach-client.js";
 import { c } from "./ui.js";
 
 type Values = Record<string, string | undefined>;
+
+/** The space to operate on: explicit `--space`, else this folder's `.cotal/auth` space, else the
+ *  default — so a manually-run manager matches the folder's mesh instead of assuming the default. */
+function spaceFor(v: Values): string {
+  return v.space ?? loadSpaceAuth(authDir(findCotalRoot()))?.space ?? DEFAULT_SPACE;
+}
 
 function parse(argv: string[]): Values {
   const { values, positionals } = parseArgs({
@@ -34,6 +43,7 @@ function parse(argv: string[]): Values {
       creds: { type: "string" },
       "console-port": { type: "string" },
       drive: { type: "boolean" },
+      spawn: { type: "string" }, // comma-separated agent names to pre-spawn at startup
     },
   });
   // These commands are flags-only — reject stray positionals instead of silently ignoring
@@ -95,7 +105,7 @@ async function start(argv: string[]): Promise<void> {
     console.error(c.red("--name is required"));
     process.exit(1);
   }
-  const reply = await ask(v.space ?? DEFAULT_SPACE, v.server ?? DEFAULT_SERVER, "start", {
+  const reply = await ask(spaceFor(v), v.server ?? DEFAULT_SERVER, "start", {
     name: v.name,
     role: v.role,
     agent: v.agent,
@@ -115,7 +125,7 @@ async function stop(argv: string[]): Promise<void> {
     console.error(c.red("--name is required"));
     process.exit(1);
   }
-  const reply = await ask(v.space ?? DEFAULT_SPACE, v.server ?? DEFAULT_SERVER, "stop", {
+  const reply = await ask(spaceFor(v), v.server ?? DEFAULT_SERVER, "stop", {
     name: v.name,
   }, v.creds);
   failIfNotOk(reply);
@@ -124,7 +134,7 @@ async function stop(argv: string[]): Promise<void> {
 
 async function ps(argv: string[]): Promise<void> {
   const v = parse(argv);
-  const reply = await ask(v.space ?? DEFAULT_SPACE, v.server ?? DEFAULT_SERVER, "ps", undefined, v.creds);
+  const reply = await ask(spaceFor(v), v.server ?? DEFAULT_SERVER, "ps", undefined, v.creds);
   failIfNotOk(reply);
   const rows =
     (reply.data as Array<{
@@ -163,7 +173,7 @@ async function attach(argv: string[]): Promise<void> {
     console.error(c.red("--name is required"));
     process.exit(1);
   }
-  const reply = await ask(v.space ?? DEFAULT_SPACE, v.server ?? DEFAULT_SERVER, "attach", {
+  const reply = await ask(spaceFor(v), v.server ?? DEFAULT_SERVER, "attach", {
     name: v.name,
   }, v.creds);
   failIfNotOk(reply);
@@ -178,7 +188,7 @@ async function attach(argv: string[]): Promise<void> {
  *  composition root (the `cotal` binary does). Stays alive until SIGINT/SIGTERM. */
 async function runManager(argv: string[], runtime: RuntimeMode): Promise<void> {
   const v = parse(argv);
-  const space = v.space ?? DEFAULT_SPACE;
+  const space = spaceFor(v);
   const server = v.server ?? DEFAULT_SERVER;
   // Parse the roster before touching the network — a malformed file should fail fast,
   // before the manager comes up or any agent is spawned.
@@ -196,6 +206,11 @@ async function runManager(argv: string[], runtime: RuntimeMode): Promise<void> {
       `\n  console: ${mgr.consoleUrl}` +
       c.dim("\n  spawn: cotal start --name <n>   ·   stop: cotal stop --name <n>   (Ctrl-C to shut down)"),
   );
+  // Register shutdown handlers before any spawning, so a Ctrl-C during the (possibly slow,
+  // staggered) boot tears the manager and its spawned teammates down rather than orphaning them.
+  const shutdown = () => void mgr.stop().then(() => process.exit(0));
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
   // Declarative boot: bring up each rostered agent through the same spawn path as `start`.
   // A failed entry is logged but non-fatal — healthy agents stay up and the operator can
   // fix the roster without the supervisor crash-looping.
@@ -204,9 +219,25 @@ async function runManager(argv: string[], runtime: RuntimeMode): Promise<void> {
     if (reply.ok) console.log(c.green(`✓ started ${c.bold(entry.name)}`) + c.dim(` (${entry.agent})`));
     else console.error(c.red(`✗ ${entry.name}: ${reply.error}`));
   }
-  const shutdown = () => void mgr.stop().then(() => process.exit(0));
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  // Pre-spawn teammates the manager owns (e.g. the demo's david/sven), so they're despawnable.
+  // Stagger them: wait for each to register presence before launching the next, so several heavy
+  // Claude cold-starts don't boot simultaneously and spike memory. The last one needs no wait.
+  if (v.spawn) {
+    const names = v.spawn.split(",").map((s) => s.trim()).filter(Boolean);
+    for (let i = 0; i < names.length; i++) {
+      const name = names[i];
+      const reply = await mgr.startByName(name);
+      if (!reply.ok) {
+        console.error(c.red(`✗ couldn't spawn ${name}: ${reply.error ?? "unknown error"}`));
+        continue;
+      }
+      console.log(c.green(`✓ spawned ${name}`));
+      if (i < names.length - 1) {
+        const joined = await mgr.waitForPresence(name);
+        console.log(c.dim(joined ? `  ${name} joined; starting next` : `  ${name} still starting; continuing`));
+      }
+    }
+  }
   await new Promise<void>(() => {});
 }
 
@@ -215,7 +246,7 @@ async function runManager(argv: string[], runtime: RuntimeMode): Promise<void> {
  *  open a workspace with the console + a ready driving session. Orchestrates, then exits. */
 async function runDrive(argv: string[]): Promise<void> {
   const v = parse(argv);
-  const space = v.space ?? DEFAULT_SPACE;
+  const space = spaceFor(v);
   const name = v.name ?? "me";
   const server = v.server ?? DEFAULT_SERVER;
   // name/space get interpolated into the cmux pane's `bash -lc '…'` command; keep them bare
@@ -227,6 +258,17 @@ async function runDrive(argv: string[]): Promise<void> {
   const tsx = join(root, "node_modules", ".bin", "tsx");
   const cmuxCli = join(root, "extensions", "cmux", "src", "cli.ts");
   const cotalBin = join(root, "bin", "cotal.ts");
+  // `cotal cmux go` drives a dev clone directly (tsx + repo source paths). A packaged install
+  // has none of those, so fail clearly instead of crashing on a missing path — the packaged
+  // onboarding is `cotal setup` (what bare `cotal` / `npx cotal-ai` runs; inside a cmux pane it
+  // opens the same session).
+  if (![tsx, cmuxCli, cotalBin].every(existsSync)) {
+    console.error(
+      c.red("✗ `cotal cmux go` needs a cotal dev clone — it runs the repo source directly.") +
+        c.dim("\n  In a packaged install, run `cotal setup` instead (from a cmux pane it opens the same session)."),
+    );
+    process.exit(1);
+  }
   // A cmux terminal leaf running a cotal subcommand (panes open in the login shell, which
   // may be nushell — wrap in `bash -lc` like launch.sh; `exec` so pgrep sees the real cmd).
   const leaf = (sub: string) => ({
@@ -269,7 +311,8 @@ async function runDrive(argv: string[]): Promise<void> {
   }
 
   // Plugin (idempotent) so the spawned Claude sessions have the cotal_* tools.
-  execFileSync(tsx, [cotalBin, "setup"], { cwd: root, stdio: "inherit" });
+  // `--yes` runs the guided setup non-interactively (cmux go is one-shot onboarding).
+  execFileSync(tsx, [cotalBin, "setup", "--yes"], { cwd: root, stdio: "inherit" });
 
   // Mesh: start it in the background if it isn't already up (cotal up blocks in the foreground).
   if (!(await isReachable(server))) {
@@ -283,6 +326,21 @@ async function runDrive(argv: string[]): Promise<void> {
     }
   }
   console.log(c.green(`✓ mesh up at ${server}`));
+
+  // A prior interactive `cotal setup` may have left a detached (pty) manager; cmux go wants its
+  // own cmux-runtime manager, so stop that one first — queue-grouped control would otherwise split
+  // spawns between the two.
+  const pidFile = join(root, ".cotal", "manager.pid");
+  if (existsSync(pidFile)) {
+    const pid = Number(readFileSync(pidFile, "utf8").trim());
+    try {
+      process.kill(pid, "SIGTERM");
+      console.log(c.dim(`stopped a background manager (pid ${pid}) to use cmux tabs`));
+    } catch {
+      /* already gone */
+    }
+    rmSync(pidFile);
+  }
 
   // Manager in its own tab (skip if one is already running for this space).
   let mgrRunning = false;

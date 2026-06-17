@@ -133,11 +133,12 @@ export function taskDurableConfig(
 export async function setupSpaceStreams(opts: {
   servers: string;
   space: string;
-  creds: string;
+  /** Privileged creds for an authed mesh; omit on an open mesh (a bare connection has the rights). */
+  creds?: string;
 }): Promise<void> {
   const nc = await connect({
     servers: opts.servers,
-    authenticator: credsAuthenticator(new TextEncoder().encode(opts.creds)),
+    ...(opts.creds ? { authenticator: credsAuthenticator(new TextEncoder().encode(opts.creds)) } : {}),
   });
   try {
     await createSpaceStreams(await jetstreamManager(nc), opts.space);

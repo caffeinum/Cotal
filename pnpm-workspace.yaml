@@ -4,6 +4,7 @@ packages:
   - "implementations/*"
   - "examples/*"
   - "examples/*/*"
+  - "bin"
 allowBuilds:
   esbuild: true
   msgpackr-extract: false

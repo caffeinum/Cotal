@@ -1,0 +1,28 @@
+{
+  "name": "cotal-ai",
+  "version": "0.0.1",
+  "description": "Cotal — lateral agent coordination over NATS. Run `npx cotal-ai` for a guided setup.",
+  "license": "Apache-2.0",
+  "keywords": ["cotal", "agents", "multi-agent", "nats", "jetstream", "pubsub", "mcp"],
+  "homepage": "https://github.com/Cotal-AI/Cotal#readme",
+  "repository": { "type": "git", "url": "git+https://github.com/Cotal-AI/Cotal.git", "directory": "bin" },
+  "type": "module",
+  "bin": { "cotal": "./dist/cotal.js" },
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "pnpm run build"
+  },
+  "dependencies": {
+    "@cotal-ai/cli": "workspace:*",
+    "@cotal-ai/cmux": "workspace:*",
+    "@cotal-ai/connector-claude-code": "workspace:*",
+    "@cotal-ai/connector-hermes": "workspace:*",
+    "@cotal-ai/connector-opencode": "workspace:*",
+    "@cotal-ai/core": "workspace:*",
+    "@cotal-ai/manager": "workspace:*"
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "publishConfig": { "access": "public" }
+}
