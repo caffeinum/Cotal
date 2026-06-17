@@ -268,11 +268,11 @@ or open an issue.
 <!-- TODO(asset): team photos (assets/team/*.jpg or GitHub avatars) -->
 
 <table>
-<tr><td><!-- TODO(asset): photo --></td><td><strong>David Farah</strong>, <!-- TODO: one-line role --><br><a href="mailto:david@cotal.ai">david@cotal.ai</a> &middot; <a href="https://x.com/DavidFarahlb"><img src="https://img.shields.io/badge/-@DavidFarahlb-000?logo=x&logoColor=white" alt="@DavidFarahlb on X"></a></td></tr>
-<tr><td><!-- TODO(asset): photo --></td><td><strong>Sven Jonscher</strong>, <!-- TODO: one-line role --><br><a href="mailto:sven@cotal.ai">sven@cotal.ai</a> &middot; <a href="https://x.com/svensonj00"><img src="https://img.shields.io/badge/-@svensonj00-000?logo=x&logoColor=white" alt="@svensonj00 on X"></a></td></tr>
+<tr><td><!-- TODO(asset): photo --></td><td><strong>David Farah</strong>, <!-- TODO: one-line role --><br><a href="https://x.com/DavidFarahlb"><img src="https://img.shields.io/badge/-@DavidFarahlb-000?logo=x&logoColor=white" alt="@DavidFarahlb on X"></a></td></tr>
+<tr><td><!-- TODO(asset): photo --></td><td><strong>Sven Jonscher</strong>, <!-- TODO: one-line role --><br><a href="https://x.com/svensonj00"><img src="https://img.shields.io/badge/-@svensonj00-000?logo=x&logoColor=white" alt="@svensonj00 on X"></a></td></tr>
 </table>
 
-Building something on Cotal, or want to? Email us. We read everything.
+Building something on Cotal, or want to? Email <a href="mailto:hello@cotal.ai">hello@cotal.ai</a>. We read everything.
 
 ## License
 
