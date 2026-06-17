@@ -66,6 +66,29 @@ const BASE_LIMITS = {
 const DATA_LIMITS = { ...BASE_LIMITS, mem_storage: -1, disk_storage: -1 };
 const SYS_LIMITS = { ...BASE_LIMITS, mem_storage: 0, disk_storage: 0 };
 
+/** Reduce a {@link SpaceAuth} to just the material a *minting* host needs: `space`,
+ *  `account.pub`, and `account.signingSeed` (the only fields {@link mintCreds} reads).
+ *  The operator root-of-trust, system account, and the account's own seed are blanked.
+ *
+ *  This is the file you hand a manager that should mint per-agent creds but must never
+ *  hold the operator key — e.g. a containerized team. A leaked stripped file only lets
+ *  someone mint *users within this one account*, which the account boundary already
+ *  contains; it cannot mint new accounts or touch the system account. */
+export function stripSpaceAuth(auth: SpaceAuth): SpaceAuth {
+  return {
+    space: auth.space,
+    operator: { seed: "", jwt: "" },
+    account: {
+      pub: auth.account.pub,
+      seed: "",
+      jwt: "",
+      signingSeed: auth.account.signingSeed,
+      signingPub: "",
+    },
+    sys: { pub: "", jwt: "" },
+  };
+}
+
 /** Generate a fresh operator → account(+signing key) → system-account chain for a space. */
 export async function createSpaceAuth(space: string): Promise<SpaceAuth> {
   const okp = createOperator();

@@ -35,6 +35,17 @@ export interface ManagerOptions {
   consolePort?: number;
 }
 
+/** A spawn request, typed. The control-plane `start` op parses one of these out of an
+ *  untyped request; roster boot constructs them directly. Both funnel into {@link Manager.startAgent}. */
+export interface StartAgentOpts {
+  name: string;
+  /** Connector / agent type — resolved from the registry. Defaults to `"cotal"`. */
+  agent?: string;
+  role?: string;
+  /** Explicit agent-file name-or-path; otherwise `.cotal/agents/<name>.md` is discovered if present. */
+  config?: string;
+}
+
 interface ManagedAgent {
   name: string;
   role?: string;
@@ -165,7 +176,7 @@ export class Manager {
   /** Spawn a teammate by name (loads `.cotal/agents/<name>.md`), as if a peer asked via the
    *  control plane. Used to pre-spawn the demo's experts at startup so the manager owns them. */
   async startByName(name: string): Promise<ControlReply> {
-    return this.opStart({ name });
+    return this.startAgent({ name });
   }
 
   /** Resolve once `name` shows up on the mesh roster (presence registered), or after `timeoutMs`.
@@ -179,26 +190,39 @@ export class Manager {
     return false;
   }
 
-  private async opStart(args: Record<string, unknown>): Promise<ControlReply> {
-    const name = String(args.name ?? "").trim();
+  /** Parse an untyped control-plane `start` request into {@link StartAgentOpts}. */
+  private opStart(args: Record<string, unknown>): Promise<ControlReply> {
+    return this.startAgent({
+      name: String(args.name ?? "").trim(),
+      agent: args.agent ? String(args.agent) : undefined,
+      role: args.role ? String(args.role) : undefined,
+      config: args.config ? String(args.config) : undefined,
+    });
+  }
+
+  /** Spawn and supervise one agent. The single spawn path: both the control-plane
+   *  `start` op and declarative roster boot call this. Mints scoped creds in auth mode,
+   *  resolves the agent file, launches via the connector + runtime, and records the handle. */
+  async startAgent(opts: StartAgentOpts): Promise<ControlReply> {
+    const name = opts.name.trim();
     if (!name) return { ok: false, error: "name required" };
     const nameErr = this.nameError(name);
     if (nameErr) return { ok: false, error: nameErr };
     if (this.agents.has(name)) return { ok: false, error: `agent "${name}" already running` };
-    const agent = args.agent ? String(args.agent) : "cotal";
+    const agent = opts.agent ?? "cotal";
 
     // Resolve an agent file from the manager's own workspace — an explicit
     // --config must exist; otherwise discover .cotal/agents/<name>.md if present.
     let configPath: string | undefined;
-    if (args.config) {
-      configPath = agentFilePath(this.workspaceRoot, String(args.config));
+    if (opts.config) {
+      configPath = agentFilePath(this.workspaceRoot, opts.config);
       if (!existsSync(configPath)) return { ok: false, error: `agent file not found: ${configPath}` };
     } else {
       const f = agentFilePath(this.workspaceRoot, name);
       if (existsSync(f)) configPath = f;
     }
     // --role overrides the file; the file fills it in for bookkeeping otherwise.
-    let role = args.role ? String(args.role) : undefined;
+    let role = opts.role;
     // A stable nkey identity assigned at spawn: the public key is the agent's card.id
     // (threaded via COTAL_ID); the seed is retained to mint matching creds later.
     const identity = newIdentity();
