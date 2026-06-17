@@ -27,7 +27,7 @@
     "@cotal-ai/connector-core": "workspace:*"
   },
   "peerDependencies": {
-    "@cotal-ai/core": "workspace:*"
+    "@cotal-ai/core": ">=0.1.0"
   },
   "devDependencies": {
     "@cotal-ai/core": "workspace:*",
