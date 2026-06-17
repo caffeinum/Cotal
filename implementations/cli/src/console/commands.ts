@@ -4,6 +4,7 @@
 // they are gated on `canWrite` (open mode, or a privileged --creds).
 import type { CotalEndpoint } from "@cotal-ai/core";
 import type { MeshSnapshot } from "../view/mesh-view.js";
+import { mentionsIn } from "../lib/mentions.js";
 
 export interface CommandCtx {
   ep: CotalEndpoint;
@@ -30,11 +31,6 @@ export interface ConsoleCommand {
 function idOf(snap: MeshSnapshot, name: string): string | undefined {
   const n = name.replace(/^@/, "").toLowerCase();
   return [...snap.agents, ...snap.endpoints].find((p) => p.card.name.toLowerCase() === n)?.card.id;
-}
-
-/** @-mentions inside a message body → bare names (priority/wake hint). */
-export function mentionsIn(text: string): string[] {
-  return [...text.matchAll(/@([A-Za-z0-9_.-]+)/g)].map((m) => m[1]);
 }
 
 export const COMMANDS: ConsoleCommand[] = [
