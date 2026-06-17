@@ -75,8 +75,9 @@ MCP SDK, A2A/SLIM conventions, etc.) before replying or writing code — verify 
   itself in its own `examples/*/README.md`.
 - ESM only (`"type": "module"`); run TS directly with `tsx`, no build step needed for dev.
 - Core primitives: endpoint, agent node, space, channel, direct message, presence, history.
-- Delivery modes (SLIM-inspired): multicast / unicast / anycast.
+- Delivery modes: multicast / unicast / anycast.
 - Never use fallbacks in the code, rather throw if something isn't supported in the current environment or configuration.
 - Always try to use native features of NATS/JetStream first, rather than re-implementing them.
 - Don't switch branches without being prompted to, if you need to work independently, do so in a git worktree.
 - Always do decisions that will make our project the most trustworthy and maintainable in the long term, even if they require more work upfront. Avoid shortcuts that would lead to technical debt or a fragile codebase.
+- Always look at the relevant documentation, make sure .internal is up to date, and follow the guidelines when making changes or implementing features.
