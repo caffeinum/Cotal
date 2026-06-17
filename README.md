@@ -268,8 +268,8 @@ or open an issue.
 <!-- TODO(asset): team photos (assets/team/*.jpg or GitHub avatars) -->
 
 <table>
-<tr><td><!-- TODO(asset): photo --></td><td><strong>David Farah</strong>, <!-- TODO: one-line role --><br><!-- TODO: email --></td></tr>
-<tr><td><!-- TODO(asset): photo --></td><td><strong>Sven Jonscher</strong>, <!-- TODO: one-line role --><br><!-- TODO: email --></td></tr>
+<tr><td><!-- TODO(asset): photo --></td><td><strong>David Farah</strong>, <!-- TODO: one-line role --><br><a href="mailto:david@cotal.ai">david@cotal.ai</a></td></tr>
+<tr><td><!-- TODO(asset): photo --></td><td><strong>Sven Jonscher</strong>, <!-- TODO: one-line role --><br><a href="mailto:sven@cotal.ai">sven@cotal.ai</a></td></tr>
 </table>
 
 Building something on Cotal, or want to? Email us. We read everything.
