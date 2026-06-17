@@ -3,9 +3,9 @@
  *
  * Each {@link CotalToolSpec} is a name + description + optional Zod arg shape + a `run`
  * that drives the {@link MeshAgent}. Renderers turn the set into their host's tool API:
- * {@link registerCotalTools} (in `tools.ts`) renders onto an MCP server (Claude Code,
- * Codex); the OpenCode connector renders the same specs as native plugin tools. One
- * source of truth, so the cotal_* surface can't drift across adapters.
+ * {@link registerCotalTools} (in `tools.ts`) renders onto an MCP server (Claude Code);
+ * the OpenCode connector renders the same specs as native plugin tools. One source of
+ * truth, so the cotal_* surface can't drift across adapters.
  */
 import { execFileSync } from "node:child_process";
 import { z } from "zod";
@@ -448,6 +448,35 @@ export function cotalToolSpecs(config: AgentConfig, source = "connector"): Cotal
         } catch (e) {
           return err(
             `Couldn't despawn ${name}: no manager reachable (${(e as Error).message}). Is the manager running?`,
+          );
+        }
+      },
+    },
+    {
+      name: "cotal_purge",
+      title: "Cotal: clear chat history",
+      description:
+        "Ask the manager to purge this space's retained chat backlog (channel history). Set includeDms to also clear direct-message history. Cleanup only — it does not affect live agents or the anycast work queue. Irreversible.",
+      schema: {
+        includeDms: z
+          .boolean()
+          .optional()
+          .describe("Default false: channel history only. true = also purge DM history."),
+      },
+      async run(agent, _config, { includeDms }: { includeDms?: boolean }) {
+        try {
+          const reply = await agent.purgeHistory({ includeDms });
+          if (!reply.ok) return err(`Couldn't purge history: ${reply.error ?? "manager refused"}`);
+          const d = reply.data as { chat?: number; dm?: number } | undefined;
+          const chat = d?.chat ?? 0;
+          const dm = d?.dm;
+          return ok(
+            `Cleared ${chat} channel message${chat === 1 ? "" : "s"}` +
+              `${dm === undefined ? "" : ` and ${dm} DM${dm === 1 ? "" : "s"}`} from "${_config.space}".`,
+          );
+        } catch (e) {
+          return err(
+            `Couldn't purge history: no manager reachable (${(e as Error).message}). Is the manager running?`,
           );
         }
       },

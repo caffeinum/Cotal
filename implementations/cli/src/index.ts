@@ -1,5 +1,7 @@
 import { registry, type Command } from "@cotal-ai/core";
 import { up } from "./commands/up.js";
+import { down } from "./commands/down.js";
+import { setup, go } from "./commands/setup.js";
 import { join } from "./commands/join.js";
 import { watch } from "./commands/watch.js";
 import { console_ } from "./commands/console.js";
@@ -7,7 +9,7 @@ import { demo } from "./commands/demo.js";
 import { web } from "./commands/web.js";
 import { spawn } from "./commands/spawn.js";
 import { mint } from "./commands/mint.js";
-import { setup } from "./commands/setup.js";
+import { signer } from "./commands/signer.js";
 import { channels } from "./commands/channels.js";
 import { history } from "./commands/history.js";
 import { feedback } from "./commands/feedback.js";
@@ -20,10 +22,31 @@ import { dm, msg, ask } from "./commands/send.js";
 const baseCommands: Command[] = [
   {
     kind: "command",
+    name: "setup",
+    group: "Setup",
+    summary: "guided setup — first run walks you through it; --yes for non-interactive (agents/CI), --full to redo",
+    run: setup,
+  },
+  {
+    kind: "command",
+    name: "go",
+    group: "Setup",
+    summary: "open or resume your session (mesh + web + manager + your cmux tabs); first run installs",
+    run: go,
+  },
+  {
+    kind: "command",
     name: "up",
     group: "Mesh",
     summary: "start a local nats-server (JetStream, JWT auth by default; --open for an unauthenticated dev mesh)",
     run: up,
+  },
+  {
+    kind: "command",
+    name: "down",
+    group: "Mesh",
+    summary: "stop a background mesh started with `up --detach`",
+    run: down,
   },
   {
     kind: "command",
@@ -83,13 +106,6 @@ const baseCommands: Command[] = [
   },
   {
     kind: "command",
-    name: "setup",
-    group: "Agents",
-    summary: "install the cotal plugin into Claude Code so this repo's sessions get the cotal tools (idempotent)",
-    run: setup,
-  },
-  {
-    kind: "command",
     name: "spawn",
     group: "Agents",
     summary:
@@ -102,6 +118,14 @@ const baseCommands: Command[] = [
     group: "Mesh",
     summary: "mint a creds file for a space (auth mode) — mint <name> --profile <agent|observer> [--out <path>]",
     run: mint,
+  },
+  {
+    kind: "command",
+    name: "signer",
+    group: "Mesh",
+    summary:
+      "emit a stripped signer file (account signing material only, no operator key) for a containerized manager — [--out <path>] [--force]",
+    run: signer,
   },
   {
     kind: "command",

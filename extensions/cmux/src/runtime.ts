@@ -5,8 +5,11 @@ import {
   registry,
   type AgentHandle,
   type LaunchSpec,
+  type Pane,
   type Runtime,
   type RuntimeProvider,
+  type Tab,
+  type TerminalLayout,
 } from "@cotal-ai/core";
 import * as cmux from "./driver.js";
 
@@ -23,20 +26,52 @@ function shellQuote(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`;
 }
 
+/** cmux can't run a command in a fresh surface directly, and panes start under a login shell
+ *  (maybe nushell) before bash — so we write each pane's launch as a temp bash script and point
+ *  the tab at it, sidestepping all shell quoting (callers pass argv, never shell strings). `login`
+ *  runs it as a login shell (`bash -l`) so the user's PATH is present — setup's panes run further
+ *  `cotal` subcommands that resolve `claude`. `exec env …` (not `exec …`): exec can't take KEY=val
+ *  assignments, so `env` applies them and then execs the command. */
+function paneCommand(pane: Pane, key: string, login: boolean): string {
+  const env = Object.entries(pane.env ?? {}).map(([k, v]) => `${k}=${shellQuote(v)}`);
+  const cmd = [...env, shellQuote(pane.command), ...(pane.args ?? []).map(shellQuote)].join(" ");
+  const cd = pane.cwd ? `cd ${shellQuote(pane.cwd)}\n` : "";
+  const confirm = pane.confirm ? `${ENTER_LOOP}\n` : "";
+  const script = `#!/usr/bin/env bash\n${cd}${confirm}exec env ${cmd}\n`;
+  const scriptPath = join(tmpdir(), `cotal-pane-${key.replace(/[^A-Za-z0-9_.-]/g, "_")}.sh`);
+  writeFileSync(scriptPath, script, { mode: 0o755 });
+  return `bash ${login ? "-l " : ""}${scriptPath}`;
+}
+
+/** A single-terminal pane node in cmux's layout JSON. */
+function surface(command: string): unknown {
+  return { pane: { surfaces: [{ type: "terminal", command }] } };
+}
+
+/** Translate a backend-agnostic {@link Tab} into a cmux layout JSON string — the one place that
+ *  knows cmux's layout shape. One pane → a bare terminal; several → a split (`direction` + `split`
+ *  ratio). These panes run under a login shell. */
+function cmuxLayout(label: string, tab: Tab): string {
+  const nodes = tab.panes.map((p, i) => surface(paneCommand(p, `${label}-${i}`, true)));
+  if (nodes.length === 1 && !tab.split) return JSON.stringify(nodes[0]);
+  if (!tab.split)
+    throw new Error(`cmux layout "${label}": ${nodes.length} panes need a split (direction + ratio)`);
+  return JSON.stringify({ direction: tab.split.direction, split: tab.split.ratio, children: nodes });
+}
+
 /**
  * Spawns each agent into its own new cmux tab (workspace), so spawned teammates get
- * room instead of crowding the spawner. cmux can't run a command in a fresh surface
- * directly, so we write the launch as a temp bash script and point the tab's terminal
- * at it — sidestepping nushell↔bash quoting. Opened unfocused so the human stays put;
- * switch to the new tab to watch the worker. Like tmux, you watch it natively, so
- * `attach()` throws — but teardown is real: we keep the tab's workspace + surface ids
- * to drive and close it.
+ * room instead of crowding the spawner. The launch goes through {@link paneCommand}
+ * (a temp bash script) — non-login, since the agent's command is an absolute path.
+ * Opened unfocused so the human stays put; switch to the new tab to watch the worker.
+ * Like tmux, you watch it natively, so `attach()` throws — but teardown is real: we
+ * keep the tab's workspace + surface ids to drive and close it.
  */
 export class CmuxRuntime implements Runtime {
   readonly kind = "cmux";
 
   spawn(name: string, spec: LaunchSpec, cwd: string): AgentHandle {
-    // `name` becomes a temp-script filename and a `cotal-<name>` tab id — keep it a bare token
+    // `name` becomes a temp-script key and a `cotal-<name>` tab id — keep it a bare token
     // so it can't traverse paths or break the workspace label.
     if (!/^[A-Za-z0-9_.-]+$/.test(name))
       throw new Error(`cmux runtime: unsafe agent name ${JSON.stringify(name)} (allowed: letters, digits, _ . -)`);
@@ -45,23 +80,16 @@ export class CmuxRuntime implements Runtime {
         `the cmux CLI (${process.env.CMUX_BUNDLED_CLI_PATH ?? "cmux"}) couldn't reach the app — ` +
           "is cmux running, and is this process inside a cmux surface (CMUX_SOCKET_PATH set)?",
       );
-    const envPrefix = Object.entries(spec.env ?? {}).map(([k, v]) => `${k}=${shellQuote(v)}`);
-    const cmd = [...envPrefix, shellQuote(spec.command), ...spec.args.map(shellQuote)].join(" ");
-    // If the launch shows a one-time confirm (Claude's dev-channels prompt), auto-clear it by
-    // sending Enter to this tab's own surface a few times — so a spawned teammate joins the mesh
-    // without anyone switching to its tab to press Enter. (Same trick as run-agent.sh.)
-    const autoConfirm = spec.confirm ? `${ENTER_LOOP}\n` : "";
-    // `exec env …` (not `exec …`): exec can't take KEY=val assignments — `env` applies them
-    // then execs the agent. Without it the script dies with "exec: COTAL_SPACE=…: not found".
-    const script = `#!/usr/bin/env bash\ncd ${shellQuote(cwd)}\n${autoConfirm}exec env ${cmd}\n`;
-    const scriptPath = join(tmpdir(), `cotal-spawn-${name}.sh`);
-    writeFileSync(scriptPath, script, { mode: 0o755 });
-    const layout = JSON.stringify({
-      pane: { surfaces: [{ type: "terminal", command: `bash ${scriptPath}` }] },
-    });
+    // `confirm` auto-clears a one-time prompt (Claude's dev-channels) by sending Enter to this
+    // tab's own surface — so a spawned teammate joins the mesh without anyone switching to its tab.
+    const command = paneCommand(
+      { command: spec.command, args: spec.args, env: spec.env, cwd, confirm: Boolean(spec.confirm) },
+      `spawn-${name}`,
+      false,
+    );
     // Keep the new tab's workspace ref so we can drive (send keys to its terminal)
     // and close it later. cmux targets the tab's single terminal surface by workspace.
-    const workspace = cmux.openWorkspace(`cotal-${name}`, layout, { focus: false });
+    const workspace = cmux.openWorkspace(`cotal-${name}`, JSON.stringify(surface(command)), { focus: false });
 
     return {
       name,
@@ -102,3 +130,19 @@ export const cmuxRuntimeProvider: RuntimeProvider = {
 };
 
 registry.register(cmuxRuntimeProvider);
+
+/** Self-registering terminal-layout provider — lets a caller (e.g. `cotal setup`) open/close
+ *  cmux tabs by resolving `registry.resolve("terminal","cmux")`, so an implementation drives cmux
+ *  without importing this package. The caller passes a backend-agnostic {@link Tab};
+ *  {@link cmuxLayout} turns it into cmux's native layout JSON here, so no cmux-specific shape lives
+ *  in the caller. */
+export const cmuxTerminalProvider: TerminalLayout = {
+  kind: "terminal",
+  name: "cmux",
+  available: () => cmux.available(),
+  open: (label, tab, opts) => cmux.openWorkspace(label, cmuxLayout(label, tab), opts),
+  close: (ref) => cmux.closeWorkspace(ref),
+  refs: (label) => cmux.workspaceRefs(label),
+};
+
+registry.register(cmuxTerminalProvider);

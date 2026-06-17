@@ -15,7 +15,7 @@
  * trail. Revocation is deferred past Demo 1; minted creds currently have no TTL.
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import {
   encodeOperator,
   encodeAccount,
@@ -65,6 +65,29 @@ const BASE_LIMITS = {
 } as const;
 const DATA_LIMITS = { ...BASE_LIMITS, mem_storage: -1, disk_storage: -1 };
 const SYS_LIMITS = { ...BASE_LIMITS, mem_storage: 0, disk_storage: 0 };
+
+/** Reduce a {@link SpaceAuth} to just the material a *minting* host needs: `space`,
+ *  `account.pub`, and `account.signingSeed` (the only fields {@link mintCreds} reads).
+ *  The operator root-of-trust, system account, and the account's own seed are blanked.
+ *
+ *  This is the file you hand a manager that should mint per-agent creds but must never
+ *  hold the operator key — e.g. a containerized team. A leaked stripped file only lets
+ *  someone mint *users within this one account*, which the account boundary already
+ *  contains; it cannot mint new accounts or touch the system account. */
+export function stripSpaceAuth(auth: SpaceAuth): SpaceAuth {
+  return {
+    space: auth.space,
+    operator: { seed: "", jwt: "" },
+    account: {
+      pub: auth.account.pub,
+      seed: "",
+      jwt: "",
+      signingSeed: auth.account.signingSeed,
+      signingPub: "",
+    },
+    sys: { pub: "", jwt: "" },
+  };
+}
 
 /** Generate a fresh operator → account(+signing key) → system-account chain for a space. */
 export async function createSpaceAuth(space: string): Promise<SpaceAuth> {
@@ -325,6 +348,19 @@ const AUTH_FILE = "auth.json";
 
 export function authDir(root: string): string {
   return join(root, ".cotal", "auth");
+}
+
+/** Find the project's `.cotal/` by walking up from `start` (like git finds `.git`), returning the
+ *  directory that *contains* `.cotal/`. Falls back to `start` when none is found up the tree (a
+ *  fresh setup creates `.cotal/` there). Lets `cotal` run from any subdirectory of a project. */
+export function findCotalRoot(start: string = process.cwd()): string {
+  let dir = resolve(start);
+  for (;;) {
+    if (existsSync(join(dir, ".cotal"))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) return resolve(start);
+    dir = parent;
+  }
 }
 
 /** Persist the space trust material. The file holds the signing seed — treat as a secret. */

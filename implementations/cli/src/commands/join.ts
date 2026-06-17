@@ -7,12 +7,12 @@ import {
   isReachable,
   parseJoinLink,
   DEFAULT_SERVER,
-  DEFAULT_SPACE,
   type Delivery,
   type EndpointKind,
   type PresenceStatus,
   type CotalMessage,
 } from "@cotal-ai/core";
+import { resolveSpace } from "../lib/status.js";
 import { c, statusBadge } from "../ui.js";
 
 export async function join(argv: string[]): Promise<void> {
@@ -35,7 +35,7 @@ export async function join(argv: string[]): Promise<void> {
 
   // A join link carries server + auth + space; explicit flags still override it.
   const link = values.link ? parseJoinLink(values.link) : undefined;
-  const space = values.space ?? link?.space ?? DEFAULT_SPACE;
+  const space = values.space ?? link?.space ?? resolveSpace(process.cwd());
   const name = values.name ?? userInfo().username;
   const server = values.server ?? link?.servers ?? DEFAULT_SERVER;
   const channel = values.channel ?? link?.channels?.[0] ?? "general";

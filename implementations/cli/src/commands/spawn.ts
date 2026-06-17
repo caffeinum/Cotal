@@ -16,6 +16,8 @@ import {
   type AgentDef,
   type Connector,
 } from "@cotal-ai/core";
+import { cotalRoot } from "../lib/paths.js";
+import { resolveSpace } from "../lib/status.js";
 
 /**
  * `cotal spawn <name-or-path>` — launch an agent in the FOREGROUND of this
@@ -41,6 +43,7 @@ export async function spawn(argv: string[]): Promise<void> {
       server: { type: "string" },
       agent: { type: "string" },
       role: { type: "string" },
+      prompt: { type: "string" },
     },
   });
 
@@ -49,12 +52,12 @@ export async function spawn(argv: string[]): Promise<void> {
   const ref = values.config ?? positionals[0] ?? values.name;
   if (!ref) {
     console.error(
-      "usage: cotal spawn <name-or-path> | --config <path> | --name <n>  [--agent <a>] [--role <r>] [--space <s>] [--server <url>]",
+      "usage: cotal spawn <name-or-path> | --config <path> | --name <n>  [--agent <a>] [--role <r>] [--space <s>] [--server <url>] [--prompt <text>]",
     );
     process.exit(1);
   }
 
-  const path = agentFilePath(process.cwd(), ref);
+  const path = agentFilePath(cotalRoot(), ref);
   let def: AgentDef;
   try {
     def = loadAgentFile(path);
@@ -66,7 +69,7 @@ export async function spawn(argv: string[]): Promise<void> {
   // --name / --role override the file (name defaults from the file's frontmatter).
   const name = values.name ?? def.name;
   const role = values.role ?? def.role;
-  const space = values.space ?? "demo";
+  const space = values.space ?? resolveSpace(process.cwd());
   const server = values.server ?? DEFAULT_SERVER;
 
   // Auth mode (`.cotal/auth` present): mint a stable identity + scoped creds for this agent
@@ -75,7 +78,7 @@ export async function spawn(argv: string[]): Promise<void> {
   // Open mode (no `.cotal/auth`): unchanged — the session connects without creds.
   let id: string | undefined;
   let credsPath: string | undefined;
-  const auth = loadSpaceAuth(authDir(process.cwd()));
+  const auth = loadSpaceAuth(authDir(cotalRoot()));
   if (auth) {
     const identity = newIdentity();
     const prov = new CotalEndpoint({
@@ -95,7 +98,7 @@ export async function spawn(argv: string[]): Promise<void> {
       role,
     });
     await prov.stop();
-    credsPath = join(authDir(process.cwd()), "creds", `${name}.creds`);
+    credsPath = join(authDir(cotalRoot()), "creds", `${name}.creds`);
     mkdirSync(dirname(credsPath), { recursive: true });
     writeFileSync(credsPath, creds, { mode: 0o600 });
     id = identity.id;
@@ -111,6 +114,7 @@ export async function spawn(argv: string[]): Promise<void> {
     creds: credsPath,
     servers: server,
     configPath: path,
+    prompt: values.prompt,
   });
 
   console.error(

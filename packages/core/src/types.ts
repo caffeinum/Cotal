@@ -1,5 +1,5 @@
 /**
- * Cotal wire types (v0).
+ * Cotal wire types (v0.2).
  *
  * These are the shapes that travel on the mesh. They are intentionally A2A-inspired
  * (AgentCard / Message / Part) but transport-agnostic. This file IS part of the
@@ -30,6 +30,10 @@ export interface AgentCard {
   tags?: string[];
   skills?: AgentSkill[];
   meta?: Record<string, unknown>;
+  /** Wire-contract version this participant speaks (the SPEC.md version, `"0.2"` today). A change
+   *  signal, not negotiation: v0 has none, but a peer can detect a mismatch instead of silently
+   *  misreading a future envelope. Omitted ⇒ assume the v0.x line. */
+  protocolVersion?: string;
 }
 
 /**
@@ -77,9 +81,14 @@ export interface ChannelDefaults {
   replayWindow?: string;
 }
 
+/** Reverse-DNS extension part kind, e.g. `com.acme.snapshot`.
+ * @pattern ^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$ */
+export type ExtensionPartKind = `${string}.${string}`;
+
 export type Part =
   | { kind: "text"; text: string }
-  | { kind: "data"; data: unknown };
+  | { kind: "data"; data: unknown }
+  | { kind: ExtensionPartKind; [key: string]: unknown };
 
 export interface EndpointRef {
   id: string;
@@ -87,21 +96,13 @@ export interface EndpointRef {
   role?: string;
 }
 
-/** A message on the mesh (chat / direct message for now; extensible to other families). */
-export interface CotalMessage {
+interface CotalMessageBase {
   /** Unique message id. */
   id: string;
   /** Epoch ms. */
   ts: number;
   space: string;
   from: EndpointRef;
-  // Delivery target — exactly one of the next three is set:
-  /** Channel name — multicast (broadcast to everyone on the channel). */
-  channel?: string;
-  /** Instance id — unicast (direct to one specific endpoint). */
-  to?: string;
-  /** Service / role — anycast (any one instance of the service receives it). */
-  toService?: string;
   /** Lowercased peer names called out within a `channel` message — a priority/wake hint,
    *  not a routing target: the message still multicasts to the whole channel. Omitted when
    *  empty. */
@@ -112,6 +113,27 @@ export interface CotalMessage {
   /** Conversation / thread correlation id. */
   contextId?: string;
 }
+
+/** A message on the mesh (chat / direct message for now; extensible to other families). */
+export type CotalMessage =
+  | (CotalMessageBase & {
+      /** Channel name — multicast (broadcast to everyone on the channel). */
+      channel: string;
+      to?: never;
+      toService?: never;
+    })
+  | (CotalMessageBase & {
+      /** Instance id — unicast (direct to one specific endpoint). */
+      to: string;
+      channel?: never;
+      toService?: never;
+    })
+  | (CotalMessageBase & {
+      /** Service / role — anycast (any one instance of the service receives it). */
+      toService: string;
+      channel?: never;
+      to?: never;
+    });
 
 export type PresenceEvent =
   | { type: "join"; presence: Presence }
@@ -149,8 +171,10 @@ export interface Delivery {
 export interface ControlRequest {
   op: string;
   args?: Record<string, unknown>;
-  from?: EndpointRef;
+  from: EndpointRef;
 }
+
+export type ControlRequestInit = Omit<ControlRequest, "from"> & { from?: EndpointRef };
 
 export interface ControlReply {
   ok: boolean;

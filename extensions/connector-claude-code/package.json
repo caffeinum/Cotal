@@ -1,6 +1,6 @@
 {
   "name": "@cotal-ai/connector-claude-code",
-  "version": "0.2.0",
+  "version": "0.3.1",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -18,16 +18,16 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && pnpm run bundle",
     "bundle": "esbuild src/mcp.ts src/hook.ts --bundle --platform=node --format=cjs --target=node20 --outdir=dist --out-extension:.js=.cjs",
-    "prepublishOnly": "pnpm run build && pnpm run bundle"
+    "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@cotal-ai/connector-core": "workspace:*"
   },
   "peerDependencies": {
-    "@cotal-ai/core": "workspace:*"
+    "@cotal-ai/core": ">=0.1.0"
   },
   "devDependencies": {
     "@cotal-ai/core": "workspace:*",
@@ -35,7 +35,10 @@
     "tsx": "^4.22.4"
   },
   "files": [
-    "dist"
+    "dist",
+    ".mcp.json",
+    "hooks",
+    ".claude-plugin"
   ],
   "publishConfig": {
     "access": "public"

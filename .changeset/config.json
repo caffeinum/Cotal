@@ -2,7 +2,19 @@
   "$schema": "https://unpkg.com/@changesets/config@3.1.4/schema.json",
   "changelog": "@changesets/cli/changelog",
   "commit": false,
-  "fixed": [],
+  "fixed": [
+    [
+      "cotal-ai",
+      "@cotal-ai/core",
+      "@cotal-ai/cli",
+      "@cotal-ai/manager",
+      "@cotal-ai/cmux",
+      "@cotal-ai/connector-core",
+      "@cotal-ai/connector-claude-code",
+      "@cotal-ai/connector-hermes",
+      "@cotal-ai/connector-opencode"
+    ]
+  ],
   "linked": [],
   "access": "public",
   "baseBranch": "main",
@@ -10,8 +22,14 @@
     "useCalculatedVersion": true
   },
   "updateInternalDependencies": "patch",
+  "___experimentalUnsafeOptions_WILL_CHANGE_IN_PATCH": {
+    "onlyUpdatePeerDependentsWhenOutOfRange": true
+  },
   "ignore": [
     "@cotal-ai/example-01-lateral-coordination",
-    "@cotal-ai/example-02-cmux-handoff"
+    "@cotal-ai/example-02-cmux-handoff",
+    "@cotal-ai/example-04-self-improving-console",
+    "todo-api",
+    "todo-web"
   ]
 }

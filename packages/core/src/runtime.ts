@@ -64,3 +64,4 @@ export interface RuntimeProvider extends Extension {
    *  when the backend uses one (tmux); others may ignore it. */
   create(opts: { session: string }): Runtime;
 }
+

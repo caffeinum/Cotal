@@ -9,8 +9,13 @@
     "node": ">=20"
   },
   "scripts": {
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "pnpm build && pnpm -r typecheck",
     "build": "pnpm -r build",
+    "gen:schema": "node scripts/generate-cotal-schema.mjs",
+    "test": "pnpm -r --if-present test",
+    "check": "pnpm typecheck && pnpm test && pnpm smoke:view",
+    "clean:dry": "git clean -ndX -- node_modules .pnpm-store packages extensions implementations examples remotion",
+    "clean": "git clean -fdX -- node_modules .pnpm-store packages extensions implementations examples remotion",
     "cotal": "tsx bin/cotal.ts",
     "changeset": "changeset",
     "version": "changeset version",
@@ -26,13 +31,15 @@
     "smoke:attention": "tsx extensions/connector-core/attention.smoke.ts",
     "smoke:attention:auth": "tsx extensions/connector-core/attention-auth.smoke.ts",
     "smoke:feedback": "tsx extensions/connector-core/feedback.smoke.ts",
+    "smoke:attach": "tsx implementations/manager/attach.smoke.ts",
+    "smoke:install": "tsx implementations/cli/install.smoke.ts",
     "smoke:send": "tsx implementations/cli/send.smoke.ts"
   },
   "dependencies": {
     "@cotal-ai/cli": "workspace:*",
     "@cotal-ai/cmux": "workspace:*",
     "@cotal-ai/connector-claude-code": "workspace:*",
-    "@cotal-ai/connector-codex": "workspace:*",
+    "@cotal-ai/connector-hermes": "workspace:*",
     "@cotal-ai/connector-opencode": "workspace:*",
     "@cotal-ai/core": "workspace:*",
     "@cotal-ai/manager": "workspace:*"
@@ -40,6 +47,7 @@
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
     "@types/node": "^22.19.19",
+    "ts-json-schema-generator": "^2.9.0",
     "tsx": "^4.22.4",
     "typescript": "^5.9.3"
   }

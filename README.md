@@ -19,42 +19,37 @@ One protocol, any topology: peer-to-peer, supervised, hierarchical, hybrid.
 
 ## What is Cotal
 
-Cotal is a wire interface for software (AI agents especially) to coordinate in real
-time as **lateral peers in a shared pub/sub space**, not as nodes under a controller.
-The contract (subjects, message schemas, presence conventions) *is* the standard;
-libraries are thin clients over it.
+**Cotal is an open standard for AI agents to work together in one shared space, where
+the structure (their topology) is yours to define.** Every agent sees who else is there
+and messages anyone directly.
 
-Pick an agent framework today and you inherit its topology. Most hand you an
-orchestration tree: one controller, sub-agents that report up and never talk to each
-other. The few that don't give you raw point-to-point messaging with no shared space:
-no roster, no history, no notion of "who else is here."
+Most agent tools lock that structure in for you: usually a tree, where one controller
+hands out work and the workers never talk to each other, or bare one-to-one messaging
+with no shared space at all. With Cotal it is configuration: who delegates to whom, or
+whether anyone is in charge, is something you set, so the same standard runs a **flat team
+of peers**, a **manager with workers**, a **chain of command**, or **any mix**.
 
-Cotal separates coordination from topology. Agents join a space, hold presence, and
-address each other directly; who delegates to whom is configuration, not architecture.
-The same protocol runs a squad of peers, an orchestrator with workers, a hierarchy, or
-any mix. Transport is [NATS + JetStream](https://nats.io); the reference implementation
-is TypeScript.
+Because the standard is open, you extend it the same way: bring your own agents, or
+connect anything that speaks the contract. It runs on [NATS and JetStream](https://nats.io),
+messaging infrastructure proven in production for years; the reference implementation is
+TypeScript.
 
 ## How it works
 
 Agents in a space address each other three ways.
 
-<p align="center">
-<img src="assets/multicast.webp" width="32%" alt="Multicast: alice posts to the #general channel and every subscriber receives it">
-<img src="assets/unicast.webp" width="32%" alt="Unicast: alice messages bob directly; the message waits in his durable inbox while he is busy and is delivered when he frees up">
-<img src="assets/anycast.webp" width="32%" alt="Anycast: a message addressed to the reviewer role; exactly one free reviewer instance claims it">
-</p>
-
-**Multicast: broadcast to a channel.** A message on a named channel (`#general`,
-`#review`) reaches everyone subscribed to it. This is how a group stays in sync.
-
-**Unicast: message one peer.** Addressed to a specific instance and delivered durably:
-a message to a busy or offline agent waits on the stream until it is read; nothing is
-lost.
-
-**Anycast: reach any one of a role.** Address a *service* ("whoever is a reviewer")
-and exactly one available instance picks the work up. Delegation and load-balancing
-without naming a worker.
+<table>
+<tr align="center">
+<td width="33%"><img src="assets/multicast.webp" width="100%" alt="Multicast: alice posts to the #general channel and every subscriber receives it"></td>
+<td width="33%"><img src="assets/unicast.webp" width="100%" alt="Unicast: alice messages bob directly; the message waits in his durable inbox while he is busy and is delivered when he frees up"></td>
+<td width="33%"><img src="assets/anycast.webp" width="100%" alt="Anycast: a message addressed to the reviewer role; exactly one free reviewer instance claims it"></td>
+</tr>
+<tr valign="top">
+<td><strong>Multicast: broadcast to a channel.</strong><br>A message on a named channel (<code>#general</code>, <code>#review</code>) reaches everyone subscribed to it. This is how a group stays in sync.</td>
+<td><strong>Unicast: message one peer.</strong><br>Addressed to a specific instance and delivered durably: a message to a busy or offline agent waits on the stream until it is read, so nothing is lost.</td>
+<td><strong>Anycast: reach any one of a role.</strong><br>Address a <em>service</em> ("whoever is a reviewer") and exactly one available instance picks the work up. Delegation and load-balancing without naming a worker.</td>
+</tr>
+</table>
 
 Underneath all three: **presence**. Every agent publishes a live state (`idle` /
 `waiting` / `working` / `offline`) and its [A2A](https://a2a-protocol.org)
@@ -116,51 +111,53 @@ either terminal and it lands in the other's `#general`. That is the whole primit
 and live feed:
 
 <p align="center"><img src="assets/dashboard.png" width="860" alt="The Cotal web dashboard: live roster on the left, the all-activity feed in the middle, attention queue on the right"></p>
+<p align="center"><sub>Live roster, the all-activity feed, and the attention queue, in the browser.</sub></p>
 
 For the full walkthrough (manager-spawned peers, a real Claude Code agent joining the
 mesh), see [`examples/01-lateral-coordination`](examples/01-lateral-coordination).
 
 ## What Cotal adds on top of NATS
 
-NATS is the transport; Cotal is the contract on top. Each capability maps to a concrete
-mechanism you can check against the code:
+NATS is the transport; Cotal is the contract on top. Each capability below maps to a
+concrete mechanism you can check against the code.
 
-- **Sender authenticity.** Every subject carries the sender's token
-  (`cotal.<space>.inst.<target>.<sender>`), policed by the server against the
-  authenticated JWT rather than self-asserted; mismatches are rejected on every
-  receive path, fail-closed. An agent can only ever emit as itself; payload claims of
-  identity are ignored.
-- **Per-agent ACLs.** Decentralized JWT auth (`@nats-io/jwt`, no `nsc`) where
-  account = space and user = agent. The `agent`, `observer`, and `admin` profiles are
-  default-deny allow-lists (`manager` is the privileged allow-all profile, not
-  user-mintable); `cotal mint <name> --profile agent` writes a creds file.
+### Identity and access
+
+- **Sender authenticity.** The sender rides the subject
+  (`cotal.<space>.inst.<target>.<sender>`), policed by the server against the agent's
+  JWT, not self-asserted. Identity claims in the payload are rejected, fail-closed.
+- **Per-agent ACLs.** Decentralized JWT auth, account = space and user = agent. The
+  `agent`, `observer`, and `admin` profiles are default-deny allow-lists (`manager` is
+  privileged and not user-mintable); `cotal mint` writes a creds file.
 - **DM confidentiality by construction.** Two leak paths are closed: delivery is
-  ACL-gated by subject, and replay is gated because a privileged provisioner
-  pre-creates each agent's bind-only inbox consumer; every consumer-create form on the
-  DM and task streams is denied to agents. (DMs are plaintext and ACL-gated, not
+  ACL-gated by subject, and replay is gated because each agent's inbox is a pre-created,
+  bind-only consumer it cannot re-create. (DMs are plaintext and ACL-gated, not
   encrypted.)
-- **Durable, per-reader delivery.** Three JetStream streams per space
-  (`CHAT_<space>`, `DM_<space>`, `TASK_<space>`), with a bookmark per reader. Busy and
-  offline agents read from where they left off; a late joiner replays history, then
-  goes live.
-- **Presence and a live channel registry.** Presence is a per-space NATS KV bucket
-  (key = instance, bucket TTL + heartbeat). Channels carry a registry (replay policy,
-  description, instructions) watched live over KV.
+
+### Delivery and history
+
+- **Durable, per-reader delivery.** Three JetStream streams per space, with a bookmark
+  per reader: busy or offline agents resume where they left off, and a late joiner
+  replays history before going live.
 - **Three delivery modes, one model.** Multicast, unicast, and anycast are one
-  addressing scheme (subjects `chat.>`, `inst.>`, `svc.>`) over the same space, not
-  three transports; the message class is derived from the subject that delivered it.
+  addressing scheme over the same space (subjects `chat.>`, `inst.>`, `svc.>`), not
+  three transports.
 - **Roles as addressable services.** A role is the anycast address: "send to any
-  reviewer" routes through a shared work queue, so specialization is part of the
-  addressing rather than glued on top.
-- **Push, not poll.** On push-capable hosts, a peer message wakes an idle agent the
-  instant it arrives, so a mesh of agents runs hands-free; pull-only hosts read on
-  their next turn.
+  reviewer" routes through a shared work queue, so specialization lives in the
+  addressing.
+- **Logging and tracing built in.** Every message rides a durable stream, so the space
+  is one replayable log of who said what to whom, in order. `cotal watch` tails it live.
+
+### Presence and attention
+
+- **Presence and a live channel registry.** Presence is a per-space NATS KV bucket
+  (TTL + heartbeat); channels carry a registry (replay policy, description, instructions)
+  watched live over KV.
+- **Push, not poll.** On push-capable hosts a peer message wakes an idle agent the
+  instant it arrives, so a mesh runs hands-free; pull-only hosts read on their next turn.
 - **Attention modes.** Each agent sets what may interrupt it: `open` lets channel
-  chatter wake it, `dnd` holds chatter for its next turn, `focus` admits only direct
-  messages and assigned work. Coordination without constant interruption.
-- **Logging and tracing built in.** Every message rides a durable stream, so the whole
-  space is one replayable log: who said what to whom, in order, with no extra
-  instrumentation. `cotal watch` tails it live.
+  chatter wake it, `dnd` holds chatter for the next turn, `focus` admits only direct
+  messages and assigned work.
 
 ### Ecosystem: what runs today
 
@@ -171,12 +168,10 @@ mechanism you can check against the code:
 | [`@cotal-ai/manager`](implementations/manager) | Agent supervisor: spawns and manages nodes via a pluggable runtime (pty / tmux / cmux), with `start`/`stop`/`ps`/`attach`. |
 | [`@cotal-ai/connector-core`](extensions/connector-core) | Shared MCP-bridge runtime: the mesh agent and the `cotal_*` tools the adapters are thin clients over. |
 | [`@cotal-ai/connector-claude-code`](extensions/connector-claude-code) | [Claude Code](https://claude.com/product/claude-code) adapter: installed plugin + lifecycle hooks. |
-| [`@cotal-ai/connector-codex`](extensions/connector-codex) | [Codex](https://openai.com/codex/) adapter: pull-only MCP server injected via `codex -c`. |
 | [`@cotal-ai/connector-opencode`](extensions/connector-opencode) | [OpenCode](https://opencode.ai) adapter: native in-process plugin injected via config. |
 
 The connectors attach differently but expose the same `cotal_*` tools. Claude Code and
-OpenCode push: a peer message wakes an idle agent the instant it arrives. Codex pulls
-today, acting on messages on its next turn; push support is coming soon.
+OpenCode both push: a peer message wakes an idle agent the instant it arrives.
 
 ## Example: one change across three repos
 
@@ -194,6 +189,8 @@ More scenarios in [`examples/`](examples/).
 - [docs/OVERVIEW.md](docs/OVERVIEW.md): what Cotal does and the core primitives.
 - [docs/architecture.md](docs/architecture.md): how it's built (subjects, streams,
   auth, and the wire contract).
+- [deploy/README.md](deploy/README.md): run containerized agent teams against an
+  external broker.
 
 ## FAQ
 
@@ -271,11 +268,13 @@ or open an issue.
 <!-- TODO(asset): team photos (assets/team/*.jpg or GitHub avatars) -->
 
 <table>
-<tr><td><!-- TODO(asset): photo --></td><td><strong>David Farah</strong>, <!-- TODO: one-line role --><br><!-- TODO: email --></td></tr>
-<tr><td><!-- TODO(asset): photo --></td><td><strong>Sven Jonscher</strong>, <!-- TODO: one-line role --><br><!-- TODO: email --></td></tr>
+<tr>
+<td align="center"><img src="https://github.com/davidfarah2003.png" width="120" alt="David Farah"><br><strong>David Farah</strong><br><!-- TODO: one-line role --><br><a href="https://x.com/DavidFarahlb"><img src="https://img.shields.io/badge/-@DavidFarahlb-000?logo=x&logoColor=white" alt="@DavidFarahlb on X"></a> <a href="https://www.linkedin.com/in/david-farah-lb/"><img src="https://img.shields.io/badge/-LinkedIn-0A66C2?logo=linkedin&logoColor=white" alt="David Farah on LinkedIn"></a></td>
+<td align="center"><img src="https://github.com/Lanzelot1.png" width="120" alt="Sven Jonscher"><br><strong>Sven Jonscher</strong><br><!-- TODO: one-line role --><br><a href="https://x.com/svensonj00"><img src="https://img.shields.io/badge/-@svensonj00-000?logo=x&logoColor=white" alt="@svensonj00 on X"></a> <a href="https://www.linkedin.com/in/sven-jonscher-418351247/"><img src="https://img.shields.io/badge/-LinkedIn-0A66C2?logo=linkedin&logoColor=white" alt="Sven Jonscher on LinkedIn"></a></td>
+</tr>
 </table>
 
-Building something on Cotal, or want to? Email us. We read everything.
+Building something on Cotal, or want to? Email <a href="mailto:hello@cotal.ai">hello@cotal.ai</a>. We read everything.
 
 ## License
 

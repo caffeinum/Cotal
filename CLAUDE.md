@@ -23,7 +23,6 @@ pnpm + TypeScript ESM monorepo — four dependency tiers, one-way deps, Node ≥
 - **`extensions/*` — pluggable adapters** (peer-depend core; self-register on import).
   - **@cotal-ai/connector-core** — shared MCP-bridge runtime (mesh agent, `cotal_*` tool specs incl. `cotal_spawn` / `cotal_persona` / `cotal_despawn`, hook relay); the adapters are thin clients over it.
   - **@cotal-ai/connector-claude-code** — Claude Code adapter (installed plugin + `claude/channel` push).
-  - **@cotal-ai/connector-codex** — Codex adapter (pull-only MCP server injected via `codex -c`; no plugin, no hooks).
   - **@cotal-ai/connector-opencode** — OpenCode adapter (native in-process plugin injected via `OPENCODE_CONFIG_CONTENT`; renders the shared `cotal_*` tool specs as plugin tools).
   - **@cotal-ai/cmux** — the cmux integration: a thin driver over the [cmux](https://github.com/) CLI (open/close a tab, send keys) **plus a self-registering `cmux` Runtime**. Importing it registers the runtime with the core `Registry`, so the manager spawns into cmux tabs without depending on this package (opt-in via one import; the `cotal` binary does it).
 - **`implementations/*` — opinionated surfaces** over core (self-contained; never import each other).
@@ -53,7 +52,7 @@ pnpm build         # tsc build across all packages
 
 Demo 1 (the lateral-coordination showcase, [examples/01](examples/01-lateral-coordination/README.md))
 is **done** — mesh, control plane, and the coding-agent connectors run end-to-end.
-Current work is public-facing: the README ([design doc](docs/plans/readme.md)), docs,
+Current work is public-facing: the README ([guideline](.internal/guidelines/readme.md)), docs,
 and the hosted onboarding funnel.
 
 ## Research & web tools
@@ -76,7 +75,9 @@ MCP SDK, A2A/SLIM conventions, etc.) before replying or writing code — verify 
   itself in its own `examples/*/README.md`.
 - ESM only (`"type": "module"`); run TS directly with `tsx`, no build step needed for dev.
 - Core primitives: endpoint, agent node, space, channel, direct message, presence, history.
-- Delivery modes (SLIM-inspired): multicast / unicast / anycast.
+- Delivery modes: multicast / unicast / anycast.
 - Never use fallbacks in the code, rather throw if something isn't supported in the current environment or configuration.
 - Always try to use native features of NATS/JetStream first, rather than re-implementing them.
 - Don't switch branches without being prompted to, if you need to work independently, do so in a git worktree.
+- Always do decisions that will make our project the most trustworthy and maintainable in the long term, even if they require more work upfront. Avoid shortcuts that would lead to technical debt or a fragile codebase.
+- Always look at the relevant documentation, make sure .internal is up to date, and follow the guidelines when making changes or implementing features.

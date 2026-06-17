@@ -16,13 +16,13 @@ const SERVE_SHIM = fileURLToPath(new URL("./serve.js", import.meta.url));
  * The OpenCode connector: launches a watchable `opencode` TUI bound to the agent's session, using
  * OpenCode's client/server split (see serve.ts). The Cotal mesh bridge runs as an in-process plugin
  * inside a headless `opencode serve`: it holds the {@link MeshAgent}, registers the cotal_* tools
- * natively (from the shared specs, at parity with Claude/Codex), reports presence off the event bus,
+ * natively (from the shared specs, at parity with Claude Code), reports presence off the event bus,
  * and owns ONE session it drives — injecting each incoming peer batch as a turn via the prompt API
  * (`session.promptAsync`, server-side, so it can't race the TUI input box). The shim then attaches a
  * foreground TUI to that session, so a human watching sees the agent work and can type into it.
  *
  * Config rides in `OPENCODE_CONFIG_CONTENT` (inline JSON, the highest merge layer), so the
- * operator's `~/.config/opencode` is never written — the Codex `-c` trick in JSON.
+ * operator's `~/.config/opencode` is never written.
  * `permission:"allow"` keeps a supervised agent from stalling on a tool approval the human may not
  * be at the keyboard to grant. Self-registers on import; the manager resolves it by type "opencode".
  */
@@ -31,7 +31,7 @@ export const opencodeConnector: Connector = {
   name: "opencode",
   buildLaunch(opts: LaunchOpts): LaunchSpec {
     // Identity rides the process env: the plugin runs in the opencode process and inherits it
-    // (unlike the Codex/Claude MCP servers, which get none of the parent env).
+    // (unlike the Claude Code MCP server, which gets none of the parent env).
     const env: Record<string, string> = { COTAL_SPACE: opts.space, COTAL_NAME: opts.name };
     if (opts.role) env.COTAL_ROLE = opts.role;
     if (opts.id) env.COTAL_ID = opts.id;

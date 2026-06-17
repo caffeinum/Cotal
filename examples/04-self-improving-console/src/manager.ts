@@ -24,18 +24,11 @@ import "@cotal-ai/cmux"; // registers the cmux runtime (default here); harmless 
 import { fileURLToPath } from "node:url";
 
 const RUN_AGENT = fileURLToPath(new URL("../run-agent.sh", import.meta.url));
-const RUN_CODEX = fileURLToPath(new URL("../run-codex.sh", import.meta.url));
 
 const roleAgentConnector: Connector = {
   kind: "connector",
   name: "cotal",
   buildLaunch: (opts: LaunchOpts): LaunchSpec => {
-    const role = opts.role ?? opts.name ?? "";
-    // Cross-vendor: a codex reviewer (role `codex-reviewer`) launches via run-codex.sh
-    // (OpenAI Codex, `codex exec`). No `confirm` — codex has no dev-channels prompt.
-    if (role.startsWith("codex")) {
-      return { command: RUN_CODEX, args: [opts.name ?? "codex-reviewer", role] };
-    }
     // Claude agents via run-agent.sh; `confirm` lets the PTY runtime auto-accept dev-channels.
     return { command: RUN_AGENT, args: [opts.role ?? opts.name], confirm: "Enter to confirm" };
   },

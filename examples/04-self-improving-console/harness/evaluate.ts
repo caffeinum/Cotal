@@ -90,10 +90,6 @@ const wired = appSrc.length > 200 && !appSrc.includes("TODO(demo)") && !/placeho
 
 const green = buildOk && peerToPeer && wired;
 
-// Cross-vendor highlight: did an OpenAI Codex reviewer post on the mesh? Tracked, NOT part of
-// green — a codex auth hiccup must never fail an otherwise-good run.
-const crossVendor = msgs.some((m) => (m.from ?? "").startsWith("codex"));
-
 const failureMode = !msgs.length
   ? "no-traffic — agents never communicated (spawn/wake/TTY problem)"
   : !peerToPeer
@@ -109,7 +105,6 @@ const verdict = {
   buildOk,
   peerToPeer,
   wired,
-  crossVendor,
   complete,
   counts: {
     messages: msgs.length,

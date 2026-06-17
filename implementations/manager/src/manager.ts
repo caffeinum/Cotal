@@ -2,8 +2,11 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import {
   CotalEndpoint,
+  DEFAULT_SERVER,
   agentFilePath,
   authDir,
+  clearSpaceHistory,
+  findCotalRoot,
   loadAgentFile,
   loadSpaceAuth,
   mintCreds,
@@ -15,7 +18,6 @@ import {
 import type { AgentDef, Connector, ControlReply, ControlRequest, SpaceAuth } from "@cotal-ai/core";
 import {
   createRuntime,
-  findWorkspaceRoot,
   type AgentHandle,
   type Runtime,
   type RuntimeMode,
@@ -31,6 +33,17 @@ export interface ManagerOptions {
   workspaceRoot?: string;
   /** Port for the console + attach HTTP/WS endpoint (loopback). 0 → ephemeral. */
   consolePort?: number;
+}
+
+/** A spawn request, typed. The control-plane `start` op parses one of these out of an
+ *  untyped request; roster boot constructs them directly. Both funnel into {@link Manager.startAgent}. */
+export interface StartAgentOpts {
+  name: string;
+  /** Connector / agent type — resolved from the registry. Defaults to `"cotal"`. */
+  agent?: string;
+  role?: string;
+  /** Explicit agent-file name-or-path; otherwise `.cotal/agents/<name>.md` is discovered if present. */
+  config?: string;
 }
 
 interface ManagedAgent {
@@ -68,7 +81,7 @@ export class Manager {
     this.space = opts.space;
     this.servers = opts.servers;
     this.name = opts.name ?? "manager";
-    this.workspaceRoot = opts.workspaceRoot ?? findWorkspaceRoot();
+    this.workspaceRoot = opts.workspaceRoot ?? findCotalRoot();
     this.runtime = createRuntime(opts.runtime ?? "auto", `cotal-${this.space}`);
     this.attach = new AttachEndpoint(
       (name) => this.agents.get(name)?.handle,
@@ -136,6 +149,8 @@ export class Manager {
         return this.opStop(args);
       case "definePersona":
         return this.opDefinePersona(args);
+      case "purge":
+        return this.opPurge(args);
       case "attach":
         return this.opAttach(args);
       case "ps":
@@ -158,26 +173,56 @@ export class Manager {
       : `unsafe name ${JSON.stringify(name)} (allowed: letters, digits, _ -)`;
   }
 
-  private async opStart(args: Record<string, unknown>): Promise<ControlReply> {
-    const name = String(args.name ?? "").trim();
+  /** Spawn a teammate by name (loads `.cotal/agents/<name>.md`), as if a peer asked via the
+   *  control plane. Used to pre-spawn the demo's experts at startup so the manager owns them. */
+  async startByName(name: string): Promise<ControlReply> {
+    return this.startAgent({ name });
+  }
+
+  /** Resolve once `name` shows up on the mesh roster (presence registered), or after `timeoutMs`.
+   *  Lets the pre-spawn loop stagger heavy agent cold-starts so they don't all boot at once. */
+  async waitForPresence(name: string, timeoutMs = 30_000): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (this.ep.getRoster().some((p) => p.card.name === name)) return true;
+      await new Promise((r) => setTimeout(r, 1_000));
+    }
+    return false;
+  }
+
+  /** Parse an untyped control-plane `start` request into {@link StartAgentOpts}. */
+  private opStart(args: Record<string, unknown>): Promise<ControlReply> {
+    return this.startAgent({
+      name: String(args.name ?? "").trim(),
+      agent: args.agent ? String(args.agent) : undefined,
+      role: args.role ? String(args.role) : undefined,
+      config: args.config ? String(args.config) : undefined,
+    });
+  }
+
+  /** Spawn and supervise one agent. The single spawn path: both the control-plane
+   *  `start` op and declarative roster boot call this. Mints scoped creds in auth mode,
+   *  resolves the agent file, launches via the connector + runtime, and records the handle. */
+  async startAgent(opts: StartAgentOpts): Promise<ControlReply> {
+    const name = opts.name.trim();
     if (!name) return { ok: false, error: "name required" };
     const nameErr = this.nameError(name);
     if (nameErr) return { ok: false, error: nameErr };
     if (this.agents.has(name)) return { ok: false, error: `agent "${name}" already running` };
-    const agent = args.agent ? String(args.agent) : "cotal";
+    const agent = opts.agent ?? "cotal";
 
     // Resolve an agent file from the manager's own workspace — an explicit
     // --config must exist; otherwise discover .cotal/agents/<name>.md if present.
     let configPath: string | undefined;
-    if (args.config) {
-      configPath = agentFilePath(this.workspaceRoot, String(args.config));
+    if (opts.config) {
+      configPath = agentFilePath(this.workspaceRoot, opts.config);
       if (!existsSync(configPath)) return { ok: false, error: `agent file not found: ${configPath}` };
     } else {
       const f = agentFilePath(this.workspaceRoot, name);
       if (existsSync(f)) configPath = f;
     }
     // --role overrides the file; the file fills it in for bookkeeping otherwise.
-    let role = args.role ? String(args.role) : undefined;
+    let role = opts.role;
     // A stable nkey identity assigned at spawn: the public key is the agent's card.id
     // (threaded via COTAL_ID); the seed is retained to mint matching creds later.
     const identity = newIdentity();
@@ -237,6 +282,25 @@ export class Manager {
     return { ok: true, data: { name, stopped: true, graceful } };
   }
 
+  /** Purge the space's retained message backlog (chat, optionally DMs). Privileged — the
+   *  manager mints its own "manager" creds (same as `cotal history clear`); regular agents are
+   *  denied STREAM.PURGE under auth. Cleanup only: leaves live agents and the TASK queue alone. */
+  private async opPurge(args: Record<string, unknown>): Promise<ControlReply> {
+    const includeDms = args.includeDms === true;
+    try {
+      const creds = this.auth ? await mintCreds(this.auth, newIdentity(), "manager") : undefined;
+      const result = await clearSpaceHistory({
+        servers: this.servers ?? DEFAULT_SERVER,
+        space: this.space,
+        creds,
+        includeDms,
+      });
+      return { ok: true, data: result };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  }
+
   /** Persist a peer-defined persona as config. After this, `start name` auto-discovers
    *  .cotal/agents/<name>.md and the connector applies its persona/model at spawn. */
   private opDefinePersona(args: Record<string, unknown>): ControlReply {
@@ -265,11 +329,15 @@ export class Manager {
     const name = String(args.name ?? "").trim();
     const a = this.agents.get(name);
     if (!a) return { ok: false, error: `no agent "${name}"` };
-    if (this.runtime.kind !== "pty") {
-      return {
-        ok: false,
-        error: `attach needs the pty runtime; under tmux run \`tmux attach -t cotal-${this.space}:${name}\``,
-      };
+    // Only pty streams over the WS attach endpoint. tmux/cmux are watched natively, and
+    // each handle's attach() throws with the right per-runtime guidance (tmux attach … /
+    // switch to the cmux tab) — surface that instead of assuming tmux.
+    if (a.handle.kind !== "pty") {
+      try {
+        a.handle.attach();
+      } catch (e) {
+        return { ok: false, error: (e as Error).message };
+      }
     }
     return { ok: true, data: { ws: this.attach.url(name) } };
   }

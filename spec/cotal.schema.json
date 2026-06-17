@@ -1,0 +1,278 @@
+{
+  "$ref": "#/definitions/CotalMessage",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "CotalMessage": {
+      "description": "A message on the mesh (chat / direct message for now; extensible to other families).",
+      "oneOf": [
+        {
+          "properties": {
+            "channel": {
+              "description": "Channel name — multicast (broadcast to everyone on the channel).",
+              "type": "string"
+            },
+            "contextId": {
+              "description": "Conversation / thread correlation id.",
+              "type": "string"
+            },
+            "from": {
+              "$ref": "#/definitions/EndpointRef"
+            },
+            "id": {
+              "description": "Unique message id.",
+              "type": "string"
+            },
+            "mentions": {
+              "description": "Lowercased peer names called out within a `channel` message — a priority/wake hint, not a routing target: the message still multicasts to the whole channel. Omitted when empty.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "parts": {
+              "items": {
+                "$ref": "#/definitions/Part"
+              },
+              "type": "array"
+            },
+            "replyTo": {
+              "description": "Id of the message being replied to.",
+              "type": "string"
+            },
+            "space": {
+              "type": "string"
+            },
+            "ts": {
+              "description": "Epoch ms.",
+              "type": "number"
+            }
+          },
+          "required": [
+            "channel",
+            "from",
+            "id",
+            "parts",
+            "space",
+            "ts"
+          ],
+          "type": "object",
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "to"
+                ]
+              },
+              {
+                "required": [
+                  "toService"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "properties": {
+            "contextId": {
+              "description": "Conversation / thread correlation id.",
+              "type": "string"
+            },
+            "from": {
+              "$ref": "#/definitions/EndpointRef"
+            },
+            "id": {
+              "description": "Unique message id.",
+              "type": "string"
+            },
+            "mentions": {
+              "description": "Lowercased peer names called out within a `channel` message — a priority/wake hint, not a routing target: the message still multicasts to the whole channel. Omitted when empty.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "parts": {
+              "items": {
+                "$ref": "#/definitions/Part"
+              },
+              "type": "array"
+            },
+            "replyTo": {
+              "description": "Id of the message being replied to.",
+              "type": "string"
+            },
+            "space": {
+              "type": "string"
+            },
+            "to": {
+              "description": "Instance id — unicast (direct to one specific endpoint).",
+              "type": "string"
+            },
+            "ts": {
+              "description": "Epoch ms.",
+              "type": "number"
+            }
+          },
+          "required": [
+            "from",
+            "id",
+            "parts",
+            "space",
+            "to",
+            "ts"
+          ],
+          "type": "object",
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "channel"
+                ]
+              },
+              {
+                "required": [
+                  "toService"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "properties": {
+            "contextId": {
+              "description": "Conversation / thread correlation id.",
+              "type": "string"
+            },
+            "from": {
+              "$ref": "#/definitions/EndpointRef"
+            },
+            "id": {
+              "description": "Unique message id.",
+              "type": "string"
+            },
+            "mentions": {
+              "description": "Lowercased peer names called out within a `channel` message — a priority/wake hint, not a routing target: the message still multicasts to the whole channel. Omitted when empty.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "parts": {
+              "items": {
+                "$ref": "#/definitions/Part"
+              },
+              "type": "array"
+            },
+            "replyTo": {
+              "description": "Id of the message being replied to.",
+              "type": "string"
+            },
+            "space": {
+              "type": "string"
+            },
+            "toService": {
+              "description": "Service / role — anycast (any one instance of the service receives it).",
+              "type": "string"
+            },
+            "ts": {
+              "description": "Epoch ms.",
+              "type": "number"
+            }
+          },
+          "required": [
+            "from",
+            "id",
+            "parts",
+            "space",
+            "toService",
+            "ts"
+          ],
+          "type": "object",
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "channel"
+                ]
+              },
+              {
+                "required": [
+                  "to"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "EndpointRef": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "ExtensionPartKind": {
+      "description": "Reverse-DNS extension part kind, e.g. `com.acme.snapshot`.",
+      "pattern": "^[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$",
+      "type": "string"
+    },
+    "Part": {
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "text",
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {},
+            "kind": {
+              "const": "data",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": {},
+          "properties": {
+            "kind": {
+              "$ref": "#/definitions/ExtensionPartKind"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  }
+}
