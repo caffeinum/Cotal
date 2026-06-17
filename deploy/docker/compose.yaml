@@ -12,9 +12,7 @@ services:
     command: ["supervise", "--space", "team-a", "--roster", "/workspace/roster.yaml"]
     # Auth is per connector type. Every var set here reaches every agent (the container is the
     # team's trust boundary); each CLI reads only the vars it understands, so they don't collide.
-    #   claude   -> CLAUDE_CODE_OAUTH_TOKEN (Claude Pro/Max, no API cost; from `claude setup-token`
-    #               on the host). Alternatives: ANTHROPIC_API_KEY, or a gateway via
-    #               ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN.
+    #   claude   -> CLAUDE_CODE_OAUTH_TOKEN (your Claude Pro/Max; from `claude setup-token` on the host)
     #   opencode -> an env-key provider, e.g. OPENCODE_GO_API_KEY (OAuth-only providers can't run
     #               headless - the connector isolates XDG_DATA_HOME per agent, hiding auth.json).
     environment:

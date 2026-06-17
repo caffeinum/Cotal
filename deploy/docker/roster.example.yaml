@@ -8,7 +8,7 @@
 #
 # Persona + model come from the agent file (.cotal/agents/<name>.md), mounted read-only.
 # Auth is per connector type, supplied as env on the container (see compose.yaml):
-#   claude   -> CLAUDE_CODE_OAUTH_TOKEN (or ANTHROPIC_API_KEY / gateway)
+#   claude   -> CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`)
 #   opencode -> an env-key provider, e.g. OPENCODE_GO_API_KEY
 agents:
   - { name: planner, agent: claude,   role: planner }

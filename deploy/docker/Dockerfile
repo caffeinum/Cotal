@@ -49,5 +49,19 @@ RUN pnpm install --frozen-lockfile \
 # settings.local.json) are owned by the user that runs at runtime.
 RUN pnpm cotal setup
 
+# Pre-complete claude's first-run onboarding for the runtime user. A fresh container has no
+# ~/.claude.json, so claude 2.1.179 would block a managed (non-interactive) session on the
+# theme picker and the "trust this folder" prompt, before the dev-channels confirm the pty
+# runtime auto-clears, and the agent never loads its plugin/MCP, never joining the mesh.
+# Seed the onboarding + per-workspace trust flags so a supervised claude boots straight through.
+RUN node -e 'const fs=require("fs"),os=require("os"),p=require("path");const f=p.join(os.homedir(),".claude.json");const c=fs.existsSync(f)?JSON.parse(fs.readFileSync(f,"utf8")):{};c.hasCompletedOnboarding=true;c.theme=c.theme||"dark";c.projects=c.projects||{};c.projects["/workspace"]={...(c.projects["/workspace"]||{}),hasTrustDialogAccepted:true,hasCompletedProjectOnboarding:true};fs.writeFileSync(f,JSON.stringify(c,null,2));console.log("seeded "+f)'
+
+# Auto-approve tools for the runtime user. A supervised agent has no human to grant tool
+# permissions, so without this it wakes on a peer message, tries to reply via cotal_send, and
+# stalls forever on the permission prompt. `auto` mode + the cotal MCP server on the allow-list
+# + the skip flags let it act unattended. Safe here: the container is the isolation boundary
+# (non-root, cap_drop ALL, no host mounts), so an auto-approving agent is still contained.
+RUN node -e 'const fs=require("fs"),os=require("os"),p=require("path");const d=p.join(os.homedir(),".claude");fs.mkdirSync(d,{recursive:true});const f=p.join(d,"settings.json");const c=fs.existsSync(f)?JSON.parse(fs.readFileSync(f,"utf8")):{};c.permissions=c.permissions||{};c.permissions.defaultMode="auto";c.permissions.allow=Array.from(new Set([...(c.permissions.allow||[]),"mcp__plugin_cotal_cotal"]));c.skipAutoPermissionPrompt=true;c.skipDangerousModePermissionPrompt=true;fs.writeFileSync(f,JSON.stringify(c,null,2));console.log("seeded "+f)'
+
 ENTRYPOINT ["bash", "/workspace/deploy/docker/entrypoint.sh"]
 CMD ["supervise"]

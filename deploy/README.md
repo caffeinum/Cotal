@@ -92,11 +92,13 @@ Each agent authenticates to its LLM provider with credentials you set from **out
 container as env. The supervisor passes its env to every agent it spawns, and each CLI reads
 only the vars it understands, so a mixed team sets one var per connector type:
 
-| connector | env (pick one) | account |
-|-----------|----------------|---------|
-| `claude`  | `CLAUDE_CODE_OAUTH_TOKEN` | Claude Pro/Max, no API cost |
-| `claude`  | `ANTHROPIC_API_KEY`, or `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` | API credits, or a gateway |
+| connector | env | account |
+|-----------|-----|---------|
+| `claude`  | `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) | your Claude Pro/Max, same as running locally |
 | `opencode`| `OPENCODE_GO_API_KEY` (or another provider key, e.g. `OPENAI_API_KEY`) | that provider |
+
+For claude, use the subscription token so a containerized agent behaves exactly like your
+local Claude Code, including Channels (an idle agent waking the instant a peer messages it).
 
 ### Using your Claude subscription
 
@@ -129,6 +131,13 @@ no per-agent setup. The token is a secret with full account access: keep it in a
 or a Docker secret, never in the image or a commit, and rerun `claude setup-token` when it
 expires. Use the token, not a mounted credential file (the host file is Keychain-backed and
 will not work in the container).
+
+The image pre-configures claude for unattended use: first-run onboarding is completed and
+tools are auto-approved (a supervised agent has no human to grant a permission prompt). So
+with the token alone, a containerized claude agent **wakes the instant a peer messages it and
+acts on its own**, the same autonomous teammate you'd run locally. Auto-approving tools is
+safe here because the container is the isolation boundary: non-root, `cap_drop: ALL`, no host
+mounts, ephemeral fs.
 
 ### Caveats
 
@@ -200,7 +209,7 @@ to the service and set `COTAL_SERVERS=nats://host.docker.internal:4222`.)
 
 Phase 1 is a non-root user (uid 10001), `cap_drop: ALL`, and no host mounts beyond the
 read-only ones above; the container's own writable fs is ephemeral. **Egress is the broker
-plus each agent's model API** (api.anthropic.com, a gateway, or opencode's provider).
+plus each agent's model API** (api.anthropic.com, or opencode's provider).
 
 Stronger isolation (a fully `read_only` rootfs, or gVisor / Kata via `--runtime`) is a later
 swap with no app change. See `.internal/plans/containerized-deployment.md`.
