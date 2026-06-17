@@ -28,16 +28,18 @@ non-zero with the log path on failure. Each failed interactive step offers a Cla
 Supporting changes across the stack:
 
 - **core** — `Connector.pluginRoot` (find a connector's installable plugin assets without
-  importing the extension), `LaunchOpts.prompt` (an auto-submitted first message), a `Workspaces`
-  extension contract (open/close editor workspaces, resolved by name from the registry), and
-  `findCotalRoot` (walk up to `.cotal/`, so `cotal` runs from any subdirectory).
+  importing the extension), `LaunchOpts.prompt` (an auto-submitted first message), a `TerminalLayout`
+  extension contract (a host-side, not-wire contract: open/close editor tabs from a backend-agnostic
+  `Tab` — panes as argv + an optional split — resolved by name from the registry), and `findCotalRoot`
+  (walk up to `.cotal/`, so `cotal` runs from any subdirectory).
 - **connector-core** — `cotal_purge`, an agent-driven request that has the manager clear the
   space's retained chat backlog (the privileged `STREAM.PURGE` regular agents are denied).
 - **manager** — pre-spawn teammates at startup (`cotal cmux --spawn a,b`, staggered on presence),
   the `purge` control op (native JetStream purge), and a WS attach endpoint.
-- **cmux** — a self-registering `Workspaces` provider (plus `listWorkspaces`/`workspaceRefs` on
-  the driver), so `cotal setup` opens/closes cmux tabs through the registry without depending on
-  the package.
+- **cmux** — a self-registering `TerminalLayout` provider (plus `listWorkspaces`/`workspaceRefs` on
+  the driver) that translates the agnostic `Tab` into cmux's native layout, so `cotal setup`
+  opens/closes cmux tabs through the registry without depending on the package or building any
+  cmux-shaped layout itself.
 - **connector-claude-code** — MCP isolation for spawned sessions (`--strict-mcp-config` +
   `--mcp-config`, channel ref `server:cotal`), `prompt` passthrough, and the plugin manifest files
   shipped in the published package.

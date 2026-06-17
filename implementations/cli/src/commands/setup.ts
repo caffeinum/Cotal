@@ -11,7 +11,8 @@ import {
   loadSpaceAuth,
   registry,
   type Connector,
-  type Workspaces,
+  type Pane,
+  type TerminalLayout,
 } from "@cotal-ai/core";
 import { brand, brandBold, dim, ok, note, splash } from "../lib/theme.js";
 import { LivePane } from "../lib/live-window.js";
@@ -24,7 +25,7 @@ import { machineStatus, meshStatus, onPath, resolveSpace } from "../lib/status.j
 import { startMeshDetached, up } from "./up.js";
 import { ensureWeb, webUp, WEB_URL } from "./web.js";
 import { cmuxManagerRunning, ensureManager, managerUp, pgrepMatches, stopManager } from "../lib/manager-proc.js";
-import { cotalOnPath, displayCmd, isNpx, selfCotal } from "../lib/self-exec.js";
+import { cotalOnPath, displayCmd, isNpx, selfArgv } from "../lib/self-exec.js";
 import { cotalPath, cotalRoot } from "../lib/paths.js";
 import { spawn } from "./spawn.js";
 
@@ -337,8 +338,8 @@ const ME_GREETING =
   "Greet the operator in a few short lines. Open with one line on what Cotal is: an open space where AI agents join and work together as peers. Say you are their Cotal session and that david (the engineer) and sven (the guide) are on the mesh to help. Then tell them what you can do for them: message david or sven, spawn new teammates and despawn them when done, and send feedback. End by asking what they want to build.";
 
 /** True when we're running inside a real cmux pane (cmux sets `CMUX_SURFACE_ID` per surface).
- *  Opening/closing cmux workspaces is only authorized from a live pane, so this — not the
- *  workspaces provider's `available()` (which only pings the app) — is the gate for opening it. */
+ *  Opening/closing cmux tabs is only authorized from a live pane, so this — not the terminal
+ *  provider's `available()` (which only pings the app) — is the gate for opening it. */
 function inCmuxSurface(): boolean {
   return Boolean(process.env.CMUX_SURFACE_ID);
 }
@@ -351,34 +352,24 @@ function inCmuxSurface(): boolean {
  *  auto-accept the one-time dev-channels prompt (the manager's cmux runtime does the same for
  *  david/sven). */
 function ensureCmuxSession(cwd: string): void {
-  // Open/close cmux tabs by resolving the registered "cmux" workspaces provider, so the CLI drives
-  // cmux without importing the extension (the composition root's import is what registers it).
-  const ws = registry.resolve<Workspaces>("workspaces", "cmux");
-  const sq = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
-  const enterLoop =
-    '( [ -n "$CMUX_SURFACE_ID" ] && [ -n "$CMUX_BUNDLED_CLI_PATH" ] && ' +
-    'for _ in 1 2 3 4 5; do sleep 1; "$CMUX_BUNDLED_CLI_PATH" send-key --surface "$CMUX_SURFACE_ID" enter >/dev/null 2>&1; done ) &';
-  // Single-quote cwd at the bash layer (sq) before the whole line is single-quoted again for the
-  // login shell, so a path with spaces, $, or quotes can't break out of `bash -lc '…'`.
-  const term = (cmd: string) => ({
-    pane: { surfaces: [{ type: "terminal", command: `bash -lc ${sq(`cd ${sq(cwd)} && ${cmd}`)}` }] },
-  });
-  // A claude pane that auto-confirms the dev-channels prompt so the session joins the mesh.
-  const confirmTerm = (cmd: string) => ({
-    pane: { surfaces: [{ type: "terminal", command: `bash -lc ${sq(`cd ${sq(cwd)} && ${enterLoop} ${cmd}`)}` }] },
-  });
+  // Open/close cmux tabs by resolving the registered "cmux" terminal-layout provider, so the CLI
+  // drives cmux without importing the extension (the composition root's import is what registers it).
+  const term = registry.resolve<TerminalLayout>("terminal", "cmux");
 
   // The cmux-tab manager becomes the control plane; drop any detached pty manager so they don't
   // both answer control requests.
   stopManager();
 
-  // Invoke this CLI by its resolved path, not bare `cotal`, so the panes work whether the user
-  // installed via npx, `npm i -g`, or a dev clone (no dependency on `cotal` being on PATH). The
-  // space follows the folder's auth so every pane matches the running mesh.
-  const cotal = selfCotal();
+  // Describe each pane as plain argv (command + args + cwd) — the terminal provider owns all
+  // shell quoting and the cmux layout. Invoke this CLI by its own argv (absolute node + entry),
+  // not bare `cotal`, so the panes work whether installed via npx, `npm i -g`, or a dev clone (no
+  // dependency on `cotal` being on PATH). The space follows the folder's auth so every pane matches
+  // the running mesh.
+  const cotal = selfArgv();
+  const run = (...args: string[]): Pane => ({ command: cotal[0], args: [...cotal.slice(1), ...args], cwd });
   const space = resolveSpace(cwd);
-  // `space` is interpolated into the panes' `bash -lc '…'` commands; keep it a bare token so it
-  // can't break the quoting (the same guard `cotal cmux go` uses).
+  // `space` reaches the panes as a discrete argv token, but keep it a bare token anyway (the same
+  // guard `cotal cmux go` uses) so it can't confuse downstream parsing.
   if (!/^[A-Za-z0-9_.-]+$/.test(space))
     throw new Error(`cotal setup: unsafe space ${JSON.stringify(space)} (allowed: letters, digits, _ . -)`);
 
@@ -388,38 +379,40 @@ function ensureCmuxSession(cwd: string): void {
   // dead manager + teammate tabs first, then open a fresh one; otherwise re-runs keep skipping a
   // never-restarted manager and david/sven never join.
   if (!cmuxManagerRunning(space)) {
-    for (const label of ["cotal-manager", ...DEMO_TEAM.map((n) => `cotal-${n}`)]) closeStaleWorkspaces(ws, label);
-    ws.open(
+    for (const label of ["cotal-manager", ...DEMO_TEAM.map((n) => `cotal-${n}`)]) closeStaleTabs(term, label);
+    term.open(
       "cotal-manager",
-      JSON.stringify(term(`${cotal} cmux --space ${space} --spawn ${DEMO_TEAM.join(",")}`)),
+      { panes: [run("cmux", "--space", space, "--spawn", DEMO_TEAM.join(","))] },
       { focus: false },
     );
   }
 
   // Your focused driver: console + the "me" session. Gate on the live driving session (not the
   // persistent tab) so a session you're driving is never disturbed; a dead/closed one gets its stale
-  // tab dropped and reopened. cmux runs pane commands through the login shell (which may be nushell)
-  // before bash, so keep the command free of embedded single quotes: pass the greeting base64-encoded
-  // and decode it in bash.
+  // tab dropped and reopened. The "me" pane sets `confirm` so the provider auto-clears Claude's
+  // dev-channels prompt; the greeting rides as a plain argv token (the provider quotes it).
   if (!pgrepMatches(`spawn me --space ${space}`)) {
-    closeStaleWorkspaces(ws, "cotal-main");
-    const greetB64 = Buffer.from(ME_GREETING, "utf8").toString("base64");
-    const meCmd = `${cotal} spawn me --space ${space} --prompt "$(echo ${greetB64} | base64 -d)"`;
-    const main = JSON.stringify({
-      direction: "vertical",
-      split: 0.34,
-      children: [term(`${cotal} console --space ${space}`), confirmTerm(meCmd)],
-    });
-    ws.open("cotal-main", main, { focus: true });
+    closeStaleTabs(term, "cotal-main");
+    term.open(
+      "cotal-main",
+      {
+        split: { direction: "vertical", ratio: 0.34 },
+        panes: [
+          run("console", "--space", space),
+          { ...run("spawn", "me", "--space", space, "--prompt", ME_GREETING), confirm: true },
+        ],
+      },
+      { focus: true },
+    );
   }
 }
 
-/** Close any lingering cmux tabs labelled `name` (dead tabs persist in the workspace list after
- *  their process exits) so a freshly opened one is the only instance. */
-function closeStaleWorkspaces(ws: Workspaces, name: string): void {
-  for (const ref of ws.refs(name)) {
+/** Close any lingering cmux tabs labelled `name` (dead tabs persist in the tab list after their
+ *  process exits) so a freshly opened one is the only instance. */
+function closeStaleTabs(term: TerminalLayout, name: string): void {
+  for (const ref of term.refs(name)) {
     try {
-      ws.close(ref);
+      term.close(ref);
     } catch {
       /* already gone */
     }
