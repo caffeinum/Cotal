@@ -1,5 +1,11 @@
 # @cotal-ai/connector-opencode
 
+## 0.3.1
+
+### Patch Changes
+
+- @cotal-ai/connector-core@0.3.1
+
 ## 0.3.0
 
 ### Patch Changes
