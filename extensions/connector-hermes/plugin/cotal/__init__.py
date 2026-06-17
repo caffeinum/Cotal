@@ -16,6 +16,7 @@ in the environment. Two run modes:
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import tempfile
 import time
@@ -69,6 +70,24 @@ def _resolve_sidecar_js() -> Path:
     return candidate
 
 
+def _resolve_node() -> str:
+    """Locate a Node runtime for the sidecar. Prefer `node` on PATH (the gateway's PATH includes
+    Hermes' bundled Node and the container has its own); else fall back to Hermes' bundled
+    `<HERMES_HOME>/node/bin/node` (the host installer puts it there). Throws if neither exists —
+    a bare `pip install hermes-agent` without `install.sh --postinstall` may have no Node."""
+    on_path = shutil.which("node")
+    if on_path:
+        return on_path
+    home = os.environ.get("HERMES_HOME") or str(Path.home() / ".hermes")
+    bundled = Path(home) / "node" / "bin" / "node"
+    if bundled.is_file():
+        return str(bundled)
+    raise RuntimeError(
+        f"Node.js not found for the Cotal sidecar: no `node` on PATH and none at {bundled}. "
+        "Install Node (Hermes' installer bundles it: `install.sh --ensure node`)."
+    )
+
+
 def _bootstrap_standalone_sidecar() -> None:
     """Standalone mode: spawn the bundled Node sidecar and wait until it has published the bridge
     socket + tools file. Sets the three path env vars first so the sidecar and the rest of this
@@ -83,9 +102,16 @@ def _bootstrap_standalone_sidecar() -> None:
     os.environ.setdefault("COTAL_TOOLS_FILE", str(run_dir / "cotal-tools.json"))
 
     sidecar = _resolve_sidecar_js()
+    node = _resolve_node()
+    env = os.environ.copy()
+    # Tie the sidecar's life to THIS process (the gateway that loaded the plugin). The official
+    # container image boots the gateway twice — a transient CMD `gateway run` spawns a sidecar then
+    # hands off to the supervised service — so a sidecar must follow its own launcher, not a ppid
+    # that can be reparented before the sidecar ever reads it. The sidecar watches this exact pid.
+    env["COTAL_PARENT_PID"] = str(os.getpid())
     subprocess.Popen(  # noqa: S603 — trusted bundled asset
-        ["node", str(sidecar)],
-        env=os.environ.copy(),
+        [node, str(sidecar)],
+        env=env,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )

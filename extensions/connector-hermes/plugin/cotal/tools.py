@@ -29,9 +29,13 @@ def _spec(descriptor: dict) -> dict:
     }
 
 
-def _handler(name: str) -> Callable[[dict], str]:
-    """Forward a tool call to the sidecar; the sidecar runs the shared spec and returns the text."""
-    def run(args: dict) -> str:
+def _handler(name: str) -> Callable[..., str]:
+    """Forward a tool call to the sidecar; the sidecar runs the shared spec and returns the text.
+
+    Hermes' tool registry invokes handlers as ``handler(args, **kwargs)``, passing call context
+    (``task_id`` and friends). We act only on ``args`` and accept-and-ignore the rest, so the
+    signature can't reject a kwarg the host adds."""
+    def run(args: dict, **_ctx: Any) -> str:
         try:
             return get_client().call_tool(name, args or {})
         except Exception as e:  # surfaced back to the model as the tool result
