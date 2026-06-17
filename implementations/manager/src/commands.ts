@@ -12,6 +12,7 @@ import {
   type ControlReply,
 } from "@cotal-ai/core";
 import { Manager } from "./manager.js";
+import { loadRoster } from "./roster.js";
 import { findWorkspaceRoot, type RuntimeMode } from "./runtime/index.js";
 import { attachClient } from "./attach-client.js";
 import { c } from "./ui.js";
@@ -29,6 +30,7 @@ function parse(argv: string[]): Values {
       role: { type: "string" },
       agent: { type: "string" },
       config: { type: "string" },
+      roster: { type: "string" },
       creds: { type: "string" },
       "console-port": { type: "string" },
       drive: { type: "boolean" },
@@ -178,6 +180,9 @@ async function runManager(argv: string[], runtime: RuntimeMode): Promise<void> {
   const v = parse(argv);
   const space = v.space ?? DEFAULT_SPACE;
   const server = v.server ?? DEFAULT_SERVER;
+  // Parse the roster before touching the network — a malformed file should fail fast,
+  // before the manager comes up or any agent is spawned.
+  const roster = v.roster ? loadRoster(v.roster) : [];
   if (!(await isReachable(server))) {
     console.error(c.red(`Can't reach NATS at ${server}. Run: cotal up`));
     process.exit(1);
@@ -191,6 +196,14 @@ async function runManager(argv: string[], runtime: RuntimeMode): Promise<void> {
       `\n  console: ${mgr.consoleUrl}` +
       c.dim("\n  spawn: cotal start --name <n>   ·   stop: cotal stop --name <n>   (Ctrl-C to shut down)"),
   );
+  // Declarative boot: bring up each rostered agent through the same spawn path as `start`.
+  // A failed entry is logged but non-fatal — healthy agents stay up and the operator can
+  // fix the roster without the supervisor crash-looping.
+  for (const entry of roster) {
+    const reply = await mgr.startAgent(entry);
+    if (reply.ok) console.log(c.green(`✓ started ${c.bold(entry.name)}`) + c.dim(` (${entry.agent})`));
+    else console.error(c.red(`✗ ${entry.name}: ${reply.error}`));
+  }
   const shutdown = () => void mgr.stop().then(() => process.exit(0));
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
@@ -316,7 +329,7 @@ const managerCommands: Command[] = [
     name: "supervise",
     group: "Manager",
     summary:
-      "run a manager (terminal / pty runtime) — [--space <s>] [--server <url>] [--console-port <n>]",
+      "run a manager (terminal / pty runtime) — [--space <s>] [--server <url>] [--console-port <n>] [--roster <file>]",
     run: (argv) => runManager(argv, "auto"),
   },
   {

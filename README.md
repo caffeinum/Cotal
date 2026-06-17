@@ -189,6 +189,8 @@ More scenarios in [`examples/`](examples/).
 - [docs/OVERVIEW.md](docs/OVERVIEW.md): what Cotal does and the core primitives.
 - [docs/architecture.md](docs/architecture.md): how it's built (subjects, streams,
   auth, and the wire contract).
+- [deploy/README.md](deploy/README.md): run containerized agent teams against an
+  external broker.
 
 ## FAQ
 

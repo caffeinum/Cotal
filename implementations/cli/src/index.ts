@@ -7,6 +7,7 @@ import { demo } from "./commands/demo.js";
 import { web } from "./commands/web.js";
 import { spawn } from "./commands/spawn.js";
 import { mint } from "./commands/mint.js";
+import { signer } from "./commands/signer.js";
 import { setup } from "./commands/setup.js";
 import { channels } from "./commands/channels.js";
 import { history } from "./commands/history.js";
@@ -80,6 +81,14 @@ const baseCommands: Command[] = [
     group: "Mesh",
     summary: "mint a creds file for a space (auth mode) — mint <name> --profile <agent|observer> [--out <path>]",
     run: mint,
+  },
+  {
+    kind: "command",
+    name: "signer",
+    group: "Mesh",
+    summary:
+      "emit a stripped signer file (account signing material only, no operator key) for a containerized manager — [--out <path>] [--force]",
+    run: signer,
   },
   {
     kind: "command",
