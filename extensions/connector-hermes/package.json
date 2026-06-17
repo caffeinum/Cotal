@@ -41,7 +41,9 @@
   "files": [
     "bin",
     "dist",
-    "plugin",
+    "plugin/cotal/*.py",
+    "plugin/cotal/plugin.yaml",
+    "plugin/cotal/_sidecar",
     "pyproject.toml"
   ],
   "publishConfig": {
