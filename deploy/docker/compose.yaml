@@ -13,12 +13,13 @@ services:
     # Auth is per connector type. Every var set here reaches every agent (the container is the
     # team's trust boundary); each CLI reads only the vars it understands, so they don't collide.
     #   claude   -> CLAUDE_CODE_OAUTH_TOKEN (your Claude Pro/Max; from `claude setup-token` on the host)
-    #   opencode -> an env-key provider, e.g. OPENCODE_GO_API_KEY (OAuth-only providers can't run
-    #               headless - the connector isolates XDG_DATA_HOME per agent, hiding auth.json).
+    #   opencode -> the env var of the provider behind each agent's model: (provider/model). opencode's
+    #               hosted models read OPENCODE_API_KEY; OpenAI OPENAI_API_KEY; Anthropic ANTHROPIC_API_KEY;
+    #               etc. OAuth-only providers can't run headless (XDG_DATA_HOME is per-agent, hiding auth.json).
     environment:
       COTAL_SERVERS: ${COTAL_SERVERS:-tls://broker.host:4222}
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN}
-      OPENCODE_GO_API_KEY: ${OPENCODE_GO_API_KEY}
+      OPENCODE_API_KEY: ${OPENCODE_API_KEY}      # opencode's hosted models; add OPENAI_API_KEY etc. per your roster
     volumes:
       - ./team-a/agents:/workspace/.cotal/agents:ro          # personas the roster references
       - ./team-a/roster.yaml:/workspace/roster.yaml:ro

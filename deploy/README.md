@@ -63,7 +63,7 @@ inside the container):
 docker run --rm -it \
   --add-host host.docker.internal:host-gateway \
   -e COTAL_SERVERS=nats://host.docker.internal:4222 \
-  -e OPENCODE_GO_API_KEY="$OPENCODE_GO_API_KEY" \
+  -e OPENCODE_API_KEY="$OPENCODE_API_KEY" \
   -v "$PWD/signer.json:/workspace/.cotal/auth/auth.json:ro" \
   -v "$PWD/team/roster.yaml:/workspace/roster.yaml:ro" \
   -v "$PWD/team/agents:/workspace/.cotal/agents:ro" \
@@ -95,10 +95,16 @@ only the vars it understands, so a mixed team sets one var per connector type:
 | connector | env | account |
 |-----------|-----|---------|
 | `claude`  | `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) | your Claude Pro/Max, same as running locally |
-| `opencode`| `OPENCODE_GO_API_KEY` (or another provider key, e.g. `OPENAI_API_KEY`) | that provider |
+| `opencode`| whatever env var the provider behind its `model:` reads | that provider |
 
 For claude, use the subscription token so a containerized agent behaves exactly like your
 local Claude Code, including Channels (an idle agent waking the instant a peer messages it).
+
+For opencode, the env var is **per provider**, not fixed: each agent's `model:` is
+`provider/model` (see the roster section), and you set that provider's key. opencode's own
+hosted models (`opencode-go/…`) read `OPENCODE_API_KEY`; OpenAI reads `OPENAI_API_KEY`,
+Anthropic `ANTHROPIC_API_KEY`, OpenRouter `OPENROUTER_API_KEY`, and so on. A mixed team sets
+one var per provider it uses; each opencode process picks up only the keys its model needs.
 
 ### Using your Claude subscription
 
@@ -143,8 +149,8 @@ mounts, ephemeral fs.
 
 - **opencode needs an env-key provider headless.** OAuth-only providers (stored in
   `auth.json`) do not work in-container: the connector isolates each agent's `XDG_DATA_HOME`,
-  where opencode keeps `auth.json`, so a mounted one is hidden. Use an API-key provider like
-  `opencode-go`.
+  where opencode keeps `auth.json`, so a mounted one is hidden. Use any provider whose key is an
+  env var, e.g. opencode's hosted models (`OPENCODE_API_KEY`) or `OPENAI_API_KEY`.
 - **The container is the trust boundary.** Every agent in a team-container shares its env, so
   secrets are not isolated between agents in the same container. For hard per-agent isolation,
   run one agent per container (the `solo` service): same image, different command.
@@ -198,7 +204,7 @@ container, mounts laid out as above. Paths in it are relative to `docker/`, so p
 ```bash
 cp docker/roster.example.yaml team-a/roster.yaml   # then edit; add team-a/agents/*.md + signer.json
 COTAL_SERVERS=tls://broker.host:4222 \
-CLAUDE_CODE_OAUTH_TOKEN=<token> OPENCODE_GO_API_KEY=<key> \
+CLAUDE_CODE_OAUTH_TOKEN=<token> OPENCODE_API_KEY=<key> \
   docker compose -f deploy/docker/compose.yaml up team-a
 ```
 
