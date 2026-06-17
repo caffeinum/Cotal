@@ -24,7 +24,7 @@ RUN npm install -g @anthropic-ai/claude-code opencode-ai
 # user won't see the plugin cached under its HOME. One non-root user for both.
 RUN useradd --uid 10001 --create-home --home-dir /home/cotal --shell /bin/bash cotal
 ENV HOME=/home/cotal
-# tsx is a local dev dep reached via node_modules/.bin — put it on PATH (the entrypoint also
+# tsx is a local dev dep reached via node_modules/.bin - put it on PATH (the entrypoint also
 # goes through `pnpm exec`, but this makes a bare `tsx` resolve too).
 ENV PATH=/workspace/node_modules/.bin:$PATH
 
@@ -34,7 +34,7 @@ RUN corepack enable
 # runtime user.
 COPY --chown=10001:10001 . /workspace
 # COPY --chown sets ownership on the copied *contents*, but the /workspace dir node itself stays
-# root-owned (created by WORKDIR) — pnpm writes temp files at the workspace root, so chown it too.
+# root-owned (created by WORKDIR) - pnpm writes temp files at the workspace root, so chown it too.
 # Also pre-create the config tree the runtime mounts into, owned by the runtime user.
 RUN chown 10001:10001 /workspace \
   && mkdir -p /workspace/.cotal/auth/creds /workspace/.cotal/agents \

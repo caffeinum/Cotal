@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Cotal container entrypoint.
 #
-# Runs the cotal binary (there is no packaged executable — the entry is `tsx bin/cotal.ts`)
+# Runs the cotal binary (there is no packaged executable - the entry is `tsx bin/cotal.ts`)
 # with whatever subcommand the container was given (`supervise …` / `spawn …`), pointed at
 # the EXTERNAL broker named by COTAL_SERVERS. The broker lives outside the container; only
 # NATS traffic crosses the wall.

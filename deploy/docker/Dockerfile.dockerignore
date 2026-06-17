@@ -6,7 +6,7 @@
 .pnpm-store
 **/.turbo
 **/*.log
-# Local runtime state + secrets — the container gets its config via mounts, never the image.
+# Local runtime state + secrets - the container gets its config via mounts, never the image.
 **/.cotal
 **/signer.json
 **/.env
