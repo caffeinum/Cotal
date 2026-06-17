@@ -11,6 +11,8 @@ import {
   newIdentity,
 } from "@cotal-ai/core";
 import { c } from "../ui.js";
+import { cotalRoot } from "../lib/paths.js";
+import { mentionsIn } from "../console/commands.js";
 
 /**
  * One-shot send commands — `cotal dm` / `cotal msg` / `cotal ask` — the headless equivalents of the
@@ -35,7 +37,7 @@ async function connectSender(values: SendValues): Promise<{ ep: CotalEndpoint; s
   let creds = values.creds ? readFileSync(values.creds, "utf8") : undefined;
   let space = values.space;
   if (!creds) {
-    const auth = loadSpaceAuth(authDir(process.cwd()));
+    const auth = loadSpaceAuth(authDir(cotalRoot()));
     if (auth) {
       if (space && space !== auth.space) {
         console.error(
@@ -109,7 +111,7 @@ export async function msg(argv: string[]): Promise<void> {
     process.exit(1);
   }
   const { ep } = await connectSender(values);
-  await ep.multicast(text, { channel });
+  await ep.multicast(text, { channel, mentions: mentionsIn(text) });
   console.log(c.green(`→ #${channel}`) + c.dim(`  ${text}`));
   await ep.stop();
 }
