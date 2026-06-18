@@ -5,20 +5,17 @@ const DEFAULT_COLS = 120;
 const DEFAULT_ROWS = 32;
 /** How much terminal output to retain for late-attach scrollback replay. */
 const SCROLLBACK_BYTES = 256 * 1024;
-/** Stop watching for a spawn-confirm prompt after this long (it appears at startup). */
-const CONFIRM_WINDOW_MS = 20_000;
+/** Spacing between auto-confirm Enter presses, and how many to send. Claude's startup gates
+ *  (workspace-trust, then the dev-channels warning) each wait for Enter and neither has a headless
+ *  override. The count is variable — a fresh folder shows both, a re-launch on a now-trusted folder
+ *  shows only the channels gate — and each gate's screen is static once rendered, so we don't match
+ *  text or count prompts: press Enter blindly a few times, spaced so each press lands on the next
+ *  gate and a dropped press is retried. Both gates default-highlight "proceed", so Enter accepts the
+ *  safe option; any extra press lands on Claude's empty input as a no-op. */
+const CONFIRM_INTERVAL_MS = 1_000;
+const MAX_CONFIRMS = 5;
 /** Grace window for a clean exit before a graceful stop escalates to SIGKILL. */
 const GRACE_MS = 3_000;
-
-/** Strip ANSI control sequences and whitespace so a confirm prompt matches regardless
- *  of how a TUI positions its text (cursor moves between words, not spaces). */
-function normalizeForMatch(s: string): string {
-  return s
-    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "") // OSC
-    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "") // CSI
-    .replace(/\x1b[@-Z\\-_]/g, "") // other escapes
-    .replace(/\s+/g, "");
-}
 
 /**
  * The default runtime: the manager spawns the agent in a pseudo-terminal it owns
@@ -46,12 +43,21 @@ export class PtyRuntime implements Runtime {
     let cols = DEFAULT_COLS;
     let rows = DEFAULT_ROWS;
 
-    // Auto-clear a one-time spawn prompt (e.g. Claude's dev-channel confirmation):
-    // watch early output for `spec.confirm` and press Enter once when it appears.
-    const confirmTarget = spec.confirm ? normalizeForMatch(spec.confirm) : "";
-    let confirmArmed = Boolean(confirmTarget);
-    let confirmBuf = "";
-    if (confirmArmed) setTimeout(() => (confirmArmed = false), CONFIRM_WINDOW_MS);
+    // Clear Claude's startup gates (workspace-trust, dev-channels warning) by pressing Enter on a
+    // timer during the startup window — see CONFIRM_INTERVAL_MS for why this is blind, not output-
+    // driven. A spawn that opts in sets `spec.confirm` truthy.
+    let confirmTimer: ReturnType<typeof setInterval> | undefined;
+    if (spec.confirm) {
+      let presses = 0;
+      confirmTimer = setInterval(() => {
+        if (!alive || presses++ >= MAX_CONFIRMS) {
+          clearInterval(confirmTimer);
+          confirmTimer = undefined;
+          return;
+        }
+        proc.write("\r");
+      }, CONFIRM_INTERVAL_MS);
+    }
 
     proc.onData((d) => {
       const b = Buffer.from(d, "utf8");
@@ -60,19 +66,11 @@ export class PtyRuntime implements Runtime {
       while (ringBytes > SCROLLBACK_BYTES && ring.length > 1) {
         ringBytes -= ring.shift()!.length;
       }
-      if (confirmArmed) {
-        confirmBuf = (confirmBuf + d).slice(-8192);
-        if (normalizeForMatch(confirmBuf).includes(confirmTarget)) {
-          confirmArmed = false;
-          // Let the TUI finish wiring up its raw-mode input loop (it may flush
-          // stdin on init) before pressing Enter, or the keypress is dropped.
-          setTimeout(() => alive && proc.write("\r"), 500);
-        }
-      }
       for (const fn of dataSubs) fn(b);
     });
     proc.onExit(() => {
       alive = false;
+      if (confirmTimer) clearInterval(confirmTimer);
       for (const fn of exitSubs) fn();
     });
 
