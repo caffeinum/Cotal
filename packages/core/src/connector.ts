@@ -46,6 +46,10 @@ export interface LaunchOpts {
    *  (Claude launches isolated with `--strict-mcp-config`). Connectors that don't support sharing
    *  throw on a non-empty map rather than silently dropping it. */
   mcpServers?: Record<string, McpServerSpec>;
+  /** Per-agent working directory the session should be rooted at. When set, the
+   *  manager launches the agent here instead of its shared workspace root — so
+   *  different agents can live in different repos/folders. */
+  cwd?: string;
 }
 
 /** A recipe for starting an agent as a mesh node — command, args, and extra env. */
