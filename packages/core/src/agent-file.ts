@@ -185,3 +185,15 @@ export function agentFilePath(root: string, nameOrPath: string): string {
   if (nameOrPath.includes("/") || nameOrPath.endsWith(".md")) return resolve(root, nameOrPath);
   return join(root, ".cotal", "agents", `${nameOrPath}.md`);
 }
+
+/** First free name in the series `base`, `base-2`, `base-3`, … — the first candidate for which
+ *  `taken` returns false. The single source of the spawn auto-numbering scheme, shared by the
+ *  manager's funnel (checked against its live + reserved slots) and `cotal spawn` (checked against
+ *  the live mesh roster), so a colliding name numbers up identically whichever path spawns it. */
+export function firstFreeName(base: string, taken: (name: string) => boolean): string {
+  if (!taken(base)) return base;
+  for (let n = 2; ; n++) {
+    const candidate = `${base}-${n}`;
+    if (!taken(candidate)) return candidate;
+  }
+}
