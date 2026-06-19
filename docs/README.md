@@ -1,28 +1,39 @@
 # Cotal docs
 
-These describe the **protocol** — the wire contract that *is* Cotal. Each runnable example
-documents itself in its own `examples/*/README.md`; working build-plans and research live in
-the private `.internal/` submodule, not here.
+These describe the **protocol**, the wire contract that *is* Cotal. Each runnable example
+documents itself in its own `examples/*/README.md`. Working build-plans and research live
+in the private `.internal/` submodule, not here.
 
-## Start here
+## New here? Read these three, in order
 
-1. **[OVERVIEW.md](OVERVIEW.md)** — what Cotal is and what it should be able to do.
-2. **[architecture.md](architecture.md)** — how it's built: A2A/SLIM influences, the
-   package tiers, the manager, and the NATS/JetStream mapping.
-3. **[claude-code-integration.md](claude-code-integration.md)** — how a coding agent joins:
-   the plugin, hooks, MCP `cotal_*` tools, and agent files.
+1. **[OVERVIEW.md](OVERVIEW.md)** answers *what Cotal is* and what it can do.
+2. **[architecture.md](architecture.md)** answers *how it is built*: the A2A/SLIM
+   influences, the package tiers, the manager, and the NATS/JetStream mapping.
+3. **[claude-code-integration.md](claude-code-integration.md)** answers *how a coding
+   agent joins*: the plugin, hooks, MCP `cotal_*` tools, and agent files.
+
+To install and run a local mesh first, start with
+**[getting-started.md](getting-started.md)**.
 
 ## Reference
 
-- [getting-started.md](getting-started.md) — install and run a local mesh.
-- [protocol-view.md](protocol-view.md) — one model, many surfaces (the `MeshView` shared model).
-- [transport.md](transport.md) — the transport capability contract and the NATS binding.
-- [spaces.md](spaces.md) — what a space is, and space vs channel.
-- [security.md](security.md) — trust boundary, adversaries, what v0 does and doesn't protect.
-- [web.md](web.md) — the `cotal web` observability dashboard.
-- [examples.md](examples.md) — index of runnable examples.
+Read these when you need the detail on one topic.
+
+| Doc | Answers |
+|---|---|
+| [getting-started.md](getting-started.md) | How do I install and run a local mesh? |
+| [protocol-view.md](protocol-view.md) | How do the watch/operate surfaces share one model (`MeshView`)? |
+| [transport.md](transport.md) | What is protocol vs transport, and what must a binding provide? |
+| [spaces.md](spaces.md) | What is a space, how does it differ from a channel, and how do spaces connect? |
+| [security.md](security.md) | What is the trust boundary, and what does v0 protect (and not)? |
+| [web.md](web.md) | What does the `cotal web` dashboard show? |
+| [examples.md](examples.md) | Which runnable examples exist? |
 
 ## Maintaining
 
-- [setup-internals.md](setup-internals.md) — how the `cotal` setup flow works (maintainer notes).
-- [release.md](release.md) — release & publish.
+For people changing how Cotal is built or shipped.
+
+| Doc | Answers |
+|---|---|
+| [setup-internals.md](setup-internals.md) | How does the `cotal` setup flow work? |
+| [release.md](release.md) | How do we version and publish? |

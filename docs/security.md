@@ -1,8 +1,8 @@
 # Security model
 
-Cotal v0 provides containment and sender authenticity for peers sharing one trusted NATS
-broker. It is not an end-to-end encrypted or untrusted-relay protocol. This is the threat
-model referenced by [SPEC.md](../SPEC.md) §9; where the two disagree, the spec wins.
+> Cotal v0 provides containment and sender authenticity for peers sharing one trusted NATS
+> broker. It is not an end-to-end encrypted or untrusted-relay protocol. This is the threat
+> model referenced by [SPEC.md](../SPEC.md) §9; where the two disagree, the spec wins.
 
 ## Trust boundary
 
@@ -17,18 +17,19 @@ Each adversary, what it can attempt, and what stops it (or why it is out of scop
 - **Compromised or malicious peer agent** (authenticated, in-space): the primary adversary.
   It cannot forge another agent's `from.id` (the subject sender is bound to its nkey by NATS
   permissions), cannot publish to channels outside its declared allow-list, and cannot read
-  another agent's DMs or another role's work queue (per-identity inbox prefixes plus
-  bind-only durables, §9). It still can send well-formed hostile content to channels it is
-  allowed on (see prompt-facing data) and flood within its limits (see availability).
+  another agent's DMs or another role's work queue (per-identity inbox prefixes plus bind-only
+  durables, §9). It still can send well-formed hostile content to channels it is allowed on
+  (see *Prompt-facing data*) and flood within its limits (see *availability* under *What v0
+  does not protect*).
 - **Buggy or lazy receiver:** sender authenticity depends on the receiver enforcing the
   `from.id`-equals-subject-sender check; a client that skips it accepts spoofed senders. The
   check is therefore normative: receivers MUST reject on mismatch (SPEC §5, §12).
 - **On-path network attacker** (between an agent and the broker): defeated only when the join
-  link uses `cotals://` (TLS required). Plain `cotal://` is cleartext on the wire, for
-  trusted networks and dev only.
+  link uses `cotals://` (TLS required). Plain `cotal://` is cleartext on the wire, for trusted
+  networks and dev only.
 - **Content author targeting a reading model:** any writer of channel `description` /
   `instructions`, presence `activity`, message bodies, or free-form metadata can attempt
-  prompt injection against an agent that reads it. See prompt-facing data.
+  prompt injection against an agent that reads it. See *Prompt-facing data*.
 - **Untrusted broker, relay, operator, or admin:** out of scope by definition. The broker and
   any `admin` credential can read, drop, replay, or alter all plaintext traffic. v0 makes no
   claim against a hostile broker; signed envelopes and untrusted-relay bindings are reserved
@@ -37,11 +38,11 @@ Each adversary, what it can attempt, and what stops it (or why it is out of scop
 ## What v0 protects
 
 - **Sender authenticity:** the sender id is encoded in the subject and enforced by NATS
-  permissions. Receivers MUST reject payloads whose `from.id` does not match the subject
-  sender (SPEC §5).
-- **Space containment:** account boundaries keep one space's subjects, streams, and KV
-  buckets isolated from another; a client in one account cannot reach another's subjects
-  unless explicitly exported and imported.
+  permissions. Receivers MUST reject payloads whose `from.id` does not match the subject sender
+  (SPEC §5).
+- **Space containment:** account boundaries keep one space's subjects, streams, and KV buckets
+  isolated from another; a client in one account cannot reach another's subjects unless
+  explicitly exported and imported.
 - **Channel publish scope:** agent credentials allow chat publish only as self and only to
   declared channel patterns (a default-deny allow-list).
 - **DM/TASK peer confidentiality:** delivery uses per-identity inbox prefixes, and DM/TASK
@@ -55,8 +56,8 @@ Each adversary, what it can attempt, and what stops it (or why it is out of scop
 - **Untrusted broker or relay:** the broker can read, drop, replay, or alter plaintext
   traffic. Signed envelopes are reserved for a later version.
 - **End-to-end secrecy:** DMs are plaintext to the broker and to `admin`. (SLIM puts MLS
-  end-to-end encryption under its pub/sub; Cotal v0 deliberately does not, trading secrecy
-  for a single trusted broker.)
+  end-to-end encryption under its pub/sub; Cotal v0 deliberately does not, trading secrecy for
+  a single trusted broker.)
 - **Non-repudiation:** sender authenticity is broker-enforced, not portable proof. (A2A signs
   every message for this; here it is reserved as signed envelopes.)
 - **Availability:** an authenticated peer can flood any channel or inbox it may write to. v0
@@ -75,10 +76,9 @@ Channel `description` and `instructions`, presence `activity`, message bodies, a
 metadata may reach models. Writers that can set channel registry text are privileged, and
 registry text is length-bounded, but clients MUST still render all of it as attributed,
 advisory data, never as trusted system instruction. This is the indirect-prompt-injection
-surface common to agent protocols (MCP tool descriptions, A2A agent cards): Cotal's position
-is that the reading client, not the wire, is the trust boundary for model-facing text.
+surface common to agent protocols (MCP tool descriptions, A2A agent cards): Cotal's position is
+that the reading client, not the wire, is the trust boundary for model-facing text.
 
 ## Reporting
 
 Report a suspected vulnerability privately to the maintainers rather than in a public issue.
-</content>
