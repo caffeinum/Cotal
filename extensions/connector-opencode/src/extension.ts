@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { loadAgentFile, registry, type Connector, type LaunchOpts, type LaunchSpec } from "@cotal-ai/core";
+import { launchEnv, MODEL_PROVIDER_KEYS } from "@cotal-ai/connector-core";
 
 /** The bundled in-process plugin (esbuild → `dist/plugin.bundle.js`). `opencode serve` loads it by
  *  absolute path from the inline config, so it runs *inside* the server and shares its SDK client.
@@ -31,8 +32,15 @@ export const opencodeConnector: Connector = {
   name: "opencode",
   buildLaunch(opts: LaunchOpts): LaunchSpec {
     // Identity rides the process env: the plugin runs in the opencode process and inherits it
-    // (unlike the Claude Code MCP server, which gets none of the parent env).
-    const env: Record<string, string> = { COTAL_SPACE: opts.space, COTAL_NAME: opts.name };
+    // (unlike the Claude Code MCP server, which gets none of the parent env). The OS allow-list +
+    // the named model-provider key (opencode's hosted models read OPENCODE_API_KEY; other
+    // providers read their own) are forwarded BY NAME — never `...process.env` — so the operator's
+    // unrelated secrets don't reach the child (P3).
+    const env: Record<string, string> = {
+      ...launchEnv({ providerKeys: MODEL_PROVIDER_KEYS }),
+      COTAL_SPACE: opts.space,
+      COTAL_NAME: opts.name,
+    };
     if (opts.role) env.COTAL_ROLE = opts.role;
     if (opts.id) env.COTAL_ID = opts.id;
     if (opts.creds) env.COTAL_CREDS = opts.creds;

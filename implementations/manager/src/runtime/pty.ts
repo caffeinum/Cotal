@@ -32,7 +32,11 @@ export class PtyRuntime implements Runtime {
       cols: DEFAULT_COLS,
       rows: DEFAULT_ROWS,
       cwd,
-      env: { ...process.env, ...spec.env },
+      // P3: pass ONLY the connector-declared env (OS allow-list + identity + named model key) —
+      // never `...process.env`. The operator's unrelated secrets (AWS/GH/other service keys) don't
+      // bleed into the child. `spec.env ?? {}` so a connector that forgets env fails loud (no
+      // PATH) instead of silently inheriting the manager's env.
+      env: spec.env ?? {},
     });
 
     const dataSubs = new Set<(c: Buffer) => void>();

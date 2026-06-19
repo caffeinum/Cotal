@@ -22,8 +22,12 @@ commands from the repo root (`cotal` below is shorthand for `pnpm cotal`).
 
 ```bash
 pnpm install            # once
-cotal up                # add --server nats://127.0.0.1:4252 if 4222 is taken
+cotal up --host 0.0.0.0 # network-reachable for containers; add --server nats://127.0.0.1:4252 if 4222 is taken
 ```
+
+> `cotal up` binds **loopback** (`127.0.0.1`) by default. A broker containers dial out to needs
+> `--host 0.0.0.0` — and auth (the default), since an open mesh on `0.0.0.0` is unauthenticated on
+> the network. Bind-address and auth are independent flags.
 
 **2. Build the image** (once). Bundles the cotal, claude, and opencode CLIs and installs
 the mesh plugin:

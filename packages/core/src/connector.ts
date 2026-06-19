@@ -21,6 +21,10 @@ export interface LaunchOpts {
    *  that support an auto-submitted first prompt (Claude Code) deliver it; others
    *  ignore it. Used to make a driving session greet the operator on launch. */
   prompt?: string;
+  /** Mirror this session's transcript to `tr-<name>` so peers/observers can read what
+   *  the agent actually did (sets `COTAL_TRANSCRIPT`). Defaults to on; `false` disables
+   *  it — surfaced as the `--no-transcript` flag on `cotal spawn` / `cotal start`. */
+  transcript?: boolean;
 }
 
 /** A recipe for starting an agent as a mesh node — command, args, and extra env. */

@@ -4,6 +4,8 @@ import {
   subjectMatches,
   isConcreteChannel,
   CotalEndpoint,
+  CONTROL_PRIVILEGED,
+  CONTROL_SELF_SERVICE,
   type ControlReply,
   type Delivery,
   type MessageMeta,
@@ -340,17 +342,26 @@ export class MeshAgent extends EventEmitter {
    *  runtime; from here it just joins the mesh as a lateral peer. */
   async spawn(name: string, role?: string): Promise<ControlReply> {
     this.assertConnected();
-    return this.ep.requestControl("manager", { op: "start", args: { name, role } });
+    return this.ep.requestControl(CONTROL_PRIVILEGED, { op: "start", args: { name, role } });
   }
 
   /** Ask the manager to tear a teammate down (its `stop` op). Graceful by default —
    *  the session is told to exit cleanly (so it leaves the mesh) before the
-   *  process/tab is closed; `graceful:false` is a hard, immediate kill. */
-  async despawn(name: string, opts?: { graceful?: boolean }): Promise<ControlReply> {
+   *  process/tab is closed; `graceful:false` is a hard, immediate kill.
+   *
+   *  No `name` ⇒ self-despawn: rides the self-service control subject and the manager
+   *  resolves the target as the managed agent whose id == this caller — so it can only
+   *  ever stop itself, never a peer. A `name` ⇒ rides the privileged control subject
+   *  (transport-gated to spawn-capable/admin); the manager refines own-child vs admin. */
+  async despawn(name?: string, opts?: { graceful?: boolean }): Promise<ControlReply> {
     this.assertConnected();
-    return this.ep.requestControl("manager", {
+    const graceful = opts?.graceful ?? true;
+    if (!name) {
+      return this.ep.requestControl(CONTROL_SELF_SERVICE, { op: "stop", args: { graceful } });
+    }
+    return this.ep.requestControl(CONTROL_PRIVILEGED, {
       op: "stop",
-      args: { name, graceful: opts?.graceful ?? true },
+      args: { name, graceful },
     });
   }
 
@@ -358,7 +369,7 @@ export class MeshAgent extends EventEmitter {
    *  it doesn't touch live agents or the anycast work queue. `includeDms` also clears DM history. */
   async purgeHistory(opts?: { includeDms?: boolean }): Promise<ControlReply> {
     this.assertConnected();
-    return this.ep.requestControl("manager", {
+    return this.ep.requestControl(CONTROL_PRIVILEGED, {
       op: "purge",
       args: { includeDms: opts?.includeDms ?? false },
     });
@@ -374,7 +385,7 @@ export class MeshAgent extends EventEmitter {
     model?: string;
   }): Promise<ControlReply> {
     this.assertConnected();
-    const reply = await this.ep.requestControl("manager", {
+    const reply = await this.ep.requestControl(CONTROL_PRIVILEGED, {
       op: "definePersona",
       args: { name: def.name, role: def.role, model: def.model, persona: def.prompt },
     });

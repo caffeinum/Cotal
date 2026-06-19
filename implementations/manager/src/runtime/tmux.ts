@@ -54,10 +54,12 @@ export class TmuxRuntime implements Runtime {
         stdio: "ignore",
       });
     }
-    const envPrefix = Object.entries(spec.env ?? {}).map(
-      ([k, v]) => `${k}=${shellQuote(v)}`,
-    );
-    const cmd = [...envPrefix, spec.command, ...spec.args.map(shellQuote)].join(" ");
+    // P3: `env -i` clears the tmux server's inherited env (the manager's env), then we set ONLY
+    // the connector-declared env (OS allow-list + identity + named model key) — the operator's
+    // unrelated secrets don't bleed into the window. paneCommand handles env entries; here we
+    // prefix with `env -i`.
+    const envPrefix = ["-i", ...Object.entries(spec.env ?? {}).map(([k, v]) => `${k}=${shellQuote(v)}`)];
+    const cmd = ["env", ...envPrefix, spec.command, ...spec.args.map(shellQuote)].join(" ");
     execFileSync(
       "tmux",
       ["new-window", "-t", this.session, "-n", name, "-c", cwd, cmd],

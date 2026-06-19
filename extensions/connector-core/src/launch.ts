@@ -1,0 +1,68 @@
+/**
+ * The spawned-agent env allow-list (P3) — the single chokepoint for what a child process sees.
+ *
+ * Connectors build the child's env as `{ ...launchEnv(...), <COTAL_* identity>, <connector vars> }`
+ * and the runtimes pass ONLY that (never `...process.env`). So the operator's *unrelated* env
+ * (AWS creds, GH tokens, other service keys sitting in their shell) stops bleeding into every
+ * spawned child. What a child sees is auditable from the spec, not "whatever the manager
+ * inherited."
+ *
+ * Scope this is HONEST about (P6): it closes ENV-VAR bleed. It does NOT close (i) model-key
+ * exfil for key-based providers — the agent holds the key in its own process to do inference, so
+ * a compromised agent exfils from its OWN env, spawn-gating the key only breaks the child's LLM
+ * function (the real fix is per-agent model auth, a separate roadmap item); nor (ii) filesystem
+ * secret access — HOME is forwarded, so a child can still read ~/.aws / ~/.ssh / ~/.config off
+ * disk (needs a workspace sandbox, a separate control).
+ */
+
+/** OS env a coding-agent TUI genuinely needs to run — find its binary (PATH), render (TERM /
+ *  COLORTERM), resolve home/config (HOME), locale (LANG / LC_*), timezone (TZ), temp (TMPDIR),
+ *  session/runtime dir (XDG_RUNTIME_DIR), and the shell it may invoke. NOT a model key, NOT an
+ *  operator secret. A fixed, named allow-list. */
+const OS_ENV_ALLOW = [
+  "PATH",
+  "HOME",
+  "USER",
+  "LOGNAME",
+  "SHELL",
+  "TERM",
+  "COLORTERM",
+  "COLORFGBG",
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
+  "LC_MESSAGES",
+  "TZ",
+  "TMPDIR",
+  "TMP",
+  "XDG_RUNTIME_DIR",
+] as const;
+
+/** Model-provider API keys a key-based connector may forward to its child. claude needs none
+ *  (macOS Keychain / OAuth token, not an env key) → strong isolation for free; opencode/hermes
+ *  need the key for the provider behind the agent's model → forward just these, by NAME, only if
+ *  present. This is the single chokepoint for model-key forwarding — the seam for spawner-
+ *  conditional gating (per-agent model auth) later. Never `...process.env`. */
+export const MODEL_PROVIDER_KEYS = [
+  "OPENCODE_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "OPENAI_API_KEY",
+  "OPENROUTER_API_KEY",
+  "NOUS_API_KEY",
+] as const;
+
+/** Build the base env a spawned agent runs with: the OS allow-list plus any named model-provider
+ *  keys the connector declares the agent needs (`providerKeys`). Entries are copied from the
+ *  manager's env BY NAME and only when present — never required, never spread wholesale. */
+export function launchEnv(opts: { providerKeys?: readonly string[] } = {}): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const k of OS_ENV_ALLOW) {
+    const v = process.env[k];
+    if (v !== undefined) env[k] = v;
+  }
+  for (const k of opts.providerKeys ?? []) {
+    const v = process.env[k];
+    if (v !== undefined) env[k] = v;
+  }
+  return env;
+}

@@ -14,8 +14,10 @@ import {
   provisionAgent,
   registry,
   saveAgentFile,
+  CONTROL_PRIVILEGED,
+  CONTROL_SELF_SERVICE,
 } from "@cotal-ai/core";
-import type { AgentDef, Connector, ControlReply, ControlRequest, SpaceAuth } from "@cotal-ai/core";
+import type { AgentDef, Connector, ControlReply, ControlRequest, ControlTier, SpaceAuth } from "@cotal-ai/core";
 import {
   createRuntime,
   type AgentHandle,
@@ -44,6 +46,9 @@ export interface StartAgentOpts {
   role?: string;
   /** Explicit agent-file name-or-path; otherwise `.cotal/agents/<name>.md` is discovered if present. */
   config?: string;
+  /** Mirror the session's transcript to `tr-<name>`. Defaults to on; `false` (the
+   *  `--no-transcript` flag) disables it. */
+  transcript?: boolean;
 }
 
 interface ManagedAgent {
@@ -54,6 +59,10 @@ interface ManagedAgent {
   id: string;
   /** Private nkey seed, kept so a later step can mint matching creds for this id. */
   seed: string;
+  /** Authenticated id of the peer that requested this spawn (the control-plane `req.from.id`),
+   *  or the manager's own id for roster/pre-spawn. Non-forgeable — set by `handle()`. The spawner
+   *  ledger (P4b) keys own-children despawn + reap-on-parent-exit off this. */
+  spawner: string;
   startedAt: number;
   handle: AgentHandle;
 }
@@ -132,7 +141,13 @@ export class Manager {
     this.ep.on("error", (e: Error) => console.error(`! manager endpoint: ${e.message}`));
     await this.ep.start();
     await this.ep.setActivity(`supervisor (${this.runtime.kind})`);
-    this.ep.serveControl("manager", (req) => this.handle(req));
+    // Serve both control tiers (P2a): the privileged subject (start/purge/definePersona/named
+    // stop) and the self-service subject (self stop/despawn). The cred layer grants self-service
+    // to every agent and privileged only to spawn-capable ones (default-deny); the handler then
+    // routes by op↔tier (fail-closed on mismatch) so a privileged op on the self-service subject
+    // — or a self op on the privileged subject — is rejected before anything acts.
+    this.ep.serveControl(CONTROL_PRIVILEGED, (req) => this.handle(req, CONTROL_PRIVILEGED));
+    this.ep.serveControl(CONTROL_SELF_SERVICE, (req) => this.handle(req, CONTROL_SELF_SERVICE));
   }
 
   async stop(): Promise<void> {
@@ -140,17 +155,38 @@ export class Manager {
     await this.attach.stop();
   }
 
-  private async handle(req: ControlRequest): Promise<ControlReply> {
+  private async handle(req: ControlRequest, tier: ControlTier): Promise<ControlReply> {
     const args = req.args ?? {};
+    // `req.from.id` is non-forgeable in auth mode: serveControl rejects any request whose payload
+    // `from.id` doesn't match the subject sender (endpoint.ts). In open mode there are no creds, so
+    // from.id is self-asserted — the spawner ledger + this routing are auth-mode guarantees,
+    // advisory in open mode (consistent with "open = single-trusted-host"). Thread it to every op
+    // so authz (P2c) and the spawner ledger (P4b) can act on it.
+    const caller = req.from.id;
+    // Op↔tier binding — the real enforcement per the split. The cred gates WHO can reach each
+    // subject; this gates WHAT each subject will honor, fail-closed. A privileged op arriving on
+    // the self-service subject (publishable by all) must be rejected or the split does nothing.
+    if (tier === CONTROL_SELF_SERVICE) {
+      // Self-service honors ONLY a no-name stop (self-despawn). Any other op — including a named
+      // stop (belongs on privileged) — is a misroute and rejected.
+      if (req.op !== "stop") return { ok: false, error: `op "${req.op}" not allowed on self-service control subject` };
+      const name = String(args.name ?? "").trim();
+      if (name) return { ok: false, error: "named stop not allowed on self-service subject; send it on the privileged subject" };
+      return this.opStopSelf(caller, args);
+    }
+    // Privileged tier. A no-name stop is a self-op and belongs on the self-service subject.
     switch (req.op) {
       case "start":
-        return this.opStart(args);
-      case "stop":
-        return this.opStop(args);
+        return this.opStart(args, caller);
+      case "stop": {
+        const name = String(args.name ?? "").trim();
+        if (!name) return { ok: false, error: "self-stop not allowed on privileged subject; send it on the self-service subject" };
+        return this.opStop(args, caller);
+      }
       case "definePersona":
-        return this.opDefinePersona(args);
+        return this.opDefinePersona(args, caller);
       case "purge":
-        return this.opPurge(args);
+        return this.opPurge(args, caller);
       case "attach":
         return this.opAttach(args);
       case "ps":
@@ -163,6 +199,20 @@ export class Manager {
       default:
         return { ok: false, error: `unknown op: ${req.op}` };
     }
+  }
+
+  /** Self-despawn (P2b): stop the managed agent whose id == the authenticated caller. The
+   *  no-name self-op can only ever resolve to the caller's OWN managed entry (ids are unique
+   *  per spawn + non-forgeable in auth mode), never a peer — so it's structurally incapable of
+   *  hitting another agent. Non-managed callers (human CLI, the manager itself, observers) find
+   *  no match and get a loud error, not a silent no-op. */
+  private opStopSelf(callerId: string, args: Record<string, unknown>): ControlReply {
+    const target = [...this.agents.values()].find((a) => a.id === callerId);
+    if (!target) return { ok: false, error: `self-stop: caller ${callerId} is not a managed agent` };
+    const graceful = args.graceful !== false;
+    target.handle.stop({ graceful });
+    this.agents.delete(target.name);
+    return { ok: true, data: { name: target.name, stopped: true, graceful } };
   }
 
   /** Agent names become `.cotal/agents/<name>.md` paths and mesh identities, so they must be bare
@@ -191,19 +241,26 @@ export class Manager {
   }
 
   /** Parse an untyped control-plane `start` request into {@link StartAgentOpts}. */
-  private opStart(args: Record<string, unknown>): Promise<ControlReply> {
-    return this.startAgent({
-      name: String(args.name ?? "").trim(),
-      agent: args.agent ? String(args.agent) : undefined,
-      role: args.role ? String(args.role) : undefined,
-      config: args.config ? String(args.config) : undefined,
-    });
+  private opStart(args: Record<string, unknown>, caller: string): Promise<ControlReply> {
+    return this.startAgent(
+      {
+        name: String(args.name ?? "").trim(),
+        agent: args.agent ? String(args.agent) : undefined,
+        role: args.role ? String(args.role) : undefined,
+        config: args.config ? String(args.config) : undefined,
+        transcript: typeof args.transcript === "boolean" ? args.transcript : undefined,
+      },
+      caller,
+    );
   }
 
   /** Spawn and supervise one agent. The single spawn path: both the control-plane
    *  `start` op and declarative roster boot call this. Mints scoped creds in auth mode,
-   *  resolves the agent file, launches via the connector + runtime, and records the handle. */
-  async startAgent(opts: StartAgentOpts): Promise<ControlReply> {
+   *  resolves the agent file, launches via the connector + runtime, and records the handle.
+   *  `spawner` is the authenticated id of the peer that requested the spawn (`req.from.id`),
+   *  defaulting to the manager's own id for roster/pre-spawn — recorded for the spawner
+   *  ledger (own-children despawn + reap-on-parent-exit). */
+  async startAgent(opts: StartAgentOpts, spawner?: string): Promise<ControlReply> {
     const name = opts.name.trim();
     if (!name) return { ok: false, error: "name required" };
     const nameErr = this.nameError(name);
@@ -242,6 +299,7 @@ export class Manager {
         const creds = await provisionAgent(this.ep, this.auth, identity, {
           channels: def?.publish ?? def?.channels,
           role,
+          capabilities: def?.capabilities,
         });
         credsPath = join(authDir(this.workspaceRoot), "creds", `${name}.creds`);
         mkdirSync(dirname(credsPath), { recursive: true });
@@ -255,6 +313,7 @@ export class Manager {
         creds: credsPath,
         servers: this.servers,
         configPath,
+        transcript: opts.transcript,
       });
       handle = this.runtime.spawn(name, spec, this.workspaceRoot);
     } catch (e) {
@@ -266,13 +325,14 @@ export class Manager {
       agent,
       id: identity.id,
       seed: identity.seed,
+      spawner: spawner ?? this.ep.ref().id,
       startedAt: Date.now(),
       handle,
     });
     return { ok: true, data: { name, role, agent, id: identity.id, mode: handle.kind } };
   }
 
-  private opStop(args: Record<string, unknown>): ControlReply {
+  private opStop(args: Record<string, unknown>, _caller: string): ControlReply {
     const name = String(args.name ?? "").trim();
     const a = this.agents.get(name);
     if (!a) return { ok: false, error: `no agent "${name}"` };
@@ -285,7 +345,7 @@ export class Manager {
   /** Purge the space's retained message backlog (chat, optionally DMs). Privileged — the
    *  manager mints its own "manager" creds (same as `cotal history clear`); regular agents are
    *  denied STREAM.PURGE under auth. Cleanup only: leaves live agents and the TASK queue alone. */
-  private async opPurge(args: Record<string, unknown>): Promise<ControlReply> {
+  private async opPurge(args: Record<string, unknown>, _caller: string): Promise<ControlReply> {
     const includeDms = args.includeDms === true;
     try {
       const creds = this.auth ? await mintCreds(this.auth, newIdentity(), "manager") : undefined;
@@ -303,7 +363,7 @@ export class Manager {
 
   /** Persist a peer-defined persona as config. After this, `start name` auto-discovers
    *  .cotal/agents/<name>.md and the connector applies its persona/model at spawn. */
-  private opDefinePersona(args: Record<string, unknown>): ControlReply {
+  private opDefinePersona(args: Record<string, unknown>, _caller: string): ControlReply {
     const name = String(args.name ?? "").trim();
     if (!name) return { ok: false, error: "name required" };
     const nameErr = this.nameError(name);

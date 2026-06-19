@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadAgentFile, registry, type Connector, type LaunchOpts, type LaunchSpec } from "@cotal-ai/core";
+import { launchEnv } from "@cotal-ai/connector-core";
 
 /** Name the cotal MCP server is registered under via --mcp-config (see buildLaunch). */
 const MCP_SERVER_NAME = "cotal";
@@ -30,16 +31,21 @@ export const claudeConnector: Connector = {
   name: "claude",
   pluginRoot: PLUGIN_ROOT,
   buildLaunch(opts: LaunchOpts): LaunchSpec {
+    // claude auths via macOS Keychain / an OAuth token, not an env key → forward NO provider key.
+    // The OS allow-list (PATH/HOME/TERM/…) is the only thing inherited from the manager env; the
+    // operator's unrelated secrets don't reach the child (P3).
     const env: Record<string, string> = {
+      ...launchEnv(),
       COTAL_SPACE: opts.space,
       COTAL_NAME: opts.name,
       // Force the connector to emit channel wake-nudges: Claude doesn't advertise the
       // `claude/channel` capability back over MCP, so auto-detection would see it "off".
       COTAL_CHANNEL: "1",
-      // Managed sessions mirror their own transcript to `tr-<name>` so peers can read
-      // what the agent actually did. Personal sessions (no buildLaunch) never mirror.
-      COTAL_TRANSCRIPT: "1",
     };
+    // Managed sessions mirror their own transcript to `tr-<name>` so peers can read what
+    // the agent actually did — on by default; `--no-transcript` (opts.transcript === false)
+    // disables it. Personal sessions (no buildLaunch) never mirror.
+    if (opts.transcript !== false) env.COTAL_TRANSCRIPT = "1";
     if (opts.role) env.COTAL_ROLE = opts.role;
     if (opts.id) env.COTAL_ID = opts.id;
     if (opts.creds) env.COTAL_CREDS = opts.creds;

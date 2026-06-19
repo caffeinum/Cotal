@@ -44,15 +44,19 @@ export async function spawn(argv: string[]): Promise<void> {
       agent: { type: "string" },
       role: { type: "string" },
       prompt: { type: "string" },
+      transcript: { type: "boolean" },
+      "no-transcript": { type: "boolean" },
     },
   });
+  // Transcript mirroring to `tr-<name>` is on by default; `--no-transcript` turns it off.
+  const transcript = values["no-transcript"] ? false : (values.transcript ?? true);
 
   // Where the config lives: --config, else the positional <name-or-path>, else
   // discover by --name (.cotal/agents/<name>.md). Same flags as `cotal start`.
   const ref = values.config ?? positionals[0] ?? values.name;
   if (!ref) {
     console.error(
-      "usage: cotal spawn <name-or-path> | --config <path> | --name <n>  [--agent <a>] [--role <r>] [--space <s>] [--server <url>] [--prompt <text>]",
+      "usage: cotal spawn <name-or-path> | --config <path> | --name <n>  [--agent <a>] [--role <r>] [--space <s>] [--server <url>] [--prompt <text>] [--no-transcript]",
     );
     process.exit(1);
   }
@@ -96,6 +100,7 @@ export async function spawn(argv: string[]): Promise<void> {
     const creds = await provisionAgent(prov, auth, identity, {
       channels: def.publish ?? def.channels,
       role,
+      capabilities: def.capabilities,
     });
     await prov.stop();
     credsPath = join(authDir(cotalRoot()), "creds", `${name}.creds`);
@@ -115,6 +120,7 @@ export async function spawn(argv: string[]): Promise<void> {
     servers: server,
     configPath: path,
     prompt: values.prompt,
+    transcript,
   });
 
   console.error(
@@ -122,7 +128,9 @@ export async function spawn(argv: string[]): Promise<void> {
   );
   const child = spawnProcess(spec.command, spec.args, {
     stdio: "inherit",
-    env: { ...process.env, ...spec.env },
+    // P3: only the connector-declared env (OS allow-list + identity + named model key) — never
+    // `...process.env`, so the operator's unrelated secrets don't bleed into the foreground agent.
+    env: spec.env ?? {},
   });
   await new Promise<void>((resolve) => {
     child.on("error", (e) => {

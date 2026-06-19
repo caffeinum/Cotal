@@ -202,6 +202,20 @@ export class CotalEndpoint extends EventEmitter {
   }
 
   async start(): Promise<void> {
+    await this.connectAndBind();
+    // nats.js auto-reconnects transient drops; when it exhausts its attempts and the
+    // connection closes for good, rebuild from scratch so an in-process agent (e.g. the
+    // OpenCode plugin) recovers without a host respawn. Armed only after a successful first
+    // connect — a first-connect failure throws to the caller's connect-retry loop instead.
+    this.superviseConnection();
+  }
+
+  /** Open the connection and bind everything that hangs off it: status watch, presence
+   *  watch + heartbeat, channel registry, and the durable consumers. Re-runnable — a
+   *  reconnect calls it again after {@link clearConnectionScoped}; every binding is
+   *  idempotent (durables bind by name, JetStream dedups by msgID, KV opens are idempotent). */
+  private async connectAndBind(): Promise<void> {
+    this.clearConnectionScoped();
     this.nc = await connect({
       servers: this.servers,
       name: `cotal:${this.card.name}`,
@@ -254,6 +268,64 @@ export class CotalEndpoint extends EventEmitter {
       // pre-created at `cotal up` and STREAM.CREATE is denied to agents, so skip.
       if (!this.creds) await this.ensureStreams();
       await this.startConsumers();
+    }
+  }
+
+  /** Tear down everything {@link connectAndBind} (re)creates, so a rebind can't leak a
+   *  second heartbeat, double-pump a consumer, or keep stale roster ghosts. Caller-owned
+   *  subs (tap/serve) are left alone — they aren't rebuilt here. */
+  private clearConnectionScoped(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = undefined;
+    }
+    if (this.sweepTimer) {
+      clearInterval(this.sweepTimer);
+      this.sweepTimer = undefined;
+    }
+    for (const msgs of this.streamMsgs) {
+      try {
+        msgs.stop();
+      } catch {
+        /* already closed with the connection */
+      }
+    }
+    this.streamMsgs.length = 0;
+    this.roster.clear();
+    this.joinSeq.clear();
+    this.channelConfigs.clear();
+    this.channelDefaults = {};
+  }
+
+  /** Watch for a terminal close (nats.js has exhausted its own reconnect) and rebuild.
+   *  Our own stop()/drain also resolves closed(), so the `stopped` guard keeps a clean
+   *  shutdown from re-establishing. */
+  private superviseConnection(): void {
+    const nc = this.nc;
+    if (!nc) return;
+    void nc.closed().then((err) => {
+      if (this.stopped) return;
+      this.emit(
+        "error",
+        new Error(`mesh connection closed${err ? `: ${(err as Error).message}` : ""} — re-establishing`),
+      );
+      void this.reestablishLoop();
+    });
+  }
+
+  /** Rebuild the connection with backoff until it sticks or we're stopped, then re-arm the
+   *  supervisor on the fresh connection. Unacked in-flight messages redeliver on the rebound
+   *  durables, so nothing is lost across the gap. */
+  private async reestablishLoop(retryMs = 3000): Promise<void> {
+    while (!this.stopped) {
+      try {
+        await this.connectAndBind();
+        this.superviseConnection();
+        return;
+      } catch (e) {
+        this.emit("error", e as Error);
+        await new Promise((r) => setTimeout(r, retryMs));
+      }
     }
   }
 

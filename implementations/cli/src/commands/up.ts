@@ -42,9 +42,11 @@ export async function up(argv: string[]): Promise<void> {
       open: { type: "boolean" }, // disable auth — run an open dev mesh
       channels: { type: "string" }, // seed the channel registry from this JSON file
       detach: { type: "boolean" }, // run the server in the background (pid in .cotal/nats.pid)
+      host: { type: "string" }, // bind address (default 127.0.0.1 — loopback; 0.0.0.0 to expose with auth)
     },
   });
   const server = values.server ?? DEFAULT_SERVER;
+  const host = values.host ?? "127.0.0.1";
   if (await isReachable(server)) {
     console.log(c.green(`✓ NATS already running at ${server}`));
     return;
@@ -57,6 +59,7 @@ export async function up(argv: string[]): Promise<void> {
       space: values.space,
       open: values.open,
       channels: values.channels,
+      host,
     });
     console.log(c.dim(`Started nats-server (${source}).`));
     console.log(c.green(`✓ mesh running in the background (pid ${pid}) — stop with: cotal down`));
@@ -68,14 +71,14 @@ export async function up(argv: string[]): Promise<void> {
   const useAuth = !values.open;
   const space = values.space ?? resolveSpace(process.cwd());
   const seedFile = loadChannelsFile(values.channels);
-  const setup = useAuth ? await authSetup(storeDir, server, space) : undefined;
+  const setup = useAuth ? await authSetup(storeDir, server, space, host) : undefined;
   const port = Number(new URL(server).port) || 4222;
-  const args = setup ? ["-c", setup.confPath] : ["-js", "-sd", storeDir, "-p", String(port)];
+  const args = setup ? ["-c", setup.confPath] : ["-js", "-sd", storeDir, "-p", String(port), "-a", host];
   const { bin, source } = await resolveNatsServer();
 
   console.log(
     c.dim(
-      `Starting nats-server (JetStream, ${useAuth ? "JWT auth" : "OPEN/no-auth"}, ${source}) — store: ${storeDir}`,
+      `Starting nats-server (JetStream, ${useAuth ? "JWT auth" : "OPEN/no-auth"}, ${source}) — store: ${storeDir}, bind: ${host}`,
     ),
   );
   console.log(c.dim("Press Ctrl-C to stop.\n"));
@@ -101,6 +104,7 @@ export interface DetachOpts {
   space?: string;
   open?: boolean;
   channels?: string;
+  host?: string;
   /** Live boot lines, tailed from the server's log file (safe for a detached child). */
   onLine?: (line: string) => void;
 }
@@ -119,9 +123,10 @@ export async function startMeshDetached(opts: DetachOpts = {}): Promise<{ server
   const useAuth = !opts.open;
   const space = opts.space ?? resolveSpace(process.cwd());
   const seedFile = loadChannelsFile(opts.channels);
-  const setup = useAuth ? await authSetup(storeDir, server, space) : undefined;
+  const host = opts.host ?? "127.0.0.1";
+  const setup = useAuth ? await authSetup(storeDir, server, space, host) : undefined;
   const port = Number(new URL(server).port) || 4222;
-  const args = setup ? ["-c", setup.confPath] : ["-js", "-sd", storeDir, "-p", String(port)];
+  const args = setup ? ["-c", setup.confPath] : ["-js", "-sd", storeDir, "-p", String(port), "-a", host];
   const { bin, source } = await resolveNatsServer();
 
   const logPath = cotalPath("nats.log");
@@ -216,6 +221,7 @@ async function authSetup(
   storeDir: string,
   server: string,
   space: string,
+  host: string = "127.0.0.1",
 ): Promise<{ confPath: string; creds: string }> {
   const dir = authDir(cotalRoot());
   let auth: SpaceAuth | undefined = loadSpaceAuth(dir);
@@ -225,7 +231,7 @@ async function authSetup(
   }
   const port = Number(new URL(server).port) || 4222;
   const confPath = resolve(dir, "server.conf");
-  writeFileSync(confPath, serverConfig(auth, { port, storeDir }));
+  writeFileSync(confPath, serverConfig(auth, { port, storeDir, host }));
   const creds = await mintCreds(auth, newIdentity(), "manager"); // privileged, ephemeral
   return { confPath, creds };
 }

@@ -432,22 +432,28 @@ export function cotalToolSpecs(config: AgentConfig, source = "connector"): Cotal
       name: "cotal_despawn",
       title: "Cotal: stop a teammate",
       description:
-        "Ask the manager to tear a teammate down — it leaves the mesh and its process/tab is closed. Graceful by default (the session exits cleanly first); pass graceful:false for a hard, immediate kill. The inverse of cotal_spawn.",
+        "Ask the manager to tear a teammate down — it leaves the mesh and its process/tab is closed. Graceful by default (the session exits cleanly first); pass graceful:false for a hard, immediate kill. The inverse of cotal_spawn. Omit `name` to stop yourself (self-despawn): the manager resolves the target as your own managed entry, so it can only ever stop you, never a peer.",
       schema: {
-        name: z.string().describe("Name of the peer to stop."),
+        name: z
+          .string()
+          .optional()
+          .describe("Name of the peer to stop. Omit to stop yourself (self-despawn)."),
         graceful: z
           .boolean()
           .optional()
           .describe("Default true: let the session exit cleanly. false = hard kill."),
       },
-      async run(agent, _config, { name, graceful }: { name: string; graceful?: boolean }) {
+      async run(agent, _config, { name, graceful }: { name?: string; graceful?: boolean }) {
         try {
           const reply = await agent.despawn(name, { graceful });
-          if (!reply.ok) return err(`Couldn't despawn ${name}: ${reply.error ?? "manager refused"}`);
-          return ok(`Stopping ${name}${graceful === false ? " (hard)" : ""} — it will leave the roster shortly.`);
+          if (!reply.ok) {
+            return err(`Couldn't despawn ${name ?? "self"}: ${reply.error ?? "manager refused"}`);
+          }
+          const who = name ?? "self";
+          return ok(`Stopping ${who}${graceful === false ? " (hard)" : ""} — it will leave the roster shortly.`);
         } catch (e) {
           return err(
-            `Couldn't despawn ${name}: no manager reachable (${(e as Error).message}). Is the manager running?`,
+            `Couldn't despawn ${name ?? "self"}: no manager reachable (${(e as Error).message}). Is the manager running?`,
           );
         }
       },

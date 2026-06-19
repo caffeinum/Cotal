@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { registry, type Connector, type LaunchOpts, type LaunchSpec } from "@cotal-ai/core";
+import { launchEnv, MODEL_PROVIDER_KEYS } from "@cotal-ai/connector-core";
 
 /** The launcher (run via tsx, which loads both) owns the mesh endpoint and supervises the Hermes
  *  gateway as a child — see launch.ts. Resolve `.ts` when this module loads from source (dev) and
@@ -8,10 +9,6 @@ import { registry, type Connector, type LaunchOpts, type LaunchSpec } from "@cot
 const ENTRY_EXT = import.meta.url.includes("/dist/") ? "js" : "ts";
 const TSX = fileURLToPath(new URL("../node_modules/.bin/tsx", import.meta.url));
 const LAUNCH_ENTRY = fileURLToPath(new URL(`./launch.${ENTRY_EXT}`, import.meta.url));
-
-/** Provider keys forwarded to the Hermes gateway if present. Hermes is model-agnostic; any one
- *  of these unlocks a provider. We forward, never require — the operator's own keys, untouched. */
-const PROVIDER_KEYS = ["OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "NOUS_API_KEY"];
 
 /**
  * The Hermes (Nous Research) connector. Unlike Claude Code / Codex — where the harness *is* the
@@ -27,7 +24,14 @@ export const hermesConnector: Connector = {
   kind: "connector",
   name: "hermes",
   buildLaunch(opts: LaunchOpts): LaunchSpec {
-    const env: Record<string, string> = { COTAL_SPACE: opts.space, COTAL_NAME: opts.name };
+    // OS allow-list + the named model-provider key (Hermes is model-agnostic; any one unlocks a
+    // provider), forwarded BY NAME — never `...process.env` — so the operator's unrelated secrets
+    // don't reach the gateway child (P3).
+    const env: Record<string, string> = {
+      ...launchEnv({ providerKeys: MODEL_PROVIDER_KEYS }),
+      COTAL_SPACE: opts.space,
+      COTAL_NAME: opts.name,
+    };
     if (opts.role) env.COTAL_ROLE = opts.role;
     if (opts.id) env.COTAL_ID = opts.id;
     if (opts.creds) env.COTAL_CREDS = opts.creds;
@@ -35,8 +39,7 @@ export const hermesConnector: Connector = {
     // An agent file carries identity + persona + model; the launcher applies the persona as
     // Hermes' SOUL.md (system prompt) at gateway startup, the one place it can be set.
     if (opts.configPath) env.COTAL_AGENT_FILE = opts.configPath;
-    if (process.env.HERMES_MODEL) env.HERMES_MODEL = process.env.HERMES_MODEL;
-    for (const k of PROVIDER_KEYS) if (process.env[k]) env[k] = process.env[k]!;
+    if (process.env.HERMES_MODEL) env.HERMES_MODEL = process.env.HERMES_MODEL!;
     return { command: TSX, args: [LAUNCH_ENTRY], env };
   },
 };

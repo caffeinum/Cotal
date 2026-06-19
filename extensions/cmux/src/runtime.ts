@@ -31,13 +31,15 @@ function shellQuote(s: string): string {
  *  the tab at it, sidestepping all shell quoting (callers pass argv, never shell strings). `login`
  *  runs it as a login shell (`bash -l`) so the user's PATH is present — setup's panes run further
  *  `cotal` subcommands that resolve `claude`. `exec env …` (not `exec …`): exec can't take KEY=val
- *  assignments, so `env` applies them and then execs the command. */
-function paneCommand(pane: Pane, key: string, login: boolean): string {
+ *  assignments, so `env` applies them and then execs the command. `isolate` (agent-spawn panes)
+ *  adds `-i` so the pane inherits ONLY the connector-declared env, not the cmux server's (P3 — the
+ *  operator's unrelated secrets don't reach a spawned agent); setup panes keep the inherited env. */
+function paneCommand(pane: Pane, key: string, login: boolean, isolate = false): string {
   const env = Object.entries(pane.env ?? {}).map(([k, v]) => `${k}=${shellQuote(v)}`);
   const cmd = [...env, shellQuote(pane.command), ...(pane.args ?? []).map(shellQuote)].join(" ");
   const cd = pane.cwd ? `cd ${shellQuote(pane.cwd)}\n` : "";
   const confirm = pane.confirm ? `${ENTER_LOOP}\n` : "";
-  const script = `#!/usr/bin/env bash\n${cd}${confirm}exec env ${cmd}\n`;
+  const script = `#!/usr/bin/env bash\n${cd}${confirm}exec env ${isolate ? "-i " : ""}${cmd}\n`;
   const scriptPath = join(tmpdir(), `cotal-pane-${key.replace(/[^A-Za-z0-9_.-]/g, "_")}.sh`);
   writeFileSync(scriptPath, script, { mode: 0o755 });
   return `bash ${login ? "-l " : ""}${scriptPath}`;
@@ -86,6 +88,7 @@ export class CmuxRuntime implements Runtime {
       { command: spec.command, args: spec.args, env: spec.env, cwd, confirm: Boolean(spec.confirm) },
       `spawn-${name}`,
       false,
+      true, // isolate: spawned agent gets ONLY the connector-declared env (P3)
     );
     // Keep the new tab's workspace ref so we can drive (send keys to its terminal)
     // and close it later. cmux targets the tab's single terminal surface by workspace.

@@ -20,6 +20,7 @@ import {
   type LaunchSpec,
 } from "@cotal-ai/core";
 import { Manager } from "@cotal-ai/manager";
+import { launchEnv } from "@cotal-ai/connector-core";
 import "@cotal-ai/cmux"; // registers the cmux runtime (default here); harmless under COTAL_RUNTIME=pty
 import { fileURLToPath } from "node:url";
 
@@ -30,7 +31,7 @@ const roleAgentConnector: Connector = {
   name: "cotal",
   buildLaunch: (opts: LaunchOpts): LaunchSpec => {
     // Claude agents via run-agent.sh; `confirm` lets the PTY runtime auto-accept dev-channels.
-    return { command: RUN_AGENT, args: [opts.role ?? opts.name], confirm: "Enter to confirm" };
+    return { command: RUN_AGENT, args: [opts.role ?? opts.name], confirm: "Enter to confirm", env: launchEnv() };
   },
 };
 registry.register(roleAgentConnector);

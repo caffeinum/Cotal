@@ -18,6 +18,7 @@ import {
   type LaunchSpec,
 } from "@cotal-ai/core";
 import { Manager } from "@cotal-ai/manager";
+import { launchEnv } from "@cotal-ai/connector-core";
 import "@cotal-ai/cmux"; // self-registers the `cmux` RuntimeProvider the manager resolves below
 import { fileURLToPath } from "node:url";
 
@@ -29,6 +30,7 @@ const roleAgentConnector: Connector = {
   buildLaunch: (opts: LaunchOpts): LaunchSpec => ({
     command: RUN_AGENT,
     args: [opts.role ?? opts.name],
+    env: launchEnv(),
   }),
 };
 registry.register(roleAgentConnector);

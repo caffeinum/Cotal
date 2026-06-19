@@ -546,6 +546,9 @@ covers three things at once: live delivery, the inbound buffer, and late-join hi
 ## Identity & authorization (auth mode)
 
 **On by default** (`cotal up`); `cotal up --open` runs an unauthenticated dev mesh instead.
+The mesh binds **loopback** (`127.0.0.1`) by default in both modes; `--host 0.0.0.0` widens the
+bind, independently of auth — so "network-reachable" never silently means "unauthenticated"
+(an open network mesh takes `--open --host 0.0.0.0`, explicitly).
 Makes the mesh a real boundary against untrusted peers *within* a shared space: an agent can only emit messages **as itself**,
 only to its **declared channels**, and can only read **its own DMs** — enforced by the NATS
 server, not by agent goodwill. It is containment + authenticity for a single trusted broker

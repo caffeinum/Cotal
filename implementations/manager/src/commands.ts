@@ -10,7 +10,10 @@ import {
   authDir,
   findCotalRoot,
   loadSpaceAuth,
+  mintCreds,
+  newIdentity,
   registry,
+  CONTROL_PRIVILEGED,
   type Command,
   type ControlReply,
 } from "@cotal-ai/core";
@@ -43,6 +46,8 @@ function parse(argv: string[]): Values {
       creds: { type: "string" },
       "console-port": { type: "string" },
       drive: { type: "boolean" },
+      transcript: { type: "boolean" },
+      "no-transcript": { type: "boolean" },
       spawn: { type: "string" }, // comma-separated agent names to pre-spawn at startup
     },
   });
@@ -66,7 +71,23 @@ async function ask(
   args?: Record<string, unknown>,
   credsPath?: string,
 ): Promise<ControlReply> {
-  const creds = credsPath ? readFileSync(credsPath, "utf8") : undefined;
+  // An explicit --creds wins; else self-mint a privileged "manager" cred from .cotal/auth so the
+  // operator's start/stop/ps reach the privileged control subject (P5: only spawn-capable/admin/
+  // manager creds may publish there — an agent cred no longer works); else connect bare on an open
+  // mesh. Mirrors `cotal send`/`spawn`/`history`.
+  let creds = credsPath ? readFileSync(credsPath, "utf8") : undefined;
+  if (!creds) {
+    const auth = loadSpaceAuth(authDir(findCotalRoot()));
+    if (auth) {
+      if (space && space !== auth.space) {
+        console.error(
+          c.red(`Auth here is for space "${auth.space}", not "${space}". Use --space ${auth.space} (or pass --creds).`),
+        );
+        process.exit(1);
+      }
+      creds = await mintCreds(auth, newIdentity(), "manager");
+    }
+  }
   if (!(await isReachable(server, { creds }))) {
     console.error(c.red(`Can't reach NATS at ${server}. Run: cotal up`));
     process.exit(1);
@@ -84,7 +105,7 @@ async function ask(
   ep.on("error", (e: Error) => console.error(c.red("! " + e.message)));
   await ep.start();
   try {
-    return await ep.requestControl("manager", { op, args });
+    return await ep.requestControl(CONTROL_PRIVILEGED, { op, args });
   } catch (e) {
     return { ok: false, error: `no manager reachable (${(e as Error).message})` };
   } finally {
@@ -110,6 +131,8 @@ async function start(argv: string[]): Promise<void> {
     role: v.role,
     agent: v.agent,
     config: v.config,
+    // Only sent when explicitly disabled; absent => the daemon's default (mirror on).
+    transcript: v["no-transcript"] ? false : undefined,
   }, v.creds);
   failIfNotOk(reply);
   const d = reply.data as { name: string; role?: string; agent: string; mode: string };

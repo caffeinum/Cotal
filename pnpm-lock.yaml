@@ -75,6 +75,9 @@ importers:
       '@cotal-ai/connector-claude-code':
         specifier: workspace:*
         version: link:../../extensions/connector-claude-code
+      '@cotal-ai/connector-core':
+        specifier: workspace:*
+        version: link:../../extensions/connector-core
       '@cotal-ai/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -91,6 +94,9 @@ importers:
       '@cotal-ai/cmux':
         specifier: workspace:*
         version: link:../../extensions/cmux
+      '@cotal-ai/connector-core':
+        specifier: workspace:*
+        version: link:../../extensions/connector-core
       '@cotal-ai/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -151,6 +157,9 @@ importers:
       '@cotal-ai/cmux':
         specifier: workspace:*
         version: link:../../extensions/cmux
+      '@cotal-ai/connector-core':
+        specifier: workspace:*
+        version: link:../../extensions/connector-core
       '@cotal-ai/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -307,6 +316,9 @@ importers:
         specifier: ^2.9.0
         version: 2.9.0
     devDependencies:
+      '@cotal-ai/connector-core':
+        specifier: workspace:*
+        version: link:../../extensions/connector-core
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1

@@ -10,6 +10,7 @@
  *   channels: [general]    # channels this agent subscribes to (read)
  *   publish: [general]     # channels this agent may post to (write); omit = same as channels
  *   model: opus            # optional CLI/model override
+ *   capabilities: [spawn]  # control-plane capabilities (spawn → may start/despawn others)
  *   face: sven             # any unmodelled key is kept verbatim in AgentDef.meta — e.g. the
  *                          #   OpenCode connector reads meta.face for its avatar viewer
  *   ---
@@ -37,6 +38,12 @@ export interface AgentDef {
   publish?: string[];
   /** Model override handed to the agent CLI (e.g. `claude --model`). */
   model?: string;
+  /** Capabilities this agent may exercise on the control plane (auth mode → minted into the
+   *  cred's publish allow-list). Today `spawn` is the only one: it grants publish to the
+   *  privileged control subject (start/purge/definePersona/named stop). Default-deny when
+   *  absent — nats-server, not a handler, is the boundary. Granting authority is operator-level
+   *  (`definePersona` is itself privileged), so no peer can self-grant via its own agent file. */
+  capabilities?: string[];
   /** Frontmatter keys not modelled above, kept verbatim so a connector can read its own launcher
    *  hints without core knowing about each one (e.g. the OpenCode face viewer's `face:` avatar id). */
   meta?: Record<string, string>;
@@ -104,7 +111,7 @@ export function loadAgentFile(path: string): AgentDef {
 
   // Sweep every scalar frontmatter key we don't model into meta, verbatim — connector hints
   // (face, etc.) ride here so core stays ignorant of surface-specific keys.
-  const known = new Set(["name", "role", "kind", "description", "tags", "channels", "publish", "model"]);
+  const known = new Set(["name", "role", "kind", "description", "tags", "channels", "publish", "model", "capabilities"]);
   const meta: Record<string, string> = {};
   for (const [k, v] of Object.entries(fm)) if (!known.has(k) && typeof v === "string") meta[k] = v;
 
@@ -117,6 +124,7 @@ export function loadAgentFile(path: string): AgentDef {
     channels: list("channels"),
     publish: list("publish"),
     model: str("model"),
+    capabilities: list("capabilities"),
     meta: Object.keys(meta).length ? meta : undefined,
     persona: persona || undefined,
   };
@@ -136,6 +144,7 @@ export function saveAgentFile(path: string, def: AgentDef): void {
   if (def.channels?.length) lines.push(`channels: [${def.channels.map(fmItem).join(", ")}]`);
   if (def.publish?.length) lines.push(`publish: [${def.publish.map(fmItem).join(", ")}]`);
   if (def.model) lines.push(`model: ${fmScalar(def.model)}`);
+  if (def.capabilities?.length) lines.push(`capabilities: [${def.capabilities.map(fmItem).join(", ")}]`);
   if (def.meta) for (const [k, v] of Object.entries(def.meta)) lines.push(`${k}: ${fmScalar(v)}`);
   lines.push("---");
   const body = def.persona ? `${def.persona.trim()}\n` : "";
