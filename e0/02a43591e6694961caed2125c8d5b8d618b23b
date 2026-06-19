@@ -1,0 +1,29 @@
+implementations/cli/src/index.ts
+  s_738283b8830ace::t_600d38876aa8a6 162-167
+implementations/manager/src/commands.ts
+  s_738283b8830ace::t_3f63e9e0b8ac2e 52
+  s_738283b8830ace::t_3599c0345065d7 137
+  s_738283b8830ace::t_cc24017d50c640 170,178-180,182-192
+  s_738283b8830ace::t_4a8e733c0ba9a8 438
+implementations/manager/src/manager.ts
+  s_738283b8830ace::t_2408f4e4bad807 2
+  s_738283b8830ace::t_d608625a643feb 52-55
+  s_738283b8830ace::t_7147f43e48f0bf 157-158,160-168
+  s_738283b8830ace::t_2d4cc3cae70305 323-326,336,338
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.8",
+  "base_commit_sha": "e002a43591e6694961caed2125c8d5b8d618b23b",
+  "prompts": {},
+  "sessions": {
+    "s_738283b8830ace": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "993b92e7-a931-4755-86de-c7a57281e828",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
