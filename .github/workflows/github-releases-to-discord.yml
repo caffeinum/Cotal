@@ -17,3 +17,4 @@ jobs:
           content: "||@everyone||"
           footer_title: "Changelog"
           reduce_headings: true
+          remove_github_reference_links: true
