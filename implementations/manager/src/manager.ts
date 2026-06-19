@@ -7,6 +7,7 @@ import {
   authDir,
   clearSpaceHistory,
   findCotalRoot,
+  firstFreeName,
   loadAgentFile,
   loadSpaceAuth,
   mintCreds,
@@ -289,12 +290,7 @@ export class Manager {
    *  in-flight (reserved) slots. Lets a colliding spawn auto-number instead of being rejected, so
    *  callers never have to invent a unique name. */
   private uniqueName(base: string): string {
-    const taken = (n: string) => this.agents.has(n) || this.reserved.has(n);
-    if (!taken(base)) return base;
-    for (let n = 2; ; n++) {
-      const candidate = `${base}-${n}`;
-      if (!taken(candidate)) return candidate;
-    }
+    return firstFreeName(base, (n) => this.agents.has(n) || this.reserved.has(n));
   }
 
   /** Spawn a teammate by name (loads `.cotal/agents/<name>.md`), as if a peer asked via the

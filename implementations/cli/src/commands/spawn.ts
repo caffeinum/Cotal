@@ -6,6 +6,8 @@ import {
   DEFAULT_SERVER,
   agentFilePath,
   authDir,
+  firstFreeName,
+  isReachable,
   loadAgentFile,
   loadSpaceAuth,
   mintCreds,
@@ -15,6 +17,7 @@ import {
   CotalEndpoint,
   type AgentDef,
   type Connector,
+  type SpaceAuth,
 } from "@cotal-ai/core";
 import { cotalRoot } from "../lib/paths.js";
 import { resolveSpace } from "../lib/status.js";
@@ -32,6 +35,53 @@ import { resolveSpace } from "../lib/status.js";
  * here vs. a supervised runtime in the manager. The connector is resolved from
  * the registry by agent type, composed at the root.
  */
+/**
+ * Auto-number `requested` past any peer already present on the mesh (foo → foo-2 → foo-3) — the same
+ * series the manager's spawn funnel uses (firstFreeName). Foreground `cotal spawn` doesn't go through
+ * the manager, so it has no name reservation: this is a best-effort, advisory check. It connects a
+ * transient presence-watching endpoint, lets the roster settle, and snapshots the live names; two
+ * simultaneous `cotal spawn`s can still race onto the same number. If the mesh is unreachable the
+ * agent couldn't join it anyway, so dedup is skipped and the requested name stands.
+ */
+async function uniqueMeshName(
+  requested: string,
+  { space, server, auth }: { space: string; server: string; auth?: SpaceAuth },
+): Promise<string> {
+  // Reading presence in auth mode needs a credential (the bucket is OPEN-only for agents): a
+  // short-lived manager cred, the same throwaway `cotal dm` mints to resolve a name → id.
+  const creds = auth ? await mintCreds(auth, newIdentity(), "manager") : undefined;
+  if (!(await isReachable(server, { creds }))) return requested;
+  const ep = new CotalEndpoint({
+    space,
+    servers: server,
+    creds,
+    channels: [],
+    consume: false,
+    registerPresence: false, // an invisible probe — don't add ourselves to the roster we're reading
+    watchPresence: true,
+    card: { name: "spawn-probe", kind: "endpoint" },
+  });
+  ep.on("error", () => {}); // advisory: a presence-read hiccup must never block the spawn
+  await ep.start();
+  try {
+    // Presence replays from the KV bucket right after connect; settle until the roster count holds
+    // steady across two polls (≤1s), then snapshot the names of the peers that are actually live.
+    let prev = -1;
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      const n = ep.getRoster().length;
+      if (n === prev) break;
+      prev = n;
+    }
+    const taken = new Set(
+      ep.getRoster().filter((p) => p.status !== "offline").map((p) => p.card.name),
+    );
+    return firstFreeName(requested, (n) => taken.has(n));
+  } finally {
+    await ep.stop();
+  }
+}
+
 export async function spawn(argv: string[]): Promise<void> {
   const { values, positionals } = parseArgs({
     args: argv,
@@ -72,10 +122,18 @@ export async function spawn(argv: string[]): Promise<void> {
   }
 
   // --name / --role override the file (name defaults from the file's frontmatter).
-  const name = values.name ?? def.name;
+  const requested = values.name ?? def.name;
   const role = values.role ?? def.role;
   const space = values.space ?? resolveSpace(process.cwd());
   const server = values.server ?? DEFAULT_SERVER;
+  const auth = loadSpaceAuth(authDir(cotalRoot()));
+
+  // A second `cotal spawn` of the same agent would otherwise join under a duplicate mesh identity:
+  // auto-number the name past anyone already present (best-effort — this path bypasses the manager's
+  // race-free reservation; see uniqueMeshName). Everything below (creds path, launch) uses `name`.
+  const name = await uniqueMeshName(requested, { space, server, auth });
+  if (name !== requested)
+    console.error(`"${requested}" is already on the mesh — spawning as ${name} instead`);
 
   // Auth mode (`.cotal/auth` present): mint a stable identity + scoped creds for this agent
   // and pre-create its bind-only durables, via a short-lived privileged provisioner — the
@@ -83,7 +141,6 @@ export async function spawn(argv: string[]): Promise<void> {
   // Open mode (no `.cotal/auth`): unchanged — the session connects without creds.
   let id: string | undefined;
   let credsPath: string | undefined;
-  const auth = loadSpaceAuth(authDir(cotalRoot()));
   if (auth) {
     const identity = newIdentity();
     const prov = new CotalEndpoint({
