@@ -329,7 +329,7 @@ owner for the actual pixels (same stream `cotal attach` consumes, just rendered 
   `cotal console` node that discovers managers over the mesh and aggregates their streams.
 
 **Control schema (first cut):** `start {role, name, agent}` · `stop {name, graceful?}` ·
-`definePersona {name, persona, role?, model?}` · `ps` · `status {instance}` · `attach {instance}` ·
+`definePersona {name, persona, model?}` · `ps` · `status {instance}` · `attach {instance}` ·
 `bind {instance, config}` — control-plane request/reply messages any authorized node (CLI,
 dashboard, or an agent) can send; spawning is policy-gated. `definePersona` writes
 `.cotal/agents/<name>.md` (via `saveAgentFile`), which a later `start` auto-discovers.
@@ -337,8 +337,8 @@ dashboard, or an agent) can send; spawning is policy-gated. `definePersona` writ
 **Emergent payoff:** an agent can grow *and* shape the team without a human — ask the manager for
 a teammate (`cotal_spawn`), mint a brand-new persona on the fly (`cotal_persona` → saved as config
 → spawnable), or tear one down (`cotal_despawn`, graceful or hard). The new agent is a *peer*, not
-a child. Cleanup rides the same control plane: `cotal_purge` has the manager clear the space's
-retained chat backlog (the privileged `STREAM.PURGE` regular agents are denied).
+a child. Clearing space history, by contrast, is **operator-only** — `cotal history clear` (or the
+admin-tier `purge` op), never an agent tool: the privileged `STREAM.PURGE` is denied to agents.
 
 ## Hosting & onboarding
 
@@ -656,8 +656,8 @@ server, not by agent goodwill. It is containment + authenticity for a single tru
   `STREAM.CREATE` under auth; open connects with no creds); the presence + channels KV buckets are
   streams too, pre-created the same way. Open mode also keeps the endpoint's lazy first-join create,
   so a mesh started without `cotal up` still works — but pre-creating means stream-touching ops that
-  run before any endpoint has joined (`cotal spawn`'s DM-inbox provisioning, `cotal_purge`,
-  `history clear`) find the streams instead of failing with `StreamNotFound`.
+  run before any endpoint has joined (`cotal spawn`'s DM-inbox provisioning, `cotal history clear`)
+  find the streams instead of failing with `StreamNotFound`.
 - **Denials are loud, never silent** — NATS publish permission violations surface only on the
   connection status stream, so the endpoint routes them to its `error` event with a "denied,
   not absent" message. This is why an over-tight ACL shows up as a logged denial, not a peer
