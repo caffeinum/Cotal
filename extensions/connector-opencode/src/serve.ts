@@ -21,16 +21,8 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import { once } from "node:events";
 import { randomBytes } from "node:crypto";
-import {
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  readFileSync,
-  readlinkSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 const BIN = process.env.COTAL_OPENCODE_BIN?.trim() || "opencode";
 
@@ -62,45 +54,17 @@ async function killServe(serve: ChildProcess): Promise<void> {
   }
 }
 
-/** opencode keeps provider logins (`auth.json`) and the opencode.ai account (`account.json`) under
- *  the DATA dir — the same XDG_DATA_HOME we redirect per-agent to isolate the session SQLite. opencode
- *  has no env to relocate auth on its own (sst/opencode#5423), so a redirected data dir starts the
- *  agent with an EMPTY auth store: the operator's openai/anthropic logins vanish ("logged out").
- *  Symlink the real files into the per-agent dir so the agent shares the operator's LIVE login (a
- *  later re-login / token refresh writes through), self-healing any stale copy a prior launch left. */
-function shareCredentials(dataHome: string): void {
-  const realDataHome = process.env.XDG_DATA_HOME?.trim() || `${process.env.HOME}/.local/share`;
-  const ocDir = `${dataHome}/opencode`;
-  mkdirSync(ocDir, { recursive: true });
-  for (const file of ["auth.json", "account.json"]) {
-    const src = `${realDataHome}/opencode/${file}`;
-    const dst = `${ocDir}/${file}`;
-    if (!existsSync(src)) continue;
-    let linked = false;
-    try {
-      linked = lstatSync(dst).isSymbolicLink() && readlinkSync(dst) === src;
-    } catch {
-      /* dst absent */
-    }
-    if (linked) continue;
-    rmSync(dst, { force: true }); // drop a stale regular-file copy a buggy launch left behind
-    symlinkSync(src, dst);
-  }
-}
-
 async function main(): Promise<void> {
   const port = process.env.COTAL_OPENCODE_PORT?.trim() || String(await freePort());
   const url = `http://127.0.0.1:${port}`;
-  // Own data dir per agent: opencode keeps sessions in one SQLite file under XDG_DATA_HOME,
-  // and concurrent serves sharing it stall session-create on the write lock (the "agent
-  // session never came up" failure). Per-peer session state is the right scoping anyway.
-  // CAVEAT: auth.json/account.json ALSO live under XDG_DATA_HOME, so redirecting it drops the
-  // operator's provider logins — shareCredentials() symlinks them back in (called below).
+  // Own SQLite DB per agent: opencode auth/config stay on the operator's normal HOME/XDG roots,
+  // while sessions avoid the global DB write lock that stalls concurrent `opencode serve`s.
   const name = process.env.COTAL_NAME?.trim() || "agent";
-  const dataHome = `${process.cwd()}/.cotal/opencode/${name}`;
+  const agentHome = join(process.cwd(), ".cotal", "opencode", name);
+  const dbPath = join(agentHome, "opencode.db");
 
-  // Two serves on one data dir share the SQLite file and stall each other — refuse up front.
-  const pidFile = `${dataHome}/serve.pid`;
+  // Two serves on one agent DB share the SQLite file and stall each other — refuse up front.
+  const pidFile = join(agentHome, "serve.pid");
   if (existsSync(pidFile)) {
     const pid = Number(readFileSync(pidFile, "utf8"));
     let alive = false;
@@ -114,10 +78,9 @@ async function main(): Promise<void> {
     rmSync(pidFile);
   }
 
-  shareCredentials(dataHome); // creates dataHome/opencode + symlinks the operator's logins in
-
+  mkdirSync(agentHome, { recursive: true });
   const serve = spawn(BIN, ["serve", "--hostname", "127.0.0.1", "--port", port], {
-    env: { ...process.env, OPENCODE_SERVER_PASSWORD: SECRET, XDG_DATA_HOME: dataHome },
+    env: { ...process.env, OPENCODE_SERVER_PASSWORD: SECRET, OPENCODE_DB: dbPath },
     stdio: ["ignore", "pipe", "pipe"],
   });
   writeFileSync(pidFile, String(serve.pid));
@@ -170,13 +133,17 @@ async function main(): Promise<void> {
   });
   if (!id) {
     process.stderr.write(
-      "[cotal-connector] serve: agent session never came up (~60s) — aborting. Check the boot log above for plugin/mesh errors (.cotal/opencode/<name>/opencode/log/)\n",
+      `[cotal-connector] serve: agent session never came up (~60s) — aborting. Check the boot log above for plugin/mesh errors (OPENCODE_DB=${dbPath})\n`,
     );
     await killServe(serve);
     process.exit(1);
   }
 
-  const tuiEnv: NodeJS.ProcessEnv = { ...process.env, OPENCODE_SERVER_PASSWORD: SECRET };
+  const tuiEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    OPENCODE_SERVER_PASSWORD: SECRET,
+    OPENCODE_DB: dbPath,
+  };
   delete tuiEnv.OPENCODE_CONFIG_CONTENT; // a viewer, not a peer — must NOT load the plugin again
   for (const k of Object.keys(tuiEnv)) if (k.startsWith("COTAL_")) delete tuiEnv[k];
   attached = true;

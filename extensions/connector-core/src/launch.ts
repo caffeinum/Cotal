@@ -11,21 +11,26 @@
  * exfil for key-based providers — the agent holds the key in its own process to do inference, so
  * a compromised agent exfils from its OWN env, spawn-gating the key only breaks the child's LLM
  * function (the real fix is per-agent model auth, a separate roadmap item); nor (ii) filesystem
- * secret access — HOME is forwarded, so a child can still read ~/.aws / ~/.ssh / ~/.config off
- * disk (needs a workspace sandbox, a separate control).
+ * secret access — HOME / XDG / platform config dirs are forwarded, so a child can still read
+ * ~/.aws / ~/.ssh / ~/.config off disk (needs a workspace sandbox, a separate control).
  */
 
 /** OS env a coding-agent TUI genuinely needs to run — find its binary (PATH), render (TERM /
- *  COLORTERM), resolve home/config/data dirs (HOME / XDG_CONFIG_HOME / XDG_DATA_HOME — where a tool
- *  finds its config and credential store), locale (LANG / LC_*), timezone (TZ), temp (TMPDIR),
- *  session/runtime dir (XDG_RUNTIME_DIR), and the shell it may invoke. NOT a model key, NOT an
- *  operator secret. A fixed, named allow-list. */
+ *  COLORTERM), resolve home/config/data roots (HOME / XDG_*_HOME on Unix,
+ *  USERPROFILE / APPDATA / LOCALAPPDATA on Windows), locale (LANG / LC_*), timezone (TZ), temp
+ *  dirs, session/runtime dir (XDG_RUNTIME_DIR), and the shell it may invoke. NOT a model key,
+ *  NOT an operator secret. A fixed, named allow-list. */
 const OS_ENV_ALLOW = [
   "PATH",
   "HOME",
+  "USERPROFILE",
+  "HOMEDRIVE",
+  "HOMEPATH",
   "USER",
   "LOGNAME",
   "SHELL",
+  "COMSPEC",
+  "PATHEXT",
   "TERM",
   "COLORTERM",
   "COLORFGBG",
@@ -34,10 +39,15 @@ const OS_ENV_ALLOW = [
   "LC_CTYPE",
   "LC_MESSAGES",
   "TZ",
+  "TEMP",
   "TMPDIR",
   "TMP",
   "XDG_CONFIG_HOME",
   "XDG_DATA_HOME",
+  "XDG_STATE_HOME",
+  "XDG_CACHE_HOME",
+  "APPDATA",
+  "LOCALAPPDATA",
   "XDG_RUNTIME_DIR",
 ] as const;
 

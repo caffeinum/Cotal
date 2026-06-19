@@ -93,8 +93,9 @@ creds minted from the signer, and joined your mesh, with no host file access.
 ## Model auth (per agent type)
 
 Each agent authenticates to its LLM provider with credentials you set from **outside** the
-container as env. The supervisor passes its env to every agent it spawns, and each CLI reads
-only the vars it understands, so a mixed team sets one var per connector type:
+container as env. The supervisor forwards the named credential vars each connector declares,
+and each CLI reads only the vars it understands, so a mixed team sets one var per connector
+type:
 
 | connector | env | account |
 |-----------|-----|---------|
@@ -151,10 +152,10 @@ mounts, ephemeral fs.
 
 ### Caveats
 
-- **opencode needs an env-key provider headless.** OAuth-only providers (stored in
-  `auth.json`) do not work in-container: the connector isolates each agent's `XDG_DATA_HOME`,
-  where opencode keeps `auth.json`, so a mounted one is hidden. Use any provider whose key is an
-  env var, e.g. opencode's hosted models (`OPENCODE_API_KEY`) or `OPENAI_API_KEY`.
+- **opencode needs auth mounted or env-key providers headless.** OAuth providers are stored in
+  `XDG_DATA_HOME/opencode/auth.json`; mount that data root into the container if you want to
+  reuse them. Otherwise use a provider whose key is an env var, e.g. opencode's hosted models
+  (`OPENCODE_API_KEY`) or `OPENAI_API_KEY`.
 - **The container is the trust boundary.** Every agent in a team-container shares its env, so
   secrets are not isolated between agents in the same container. For hard per-agent isolation,
   run one agent per container (the `solo` service): same image, different command.
