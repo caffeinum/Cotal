@@ -9,7 +9,7 @@
 
 const $ = (id) => document.getElementById(id);
 const STATUS = ["working", "waiting", "idle", "offline"];
-// Status as shape *and* colour (never colour alone) — see research/multi-agent-ux.md.
+// Status as shape *and* colour (never colour alone).
 const GLYPH = { working: "●", waiting: "◐", idle: "○", offline: "⊘" };
 const MODES = ["chat", "unicast", "anycast"];
 const isDemo = new URLSearchParams(location.search).has("demo");

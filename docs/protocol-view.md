@@ -141,4 +141,4 @@ either live surface. They live here as design intent until the wire grows to sup
   and input handling belong to each renderer, not the model.
 - **No fallbacks.** If the observer can't do what a surface needs, throw — don't silently degrade.
 - **Status is shape *and* color.** `● working · ◐ waiting · ○ idle · ⨯/⊘ offline` — never color
-  alone (accessibility; see `docs/research/multi-agent-ux.md`).
+  alone (accessibility).

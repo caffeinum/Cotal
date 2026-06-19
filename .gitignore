@@ -10,4 +10,3 @@ remotion/out/
 .runs/
 examples/04-self-improving-console/harness/.*.log
 product
-docs/plans/readme.md

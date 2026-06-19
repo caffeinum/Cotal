@@ -95,11 +95,12 @@ Full scenario and run steps: **[examples/01-lateral-coordination](../examples/01
   documented upgrade path. Limits accepted:
   no mid-turn interrupt in attach mode, channel push is research-preview-gated. Detail in
   [architecture.md](architecture.md).
-- **Roles** — a role is a reusable `<role>.md` template (YAML frontmatter + optional persona
-  body) producing an A2A `AgentCard`: `role` = the addressable **service** (anycast),
-  advertisement (`description` + `skills`/`tags`), optional persona, and runtime defaults
-  (channels, inbound policy). Resolved by the plugin from `COTAL_ROLE`; managed with
-  `cotal role new/list/show`. **Persona-optional** (primitives, not prescribed personas).
+- **Agent files (identity + persona)** — an agent is defined by `.cotal/agents/<name>.md`:
+  YAML frontmatter (name, role, description, tags, channels, publish, model, capabilities)
+  producing an A2A `AgentCard`, plus an optional Markdown body that is the **persona** (an
+  appended system prompt). `role` = the addressable **service** (anycast). Resolved by the
+  connector from `COTAL_AGENT_FILE`; a peer can mint one on the fly with `cotal_persona` (the
+  manager writes the file). **Persona-optional** (primitives, not prescribed personas).
 - **Identity & authorization (on by default; `cotal up --open` to disable)** — the mesh is a
   real boundary against untrusted peers in a shared space: the **sender is encoded in the subject** (server-
   policed, not self-asserted), so an agent can only emit **as itself**; per-agent JWT ACLs scope
@@ -114,5 +115,5 @@ Full scenario and run steps: **[examples/01-lateral-coordination](../examples/01
 - **Control-plane commands** — manager ops (`start`/`stop`/`ps`/`status`/`bind`) are the first
   cut; still open is the agent-directed set (directive, set-role, pause/resume).
 - **Coordination primitives** — advisory intent records / leases: in or out, what shape.
-- **Collaboration patterns** — roles themselves are now defined (`.cotal/roles/<role>.md`);
+- **Collaboration patterns** — agents themselves are now defined (`.cotal/agents/<name>.md`);
   still open is how a user declares the *patterns between* them (who delegates to whom, leases).

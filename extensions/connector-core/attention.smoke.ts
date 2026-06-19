@@ -1,6 +1,6 @@
 /**
  * Attention-mode test (no test runner) — spins up its OWN nats-server and drives a MeshAgent
- * directly to verify the `focus` ingest ack-drop + replay-gated recall (docs/plans/attention-modes.md §9):
+ * directly to verify the `focus` ingest ack-drop + replay-gated recall (.internal/plans/attention-modes.md §9):
  *   - ambient on a replay channel: ack-dropped at ingest (not buffered, no "incoming");
  *   - a channel @-mention: wakes ("mention-wake") but is NOT buffered;
  *   - a DM: buffered (kind="dm") + "incoming";

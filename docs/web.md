@@ -69,8 +69,7 @@ The visuals come from a Penpot file — page **“Cotal — Monitor”**. The da
 the *Monitor* and *Channel View* frames faithfully (Work Sans, the exact palette, spacing,
 and components) plus a *DM View* frame for the Direct-messages lens. The *Agent Detail*
 frame (per-agent drill-down) is still forward-looking. Every view keeps NEEDS YOU on the
-right — see [research/multi-agent-ux.md](research/multi-agent-ux.md) (R2: the needs-you lane
-is non-negotiable). Penpot tooling is in [reference/penpot-mcp.md](reference/penpot-mcp.md).
+right (the needs-you lane is non-negotiable).
 
 **`?demo` — the reference scene.** Append `?demo` (`http://127.0.0.1:7799/?demo`) to render
 the Penpot frames' exact mock content as a static showcase — no mesh needed; click a channel
