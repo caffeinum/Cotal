@@ -65,7 +65,9 @@ if (tmuxOk) {
   const h = runtime.spawn("p3-tmux", spec, cwd);
   await new Promise((r) => setTimeout(r, 900)); // let printenv run + render
   let out = "";
-  try { out = execFileSync("tmux", ["capture-pane", "-p", "-t", "cotal-p3-smoke:p3-tmux"], { encoding: "utf8" }); } catch { /* window gone */ }
+  // `-S -` captures the FULL scrollback, not just the visible screen — printenv dumps the whole
+  // allow-list (~20 lines) and PATH (an early line) would otherwise scroll off a short pane.
+  try { out = execFileSync("tmux", ["capture-pane", "-p", "-S", "-", "-t", "cotal-p3-smoke:p3-tmux"], { encoding: "utf8" }); } catch { /* window gone */ }
   console.log("tmux runtime:");
   check("sentinel ABSENT from child env (env -i cleared inheritance)", !out.includes(SENTINEL));
   check("PATH present (OS allow-list set after -i)", /PATH=/.test(out));

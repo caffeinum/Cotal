@@ -113,18 +113,21 @@ export function controlServiceSubject(space: string, service: string, sender: st
   return `${spacePrefix(space)}.ctl.${routeToken(service)}.${routeToken(sender)}`;
 }
 
-/** Control-plane service names — the privileged / self-service split (P2a). The manager
- *  subscribes to BOTH; the cred layer grants {@link CONTROL_SELF_SERVICE} to every agent and
- *  {@link CONTROL_PRIVILEGED} only to spawn-capable agents (default-deny otherwise), so
- *  nats-server — not a handler — is the coarse boundary. The handler then routes by op↔service
- *  (fail-closed on mismatch) and refines own-child vs admin among holders of the privileged
- *  subject. `CONTROL_PRIVILEGED` is the existing `manager` service; `CONTROL_SELF_SERVICE`
- *  carries only the no-name self stop/despawn. */
+/** Control-plane service names — the three-tier split (P2a). The manager subscribes to ALL
+ *  three; the cred layer grants {@link CONTROL_SELF_SERVICE} to every agent and
+ *  {@link CONTROL_PRIVILEGED} only to spawn-capable agents (default-deny otherwise), while
+ *  {@link CONTROL_ADMIN} is reached only by the manager's own allow-all profile (no agent ever
+ *  gets it). nats-server — not a handler — is the coarse boundary. The handler then routes by
+ *  op↔service (fail-closed on mismatch) and refines own-child vs admin among holders of the
+ *  privileged subject. `CONTROL_PRIVILEGED` is the existing `manager` service; `CONTROL_SELF_SERVICE`
+ *  carries only the no-name self stop/despawn; `CONTROL_ADMIN` carries the operator-only ops
+ *  (purge, cross-agent stop/despawn/attach/definePersona). */
 export const CONTROL_PRIVILEGED = "manager" as const;
 export const CONTROL_SELF_SERVICE = "self" as const;
-/** The two control-plane tiers the manager serves — values tie to {@link CONTROL_PRIVILEGED}
- *  / {@link CONTROL_SELF_SERVICE} so handler routing can't drift from the subject names. */
-export type ControlTier = typeof CONTROL_PRIVILEGED | typeof CONTROL_SELF_SERVICE;
+export const CONTROL_ADMIN = "admin" as const;
+/** The three control-plane tiers the manager serves — values tie to the `CONTROL_*` service
+ *  names so handler routing can't drift from the subject names. */
+export type ControlTier = typeof CONTROL_PRIVILEGED | typeof CONTROL_SELF_SERVICE | typeof CONTROL_ADMIN;
 
 export function traceSubject(space: string, agentId: string): string {
   return `${spacePrefix(space)}.trace.${token(agentId)}`;

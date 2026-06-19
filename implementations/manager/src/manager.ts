@@ -16,6 +16,7 @@ import {
   saveAgentFile,
   CONTROL_PRIVILEGED,
   CONTROL_SELF_SERVICE,
+  CONTROL_ADMIN,
 } from "@cotal-ai/core";
 import type { AgentDef, Connector, ControlReply, ControlRequest, ControlTier, SpaceAuth } from "@cotal-ai/core";
 import {
@@ -25,6 +26,14 @@ import {
   type RuntimeMode,
 } from "./runtime/index.js";
 import { AttachEndpoint } from "./attach-endpoint.js";
+
+/** Concurrency ceiling — the manager refuses to hold more than this many live + in-flight +
+ *  cooling slots at once (P4a). Bounds a fork-bomb: spawn is a full agent process per call. */
+const MAX_AGENTS = 50;
+/** Minimum slot lifetime for rate-flooring (P4c). A slot freed (by despawn OR natural exit/reap)
+ *  before living this long leaves a cooling stamp that still counts toward the ceiling until it
+ *  expires — so churn (spawn↔despawn or spawn↔fast-exit) can't outrun the concurrency bound. */
+const MIN_LIFETIME = 10_000;
 
 export interface ManagerOptions {
   space: string;
@@ -80,6 +89,12 @@ export class Manager {
   private readonly workspaceRoot: string;
   private readonly runtime: Runtime;
   private readonly agents = new Map<string, ManagedAgent>();
+  /** Names whose spawn is in flight (reserved synchronously before the provision await) — counted
+   *  toward the ceiling so two concurrent same-name spawns can't both pass the gate (P4a). */
+  private readonly reserved = new Set<string>();
+  /** Expiry stamps (`startedAt + MIN_LIFETIME`) for slots that freed while still young — a
+   *  count-only, lazily-pruned recycle floor (P4c). Pruned + summed into the ceiling gate. */
+  private cooling: number[] = [];
   private readonly attach: AttachEndpoint;
   private ep!: CotalEndpoint;
   /** Space trust material when the mesh runs in auth mode (`.cotal/auth` present);
@@ -141,13 +156,15 @@ export class Manager {
     this.ep.on("error", (e: Error) => console.error(`! manager endpoint: ${e.message}`));
     await this.ep.start();
     await this.ep.setActivity(`supervisor (${this.runtime.kind})`);
-    // Serve both control tiers (P2a): the privileged subject (start/purge/definePersona/named
-    // stop) and the self-service subject (self stop/despawn). The cred layer grants self-service
-    // to every agent and privileged only to spawn-capable ones (default-deny); the handler then
-    // routes by op↔tier (fail-closed on mismatch) so a privileged op on the self-service subject
-    // — or a self op on the privileged subject — is rejected before anything acts.
+    // Serve all three control tiers (P2a): self-service (no-name self stop/despawn), privileged
+    // (start / own-child stop-despawn-attach / own definePersona), and admin (purge / cross-agent
+    // stop-despawn-attach / cross-agent definePersona). The cred layer grants self-service to every
+    // agent, privileged only to spawn-capable ones, and admin only to the manager's own profile
+    // (no agent ever reaches it); the handler then routes by op↔tier (fail-closed on mismatch) so a
+    // misrouted op is rejected before anything acts.
     this.ep.serveControl(CONTROL_PRIVILEGED, (req) => this.handle(req, CONTROL_PRIVILEGED));
     this.ep.serveControl(CONTROL_SELF_SERVICE, (req) => this.handle(req, CONTROL_SELF_SERVICE));
+    this.ep.serveControl(CONTROL_ADMIN, (req) => this.handle(req, CONTROL_ADMIN));
   }
 
   async stop(): Promise<void> {
@@ -163,42 +180,56 @@ export class Manager {
     // advisory in open mode (consistent with "open = single-trusted-host"). Thread it to every op
     // so authz (P2c) and the spawner ledger (P4b) can act on it.
     const caller = req.from.id;
+    const name = String(args.name ?? "").trim();
     // Op↔tier binding — the real enforcement per the split. The cred gates WHO can reach each
     // subject; this gates WHAT each subject will honor, fail-closed. A privileged op arriving on
     // the self-service subject (publishable by all) must be rejected or the split does nothing.
     if (tier === CONTROL_SELF_SERVICE) {
       // Self-service honors ONLY a no-name stop (self-despawn). Any other op — including a named
-      // stop (belongs on privileged) — is a misroute and rejected.
+      // stop (belongs on privileged/admin) — is a misroute and rejected.
       if (req.op !== "stop") return { ok: false, error: `op "${req.op}" not allowed on self-service control subject` };
-      const name = String(args.name ?? "").trim();
       if (name) return { ok: false, error: "named stop not allowed on self-service subject; send it on the privileged subject" };
       return this.opStopSelf(caller, args);
     }
-    // Privileged tier. A no-name stop is a self-op and belongs on the self-service subject.
+    const admin = tier === CONTROL_ADMIN;
+    // Privileged + admin tiers. A no-name stop is a self-op and belongs on the self-service subject.
     switch (req.op) {
       case "start":
+        // Spawn is a privileged-tier op; reaching it via admin is fine (admin ⊇ privileged powers).
         return this.opStart(args, caller);
       case "stop": {
-        const name = String(args.name ?? "").trim();
         if (!name) return { ok: false, error: "self-stop not allowed on privileged subject; send it on the self-service subject" };
-        return this.opStop(args, caller);
+        return this.opStop(args, caller, admin);
       }
       case "definePersona":
-        return this.opDefinePersona(args, caller);
+        return this.opDefinePersona(args, caller, admin);
       case "purge":
+        // SECURITY: purge clears space history incl. DMs — admin-only. On the privileged tier any
+        // spawn-capable agent could wipe the space, so it must not be honored there.
+        if (!admin) return { ok: false, error: "purge is admin-only; not allowed on the privileged subject" };
         return this.opPurge(args, caller);
       case "attach":
-        return this.opAttach(args);
+        return this.opAttach(args, caller, admin);
       case "ps":
         return { ok: true, data: this.list() };
       case "status": {
-        const name = String(args.name ?? "");
         const a = this.list().find((x) => x.name === name);
         return a ? { ok: true, data: a } : { ok: false, error: `no agent "${name}"` };
       }
       default:
         return { ok: false, error: `unknown op: ${req.op}` };
     }
+  }
+
+  /** Collapsed despawn/attach authorization (P4b). The caller already reached the privileged or
+   *  admin tier (cred-gated). On the admin tier any named target is allowed (operator). On the
+   *  privileged tier a named target is allowed ONLY if it's the caller's OWN child
+   *  (`spawner == caller`) — so a spawn-capable peer can tear down what it spawned, never a peer's.
+   *  Returns an error string when denied, `undefined` when allowed. */
+  private authorizeNamed(target: ManagedAgent, caller: string, admin: boolean): string | undefined {
+    if (admin) return undefined;
+    if (target.spawner === caller) return undefined;
+    return `not authorized: ${target.name} was not spawned by ${caller} (admin tier required)`;
   }
 
   /** Self-despawn (P2b): stop the managed agent whose id == the authenticated caller. The
@@ -211,8 +242,39 @@ export class Manager {
     if (!target) return { ok: false, error: `self-stop: caller ${callerId} is not a managed agent` };
     const graceful = args.graceful !== false;
     target.handle.stop({ graceful });
-    this.agents.delete(target.name);
+    this.freeSlot(target, true); // self-despawn is rate-floored (recycle churn)
     return { ok: true, data: { name: target.name, stopped: true, graceful } };
+  }
+
+  /** Drop a live agent's slot. When `floor` is set and the agent died young (lived less than
+   *  MIN_LIFETIME), push a cooling stamp so the freed slot still counts toward the ceiling until it
+   *  expires — flooring the RECYCLE, not the call, so both free paths (despawn + exit/reap) are
+   *  covered (P4c). Floor self + own-child despawn and natural exit; NEVER admin despawn (operator
+   *  emergency-kill stays unthrottled) and NEVER the reserved-rollback path (no cold-start paid). */
+  private freeSlot(a: ManagedAgent, floor: boolean): void {
+    if (this.agents.get(a.name) !== a) return; // already freed (exit raced despawn, etc.)
+    this.agents.delete(a.name);
+    if (floor && Date.now() - a.startedAt < MIN_LIFETIME) this.cooling.push(a.startedAt + MIN_LIFETIME);
+  }
+
+  /** Reap a parent's children on its exit (P4b): stop + free every agent whose `spawner` is the
+   *  exited agent's id, so orphans don't ratchet the ceiling shut. Recursive — a reaped child's
+   *  own children are reaped too. Exit-driven, so each freed slot is rate-floored like a despawn. */
+  private reapChildrenOf(parentId: string): void {
+    for (const child of [...this.agents.values()]) {
+      if (child.spawner !== parentId) continue;
+      child.handle.stop({ graceful: false });
+      this.freeSlot(child, true);
+      this.reapChildrenOf(child.id);
+    }
+  }
+
+  /** A managed agent's process exited on its own (crash, /exit, finished). Free its slot
+   *  (rate-floored — exit-driven churn counts) and reap any children it spawned. Idempotent via
+   *  freeSlot's identity guard, so a later graceful-stop SIGKILL firing exit again is a no-op. */
+  private onAgentExit(a: ManagedAgent): void {
+    this.freeSlot(a, true);
+    this.reapChildrenOf(a.id);
   }
 
   /** Agent names become `.cotal/agents/<name>.md` paths and mesh identities, so they must be bare
@@ -265,80 +327,121 @@ export class Manager {
     if (!name) return { ok: false, error: "name required" };
     const nameErr = this.nameError(name);
     if (nameErr) return { ok: false, error: nameErr };
-    if (this.agents.has(name)) return { ok: false, error: `agent "${name}" already running` };
     const agent = opts.agent ?? "cotal";
 
-    // Resolve an agent file from the manager's own workspace — an explicit
-    // --config must exist; otherwise discover .cotal/agents/<name>.md if present.
-    let configPath: string | undefined;
-    if (opts.config) {
-      configPath = agentFilePath(this.workspaceRoot, opts.config);
-      if (!existsSync(configPath)) return { ok: false, error: `agent file not found: ${configPath}` };
-    } else {
-      const f = agentFilePath(this.workspaceRoot, name);
-      if (existsSync(f)) configPath = f;
-    }
-    // --role overrides the file; the file fills it in for bookkeeping otherwise.
-    let role = opts.role;
-    // A stable nkey identity assigned at spawn: the public key is the agent's card.id
-    // (threaded via COTAL_ID); the seed is retained to mint matching creds later.
-    const identity = newIdentity();
-    let handle: AgentHandle;
+    // Synchronous availability gate (P4a/P4c) — runs in one tick BEFORE any await, so two
+    // concurrent same-name spawns can't both pass (the latent dup-name TOCTOU between has() and
+    // set()), and the ceiling can't be overshot by fan-out racing the provision await.
+    if (this.agents.has(name) || this.reserved.has(name)) return { ok: false, error: `agent "${name}" already running` };
+    const cooling = this.coolingCount(); // prune expired stamps, then count live cooling slots
+    if (this.agents.size + this.reserved.size + cooling >= MAX_AGENTS)
+      return { ok: false, error: `at capacity (${MAX_AGENTS} agents incl. in-flight + cooling); despawn one or wait` };
+    this.reserved.add(name);
     try {
-      const connector = registry.resolve<Connector>("connector", agent);
-      const def = configPath ? loadAgentFile(configPath) : undefined;
-      if (!role) role = def?.role;
-      // In auth mode, mint the agent's creds from the space signing key and write them
-      // where the spawned session reads them (COTAL_CREDS path). Open mesh → no creds.
-      // The publish allow-list is the file's `publish:`, falling back to `channels:`.
-      let credsPath: string | undefined;
-      if (this.auth) {
-        // Pre-create the agent's bind-only DM (+ role TASK) durables and mint its scoped
-        // creds — the shared onboarding step (provisionAgent), the manager just supplies its
-        // own connected endpoint as the privileged provisioner.
-        const creds = await provisionAgent(this.ep, this.auth, identity, {
-          channels: def?.publish ?? def?.channels,
-          role,
-          capabilities: def?.capabilities,
-        });
-        credsPath = join(authDir(this.workspaceRoot), "creds", `${name}.creds`);
-        mkdirSync(dirname(credsPath), { recursive: true });
-        writeFileSync(credsPath, creds, { mode: 0o600 });
+      // Resolve an agent file from the manager's own workspace — an explicit
+      // --config must exist; otherwise discover .cotal/agents/<name>.md if present.
+      let configPath: string | undefined;
+      if (opts.config) {
+        configPath = agentFilePath(this.workspaceRoot, opts.config);
+        if (!existsSync(configPath)) return { ok: false, error: `agent file not found: ${configPath}` };
+      } else {
+        const f = agentFilePath(this.workspaceRoot, name);
+        if (existsSync(f)) configPath = f;
       }
-      const spec = connector.buildLaunch({
-        space: this.space,
+      // --role overrides the file; the file fills it in for bookkeeping otherwise.
+      let role = opts.role;
+      // A stable nkey identity assigned at spawn: the public key is the agent's card.id
+      // (threaded via COTAL_ID); the seed is retained to mint matching creds later.
+      const identity = newIdentity();
+      let handle: AgentHandle;
+      try {
+        const connector = registry.resolve<Connector>("connector", agent);
+        const def = configPath ? loadAgentFile(configPath) : undefined;
+        if (!role) role = def?.role;
+        // In auth mode, mint the agent's creds from the space signing key and write them
+        // where the spawned session reads them (COTAL_CREDS path). Open mesh → no creds.
+        // The publish allow-list is the file's `publish:`, falling back to `channels:`.
+        let credsPath: string | undefined;
+        if (this.auth) {
+          // Pre-create the agent's bind-only DM (+ role TASK) durables and mint its scoped
+          // creds — the shared onboarding step (provisionAgent), the manager just supplies its
+          // own connected endpoint as the privileged provisioner.
+          const creds = await provisionAgent(this.ep, this.auth, identity, {
+            channels: def?.publish ?? def?.channels,
+            role,
+            capabilities: def?.capabilities,
+          });
+          credsPath = join(authDir(this.workspaceRoot), "creds", `${name}.creds`);
+          mkdirSync(dirname(credsPath), { recursive: true });
+          writeFileSync(credsPath, creds, { mode: 0o600 });
+        }
+        const spec = connector.buildLaunch({
+          space: this.space,
+          name,
+          role,
+          id: identity.id,
+          creds: credsPath,
+          servers: this.servers,
+          configPath,
+          transcript: opts.transcript,
+        });
+        handle = this.runtime.spawn(name, spec, this.workspaceRoot);
+      } catch (e) {
+        // Pre-set failure: the slot was never live, so no cold-start was paid — the reserved
+        // rollback (finally) is enough, no cooling stamp.
+        return { ok: false, error: (e as Error).message };
+      }
+      const managed: ManagedAgent = {
         name,
         role,
+        agent,
         id: identity.id,
-        creds: credsPath,
-        servers: this.servers,
-        configPath,
-        transcript: opts.transcript,
-      });
-      handle = this.runtime.spawn(name, spec, this.workspaceRoot);
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
+        seed: identity.seed,
+        spawner: spawner ?? this.ep.ref().id,
+        startedAt: Date.now(),
+        handle,
+      };
+      this.agents.set(name, managed);
+      // Wire the runtime exit signal so a natural exit (crash / /exit / finished) frees the slot
+      // (rate-floored) and reaps any children — keeps the ceiling from ratcheting shut with orphans.
+      this.watchExit(managed);
+      return { ok: true, data: { name, role, agent, id: identity.id, mode: handle.kind } };
+    } finally {
+      this.reserved.delete(name);
     }
-    this.agents.set(name, {
-      name,
-      role,
-      agent,
-      id: identity.id,
-      seed: identity.seed,
-      spawner: spawner ?? this.ep.ref().id,
-      startedAt: Date.now(),
-      handle,
-    });
-    return { ok: true, data: { name, role, agent, id: identity.id, mode: handle.kind } };
   }
 
-  private opStop(args: Record<string, unknown>, _caller: string): ControlReply {
+  /** Subscribe to a managed agent's process-exit so a self-driven exit frees its slot and reaps
+   *  its children (P4b/P4c). Only pty streams exit (via the attach session's `onExit`); tmux/cmux
+   *  attach() throws, so this is a no-op there — a self-EXITED agent under those runtimes is reaped
+   *  by nothing until it's explicitly despawned (graceful-stop runs on despawn, not self-exit). The
+   *  cap still holds (a lingering corpse counts toward it); runtime-agnostic exit-reaping (a real
+   *  per-runtime `status()` → exited-sweep at the availability gate) is a tracked follow-up. */
+  private watchExit(a: ManagedAgent): void {
+    try {
+      a.handle.attach().onExit(() => this.onAgentExit(a));
+    } catch {
+      /* runtime doesn't stream an exit signal (tmux/cmux) — nothing to wire */
+    }
+  }
+
+  /** Prune expired cooling stamps (drop those at/before now) and return the live count — the
+   *  recycle floor's contribution to the ceiling (P4c). Lazy: pruned only when the gate consults it. */
+  private coolingCount(): number {
+    const now = Date.now();
+    this.cooling = this.cooling.filter((stamp) => stamp > now);
+    return this.cooling.length;
+  }
+
+  private opStop(args: Record<string, unknown>, caller: string, admin: boolean): ControlReply {
     const name = String(args.name ?? "").trim();
     const a = this.agents.get(name);
     if (!a) return { ok: false, error: `no agent "${name}"` };
+    const denied = this.authorizeNamed(a, caller, admin);
+    if (denied) return { ok: false, error: denied };
     const graceful = args.graceful !== false;
     a.handle.stop({ graceful });
-    this.agents.delete(name);
+    this.freeSlot(a, !admin); // own-child despawn is rate-floored; admin emergency-kill is not
     return { ok: true, data: { name, stopped: true, graceful } };
   }
 
@@ -362,21 +465,40 @@ export class Manager {
   }
 
   /** Persist a peer-defined persona as config. After this, `start name` auto-discovers
-   *  .cotal/agents/<name>.md and the connector applies its persona/model at spawn. */
-  private opDefinePersona(args: Record<string, unknown>, _caller: string): ControlReply {
+   *  .cotal/agents/<name>.md and the connector applies its persona/model at spawn.
+   *
+   *  CONTENT vs POLICY (P6): the write path accepts ONLY content from args — {name, model,
+   *  persona}. role/publish/capabilities/owner are POLICY and have no slot here, so a peer can
+   *  never grant itself a capability or claim ownership by redefining. A fresh name is created with
+   *  owner = caller (the creator). Redefining an EXISTING file overwrites ONLY model + persona and
+   *  preserves everything else — and is allowed on the privileged tier only if `file.owner == caller`,
+   *  else admin is required. Fail-closed: an ownerless file (legacy / operator-written) is admin-only. */
+  private opDefinePersona(args: Record<string, unknown>, caller: string, admin: boolean): ControlReply {
     const name = String(args.name ?? "").trim();
     if (!name) return { ok: false, error: "name required" };
     const nameErr = this.nameError(name);
     if (nameErr) return { ok: false, error: nameErr };
     const persona = String(args.persona ?? "").trim();
     if (!persona) return { ok: false, error: "persona required" };
-    const def: AgentDef = {
-      name,
-      role: args.role ? String(args.role) : undefined,
-      model: args.model ? String(args.model) : undefined,
-      persona,
-    };
+    const model = args.model ? String(args.model) : undefined;
     const path = agentFilePath(this.workspaceRoot, name);
+    let def: AgentDef;
+    if (existsSync(path)) {
+      // Redefine: load, authorize by ownership, then overwrite ONLY content; preserve all policy.
+      try {
+        def = loadAgentFile(path);
+      } catch (e) {
+        return { ok: false, error: (e as Error).message };
+      }
+      if (!admin && def.owner !== caller)
+        return { ok: false, error: `not authorized to redefine ${name}: owned by ${def.owner ?? "(none)"} (admin tier required)` };
+      def.model = model;
+      def.persona = persona;
+    } else {
+      // Fresh name: create with content + owner = caller. The privileged tier suffices (creating a
+      // brand-new persona isn't admin-only); the creator becomes its owner.
+      def = { name, model, persona, owner: caller };
+    }
     try {
       saveAgentFile(path, def);
     } catch (e) {
@@ -385,10 +507,14 @@ export class Manager {
     return { ok: true, data: { name, path } };
   }
 
-  private opAttach(args: Record<string, unknown>): ControlReply {
+  private opAttach(args: Record<string, unknown>, caller: string, admin: boolean): ControlReply {
     const name = String(args.name ?? "").trim();
     const a = this.agents.get(name);
     if (!a) return { ok: false, error: `no agent "${name}"` };
+    // attach grants terminal read+write — same own/admin scoping as despawn: own child on the
+    // privileged tier, any agent on admin.
+    const denied = this.authorizeNamed(a, caller, admin);
+    if (denied) return { ok: false, error: denied };
     // Only pty streams over the WS attach endpoint. tmux/cmux are watched natively, and
     // each handle's attach() throws with the right per-runtime guidance (tmux attach … /
     // switch to the cmux tab) — surface that instead of assuming tmux.
