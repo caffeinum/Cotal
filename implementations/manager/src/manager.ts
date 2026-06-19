@@ -285,6 +285,18 @@ export class Manager {
       : `unsafe name ${JSON.stringify(name)} (allowed: letters, digits, _ -)`;
   }
 
+  /** First free name in the series `base`, `base-2`, `base-3`, … — checked against both live and
+   *  in-flight (reserved) slots. Lets a colliding spawn auto-number instead of being rejected, so
+   *  callers never have to invent a unique name. */
+  private uniqueName(base: string): string {
+    const taken = (n: string) => this.agents.has(n) || this.reserved.has(n);
+    if (!taken(base)) return base;
+    for (let n = 2; ; n++) {
+      const candidate = `${base}-${n}`;
+      if (!taken(candidate)) return candidate;
+    }
+  }
+
   /** Spawn a teammate by name (loads `.cotal/agents/<name>.md`), as if a peer asked via the
    *  control plane. Used to pre-spawn the demo's experts at startup so the manager owns them. */
   async startByName(name: string): Promise<ControlReply> {
@@ -323,19 +335,25 @@ export class Manager {
    *  defaulting to the manager's own id for roster/pre-spawn — recorded for the spawner
    *  ledger (own-children despawn + reap-on-parent-exit). */
   async startAgent(opts: StartAgentOpts, spawner?: string): Promise<ControlReply> {
-    const name = opts.name.trim();
-    if (!name) return { ok: false, error: "name required" };
-    const nameErr = this.nameError(name);
+    const base = opts.name.trim();
+    if (!base) return { ok: false, error: "name required" };
+    const nameErr = this.nameError(base);
     if (nameErr) return { ok: false, error: nameErr };
     const agent = opts.agent ?? "cotal";
 
-    // Synchronous availability gate (P4a/P4c) — runs in one tick BEFORE any await, so two
-    // concurrent same-name spawns can't both pass (the latent dup-name TOCTOU between has() and
-    // set()), and the ceiling can't be overshot by fan-out racing the provision await.
-    if (this.agents.has(name) || this.reserved.has(name)) return { ok: false, error: `agent "${name}" already running` };
+    // Synchronous availability gate (P4a/P4c) — the free-name pick and the reserve run in one tick
+    // BEFORE any await, so two concurrent spawns can't land on the same name (no TOCTOU between the
+    // pick and the reserve), and the ceiling can't be overshot by fan-out racing the provision await.
     const cooling = this.coolingCount(); // prune expired stamps, then count live cooling slots
     if (this.agents.size + this.reserved.size + cooling >= MAX_AGENTS)
       return { ok: false, error: `at capacity (${MAX_AGENTS} agents incl. in-flight + cooling); despawn one or wait` };
+    // A taken name auto-numbers (reviewer → reviewer-2 → reviewer-3…) so callers never collide; the
+    // persona file is still discovered from the requested base name below, so reviewer-2 wears it.
+    // Deliberate semantics: this is create-new, not ensure-exists — a retried/redelivered identical
+    // spawn from the same caller yields a fresh numbered agent, not a no-op. Accepted (MAX_AGENTS
+    // bounds the blast radius). Follow-up: add a short per-(spawner,base,role) idempotency window if
+    // autonomous orchestration ever produces phantom spawns.
+    const name = this.uniqueName(base);
     this.reserved.add(name);
     try {
       // Resolve an agent file from the manager's own workspace — an explicit
@@ -345,7 +363,7 @@ export class Manager {
         configPath = agentFilePath(this.workspaceRoot, opts.config);
         if (!existsSync(configPath)) return { ok: false, error: `agent file not found: ${configPath}` };
       } else {
-        const f = agentFilePath(this.workspaceRoot, name);
+        const f = agentFilePath(this.workspaceRoot, base);
         if (existsSync(f)) configPath = f;
       }
       // --role overrides the file; the file fills it in for bookkeeping otherwise.
