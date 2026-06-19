@@ -171,6 +171,25 @@ try {
   check("time window EXCLUDES messages older than it", has(W.got, "recent-old").length === 0);
   check("wider window INCLUDES them", W.got.filter((g) => g.channel === "archive" && g.historical).length === 1);
 
+  // ---- wildcard subscription: [c, c.>] delivers the parent AND its subtree ----
+  // Regression: `c.>` must not swallow bare `c` in the filter collapse (else the parent channel
+  // stops being delivered), and joining a wildcard channel must not do a per-channel registry
+  // get (`>` is an illegal KV key — `joinPolicyFresh` skips it). A flat sub gets no subtree.
+  const RW = recorder("RW", "RW_wild", ["review", "review.>"]); // flat parent + whole subtree
+  const RF = recorder("RF", "RF_flat", ["review"]);             // flat parent only
+  await RW.ep.start();
+  await RF.ep.start();
+  await sleep(300);
+  await A.multicast("rev-flat", { channel: "review" });
+  await A.multicast("rev-sec", { channel: "review.security" });
+  await A.multicast("rev-deep", { channel: "review.a.b" });
+  await sleep(400);
+  check("wildcard sub keeps the flat parent (collapse didn't drop it)", has(RW.got, "rev-flat").length === 1);
+  check("wildcard sub receives the subtree (review.>)", has(RW.got, "rev-sec").length === 1 && has(RW.got, "rev-deep").length === 1);
+  check("flat sub gets the parent but never the subtree", has(RF.got, "rev-flat").length === 1 && RF.got.every((g) => g.channel === "review"));
+  await RW.ep.stop();
+  await RF.ep.stop();
+
   await A.stop();
   await B3.ep.stop();
   await W.ep.stop();

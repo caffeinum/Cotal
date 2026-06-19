@@ -81,7 +81,7 @@ export function subjectMatches(pattern: string, subject: string): boolean {
   const p = pattern.split(".");
   const s = subject.split(".");
   for (let i = 0; i < p.length; i++) {
-    if (p[i] === ">") return true; // matches all remaining tokens
+    if (p[i] === ">") return i < s.length; // '>' matches one-or-more remaining tokens — NATS semantics: 'a.>' does NOT match bare 'a'
     if (i >= s.length) return false;
     if (p[i] === "*") continue;
     if (p[i] !== s[i]) return false;
@@ -91,7 +91,9 @@ export function subjectMatches(pattern: string, subject: string): boolean {
 
 /** Drop exact duplicates and any subject subsumed by a more-general one — JetStream
  *  rejects a consumer whose `filter_subjects` overlap, so `[team.>, team.backend]`
- *  must collapse to `[team.>]` before binding the chat consumer. */
+ *  must collapse to `[team.>]` before binding the chat consumer. A parent and its subtree
+ *  (`[review, review.>]`) are disjoint in NATS (`review.>` never matches bare `review`), so
+ *  both are kept — that's how a peer subscribes to a channel *and* everything under it. */
 export function collapseFilterSubjects(subjects: string[]): string[] {
   const uniq = [...new Set(subjects)];
   return uniq.filter((x) => !uniq.some((y) => y !== x && subjectMatches(y, x)));
