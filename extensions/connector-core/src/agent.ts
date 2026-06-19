@@ -86,6 +86,7 @@ export class MeshAgent extends EventEmitter {
   private _connected = false;
   private _status: PresenceStatus = "idle";
   private _attention: AttentionMode = "open"; // F3: fail-open default; reset to open on SessionStart
+  private _contextId: string | undefined;
   /** Chat-stream frontier captured when this agent entered `focus` — recall surfaces ambient
    *  published after it ("since you entered focus"). Undefined unless in focus. */
   private focusSince?: number;
@@ -128,6 +129,12 @@ export class MeshAgent extends EventEmitter {
     return this._connected;
   }
 
+  /** Correlates outgoing messages to the host agent's current context/window. */
+  setContextId(contextId: string | undefined): void {
+    const clean = contextId?.trim();
+    this._contextId = clean ? clean : undefined;
+  }
+
   /** Begin connecting (with background retry). Returns immediately. */
   start(retryMs = 3000): void {
     void this.connectLoop(retryMs);
@@ -162,7 +169,12 @@ export class MeshAgent extends EventEmitter {
    *  interruptible. Returns a one-line status for the caller to surface (e.g. the
    *  cotal_reconnect tool → TUI); on failure the endpoint keeps retrying in the background. */
   async reconnect(): Promise<{ ok: boolean; message: string }> {
-    if (this.stopping) throw new Error("agent stopping — cannot reconnect");
+    if (this.stopping) {
+      return {
+        ok: false,
+        message: "This session is shutting down, so its Cotal mesh connection cannot be reconnected. Start a new session instead.",
+      };
+    }
     try {
       await this.ep.reconnect();
       // _connected is set by the endpoint's "connection" event on the successful rebind, not here.
@@ -314,7 +326,7 @@ export class MeshAgent extends EventEmitter {
     this.assertConnected();
     const clean = normalizeMentions(mentions);
     if (clean) this.assertKnownMentions(clean);
-    return this.ep.multicast(text, { channel, mentions: clean });
+    return this.ep.multicast(text, { channel, mentions: clean, contextId: this._contextId });
   }
 
   /** Throw if any name isn't a peer we've observed. Validates against the FULL roster
@@ -334,7 +346,7 @@ export class MeshAgent extends EventEmitter {
 
   async anycast(role: string, text: string): Promise<CotalMessage> {
     this.assertConnected();
-    return this.ep.anycast(role, text);
+    return this.ep.anycast(role, text, { contextId: this._contextId });
   }
 
   /** Resolve a peer by instance id (exact) or display name (case-insensitive, prefer present). */
@@ -354,7 +366,7 @@ export class MeshAgent extends EventEmitter {
     this.assertConnected();
     const peer = this.resolvePeer(target);
     if (!peer) throw new Error(`no peer "${target}" in space "${this.config.space}"`);
-    const msg = await this.ep.unicast(peer.card.id, text);
+    const msg = await this.ep.unicast(peer.card.id, text, { contextId: this._contextId });
     return { msg, peer };
   }
 

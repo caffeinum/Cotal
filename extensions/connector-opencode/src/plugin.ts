@@ -71,9 +71,10 @@ export const cotal: Plugin = async ({ client }) => {
     ? "(avatar: begin your cotal_send/cotal_dm text with [[face:X]] — neutral|happy|sad|angry|surprised — and add another tag when your mood shifts)"
     : undefined;
 
-  // This agent OWNS one session, created at boot. The serve shim attaches the foreground TUI to it
-  // (`opencode attach --session <id>`), so what the human watches IS the session we drive — no
-  // phantom home-screen, no stale-session guessing. Used to match our turn-end (idle) vs subagent idles.
+  // This agent OWNS one top-level OpenCode session at a time. The serve shim attaches the foreground
+  // TUI to the boot session; if the human runs `/new` in that same TUI/process, OpenCode creates a
+  // replacement top-level session. We adopt that as a context reset while keeping the same MeshAgent
+  // and creds alive. Used to match our turn-end (idle) vs subagent idles.
   let sessionID: string | undefined;
   let busy = false; // a turn is running → don't prompt: opencode would COALESCE onto it (no reject)
   let driving = false; // re-entrancy guard around an in-flight promptAsync
@@ -90,6 +91,27 @@ export const cotal: Plugin = async ({ client }) => {
     }
   };
 
+  function pendingForWake(): number {
+    return agent.attention === "open" ? agent.inboxCount() : agent.directedPendingCount();
+  }
+
+  function adoptSession(id: string, reason: string): void {
+    if (sessionID === id) return;
+    const previous = sessionID;
+    sessionID = id;
+    agent.setContextId(id);
+    busy = false;
+    driving = false;
+    primed = false;
+    briefed = false;
+    surfaced = [];
+    awaitingTurnEnd = false;
+    if (previous) {
+      log(`adopted opencode session ${id} after ${reason}; mesh identity unchanged`);
+      if (pendingForWake() > 0) void drive();
+    }
+  }
+
   /** Create the session this agent owns and announce its id to the serve shim, which attaches the
    *  foreground TUI to it. The handshake line on stderr (`[cotal-session] <id>`) is how the shim
    *  learns *which* session to open — by exact id, so a stale same-titled session from a prior run
@@ -97,9 +119,11 @@ export const cotal: Plugin = async ({ client }) => {
   const sessionReady: Promise<string | undefined> = (async () => {
     try {
       const res = await client.session.create({ body: { title: `cotal:${config.space}:${config.name}` } });
-      sessionID = res.data?.id;
-      if (sessionID) process.stderr.write(`[cotal-session] ${sessionID}\n`);
-      else log("session.create returned no id");
+      const id = res.data?.id;
+      if (id) {
+        adoptSession(id, "boot");
+        process.stderr.write(`[cotal-session] ${id}\n`);
+      } else log("session.create returned no id");
     } catch (e) {
       log(`session.create failed: ${(e as Error).message}`);
     }
@@ -182,8 +206,7 @@ export const cotal: Plugin = async ({ client }) => {
     awaitingTurnEnd = false;
     busy = false;
     ackSurfaced();
-    const pending = agent.attention === "open" ? agent.inboxCount() : agent.directedPendingCount();
-    if (pending > 0) void drive();
+    if (pendingForWake() > 0) void drive();
   }
 
   // Inbound mesh → drive (never interrupt a running turn — matches Claude). A directed message
@@ -203,11 +226,11 @@ export const cotal: Plugin = async ({ client }) => {
     if (!busy) void drive();
   });
 
-  /** Match an event's session against the one we drive. Adopt the first session id we see (a fresh
-   *  spawn has exactly one — the visible session our first submit creates), then filter to it. */
+  /** Match an event's session against the one we drive. Adopt the first session id we see, then
+   *  filter to it; later top-level `session.created` events adopt explicitly as reset-in-place. */
   const ours = (id?: string): boolean => {
     if (!id) return !sessionID; // a session-less event counts as ours only before we've adopted one
-    if (!sessionID) sessionID = id;
+    if (!sessionID) adoptSession(id, "first event");
     return id === sessionID;
   };
 
@@ -225,8 +248,9 @@ export const cotal: Plugin = async ({ client }) => {
       }
       switch (event.type) {
         case "session.created":
-          // Adopt the visible (top-level) session as soon as it's born; ignore subagent children.
-          if (!event.properties.info.parentID) ours(event.properties.info.id);
+          // Adopt every top-level session created in this OpenCode process. That makes `/new` a
+          // Cotal-aware context reset: same mesh identity, new OpenCode context/session id.
+          if (!event.properties.info.parentID) adoptSession(event.properties.info.id, "top-level session create");
           break;
         case "session.idle":
           if (!ours(event.properties.sessionID)) return;

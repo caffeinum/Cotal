@@ -219,9 +219,10 @@ surface (unlike Claude Code's `/mcp reconnect`), and a plugin cannot register a 
 via the Hooks API, so the connector injects one through the `OPENCODE_CONFIG_CONTENT` config
 layer: a tool-forcing template whose only move is to call the shared `cotal_reconnect` tool,
 which tears down and rebuilds the connection **in-process** (it never rides the wedged link).
-Because the connector binds one mesh identity to one owned OpenCode session, it also overrides
-OpenCode's built-in `/new` with an explanatory prompt; a fresh context should be launched as a
-fresh Cotal-managed agent, not as a bare replacement session under the old identity.
+The connector binds one mesh identity to one live OpenCode process, not one immutable chat: if the
+human runs OpenCode's built-in `/new` in that same TUI/process, the plugin adopts the new top-level
+session as a context reset, keeps the existing mesh connection/creds alive, and stamps outgoing
+messages with the new OpenCode session id as `contextId`.
 The rebuild is serialized: manual `/reconnect`, the supervisor's `closed()`, and the retry loop
 all funnel through one in-flight rebuild (a second trigger coalesces, never races a second
 `connectAndBind`), and a manual reconnect kicks an in-flight backoff to retry immediately.
@@ -497,6 +498,11 @@ tells peers "same agent, same memory" when the new session has none, breaking re
 mis-delivering messages meant for the original, and wrongly inheriting its leases and
 obligations. Rule: **same context ⇒ same id; new context ⇒ new id**, with `name` as the stable
 handle that may map to different instances over time.
+
+OpenCode has one explicit reset-in-place exception: `/new` inside the same managed OpenCode
+process keeps the same mesh identity/creds but advances `contextId` to the new OpenCode session
+id. That is process continuity, not credential reuse by a second process; two live processes must
+never share the same creds.
 
 **CLI (optional ergonomics).**
 
