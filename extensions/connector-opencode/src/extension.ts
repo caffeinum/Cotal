@@ -50,6 +50,19 @@ export const opencodeConnector: Connector = {
       $schema: "https://opencode.ai/config.json",
       permission: "allow",
       plugin: [PLUGIN_ENTRY],
+      // `/reconnect` — the manual recovery surface for a wedged mesh link. OpenCode has no
+      // host reconnect (unlike Claude Code's /mcp reconnect), and a plugin can't register a
+      // slash command via the Hooks API, so inject it through the config layer we already own.
+      // It's a TOOL-FORCING template: the human types /reconnect → one model turn whose only
+      // move is to call `cotal_reconnect` (in-process, local — it never rides the wedged link).
+      // The leading "Reconnecting…" reads as immediate TUI status; the rest is the imperative.
+      command: {
+        reconnect: {
+          description: "Rebuild this session's Cotal mesh connection (recovery from a wedged link)",
+          template:
+            "Reconnecting to the Cotal mesh… Call the cotal_reconnect tool now — do not explain, do not ask, just invoke it. Do not summarize — the tool reports its own status.",
+        },
+      },
     };
 
     // An agent file carries identity (read in-session via COTAL_AGENT_FILE) plus persona + model.
