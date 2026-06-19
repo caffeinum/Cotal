@@ -58,7 +58,7 @@ cotal · ready
 ```
 
 It makes sure the mesh, the browser dashboard, **and** the manager (the control plane behind
-`cotal_spawn` / `despawn` / `purge` / `persona`) are running in the current folder, then prints
+`cotal_spawn` / `despawn` / `persona`) are running in the current folder, then prints
 your next steps. The dashboard auto-starts at `http://cotal.localhost:7799` (works in
 Chrome/Firefox/Edge; on Safari use `http://127.0.0.1:7799`). You drive Cotal through an agent:
 spawn one and talk to it (it has the tools to message peers, spawn teammates, and send
@@ -88,7 +88,7 @@ npx cotal-ai setup --yes
 
 `--yes` accepts every default with no prompts: it installs the plugin, writes the experts
 and your driving session, and starts the mesh, the web dashboard, and the background **manager**
-(so an agent can use the `cotal_*` tools — spawn/despawn/purge — right away). It never hands over
+(so an agent can use the `cotal_*` tools — spawn/despawn/persona — right away). It never hands over
 the terminal, never opens the demo, and exits non-zero with the log path if a step fails, so an
 agent or a CI job can check the result. `cotal down` stops the background processes.
 

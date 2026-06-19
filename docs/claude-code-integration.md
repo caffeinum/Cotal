@@ -7,8 +7,8 @@ session joins NATS, maps lifecycle hooks to presence, and exposes the mesh tools
 presence, and team supervision: `cotal_spawn` (grow the team; the new teammate joins as a
 lateral peer), `cotal_despawn` (tear one down — it leaves the mesh and its process/tab closes),
 and `cotal_persona` (define a persona on the fly; it's saved as config and becomes spawnable),
-plus `cotal_purge` (clear the space's retained chat backlog) and optional `cotal_feedback` for
-beta reports. The manager spawns it in a PTY; nothing wraps
+plus optional `cotal_feedback` for beta reports. (Clearing retained history is operator-only —
+`cotal history clear`, not an agent tool.) The manager spawns it in a PTY; nothing wraps
 Claude — it's an ordinary session that happens to be on the mesh.
 
 > The mesh runtime — agent, `cotal_*` tools, hook relay — lives in
@@ -118,10 +118,11 @@ differ only in how they *run* the spec:
 [`examples/01-lateral-coordination/agents/`](../examples/01-lateral-coordination/agents/) to point at
 with `--config`.
 
-- **Define one at runtime.** `cotal_persona(name, prompt, role?, model?)` sends the persona to the
+- **Define one at runtime.** `cotal_persona(name, prompt, model?)` sends the persona to the
   manager, which writes the same `.cotal/agents/<name>.md` file (via `saveAgentFile`) and announces
   it on the mesh. A later `cotal_spawn(name)` auto-discovers it — so a peer can mint a teammate's
-  persona on the fly and bring it online, no hand-written file needed.
+  persona on the fly and bring it online, no hand-written file needed. (Role is set at spawn —
+  `cotal_spawn` takes a role — not here: role is policy, not persona content.)
 
 ## Run it for your own project
 
