@@ -42,10 +42,10 @@ export const claudeConnector: Connector = {
       // `claude/channel` capability back over MCP, so auto-detection would see it "off".
       COTAL_CHANNEL: "1",
     };
-    // Managed sessions mirror their own transcript to `tr-<name>` so peers can read what
-    // the agent actually did — on by default; `--no-transcript` (opts.transcript === false)
-    // disables it. Personal sessions (no buildLaunch) never mirror.
-    if (opts.transcript !== false) env.COTAL_TRANSCRIPT = "1";
+    // A session can mirror its own transcript to `tr-<name>` so peers can read what the
+    // agent actually did — OFF by default (transcripts are verbose and may carry sensitive
+    // content); `--transcript` (opts.transcript === true) opts in. Personal sessions never mirror.
+    if (opts.transcript === true) env.COTAL_TRANSCRIPT = "1";
     if (opts.role) env.COTAL_ROLE = opts.role;
     if (opts.id) env.COTAL_ID = opts.id;
     if (opts.creds) env.COTAL_CREDS = opts.creds;

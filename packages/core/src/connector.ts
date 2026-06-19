@@ -22,8 +22,8 @@ export interface LaunchOpts {
    *  ignore it. Used to make a driving session greet the operator on launch. */
   prompt?: string;
   /** Mirror this session's transcript to `tr-<name>` so peers/observers can read what
-   *  the agent actually did (sets `COTAL_TRANSCRIPT`). Defaults to on; `false` disables
-   *  it — surfaced as the `--no-transcript` flag on `cotal spawn` / `cotal start`. */
+   *  the agent actually did (sets `COTAL_TRANSCRIPT`). Defaults to OFF; set `true` to
+   *  opt in — surfaced as the `--transcript` flag on `cotal spawn` / `cotal start`. */
   transcript?: boolean;
 }
 

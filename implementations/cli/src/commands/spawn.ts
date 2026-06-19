@@ -48,15 +48,16 @@ export async function spawn(argv: string[]): Promise<void> {
       "no-transcript": { type: "boolean" },
     },
   });
-  // Transcript mirroring to `tr-<name>` is on by default; `--no-transcript` turns it off.
-  const transcript = values["no-transcript"] ? false : (values.transcript ?? true);
+  // Transcript mirroring to `tr-<name>` is OFF by default; `--transcript` opts in
+  // (`--no-transcript` is accepted too, to be explicit about the default).
+  const transcript = values.transcript ? true : values["no-transcript"] ? false : false;
 
   // Where the config lives: --config, else the positional <name-or-path>, else
   // discover by --name (.cotal/agents/<name>.md). Same flags as `cotal start`.
   const ref = values.config ?? positionals[0] ?? values.name;
   if (!ref) {
     console.error(
-      "usage: cotal spawn <name-or-path> | --config <path> | --name <n>  [--agent <a>] [--role <r>] [--space <s>] [--server <url>] [--prompt <text>] [--no-transcript]",
+      "usage: cotal spawn <name-or-path> | --config <path> | --name <n>  [--agent <a>] [--role <r>] [--space <s>] [--server <url>] [--prompt <text>] [--transcript]",
     );
     process.exit(1);
   }
