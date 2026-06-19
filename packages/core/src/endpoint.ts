@@ -1150,8 +1150,11 @@ export class CotalEndpoint extends EventEmitter {
    *  cache may not have caught up). Falls to the built-in default only with no registry open. */
   private async joinPolicyFresh(channel: string): Promise<{ replay: boolean; windowMs?: number }> {
     if (!this.channelKv) return { replay: effectiveReplay(undefined, undefined) };
+    // A wildcard subscription (`review.>`) has no single registry entry — and `>`/`*` are illegal
+    // KV keys, so a per-channel get would throw. Read only the space defaults for it; concrete
+    // channels still get their per-channel override.
     const [cfg, defaults] = await Promise.all([
-      readChannelConfig(this.channelKv, channel),
+      isConcreteChannel(channel) ? readChannelConfig(this.channelKv, channel) : Promise.resolve(undefined),
       readChannelDefaults(this.channelKv),
     ]);
     return { replay: effectiveReplay(cfg, defaults), windowMs: effectiveReplayWindowMs(cfg, defaults) };
