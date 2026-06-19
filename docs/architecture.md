@@ -180,6 +180,25 @@ can still send prompts into the session). A face-hosted agent is also told to em
 emotion tags in its send text — the viewer reads them from the tool-call input to animate the
 avatar, and the send tools strip them before publishing, so they never reach the wire.
 
+**Connection recovery.** The endpoint self-heals: when nats.js exhausts its own reconnect and
+the connection closes terminally, a supervisor rebuilds it (`connectAndBind` is re-runnable;
+unacked in-flight messages redeliver on the rebound durables, so nothing is lost across the
+gap). A manual `/reconnect` is the human-invoked counterpart — OpenCode has no host reconnect
+surface (unlike Claude Code's `/mcp reconnect`), and a plugin can't register a slash command
+via the Hooks API, so the connector injects one through the `OPENCODE_CONFIG_CONTENT` config
+layer: a tool-forcing template whose only move is to call the shared `cotal_reconnect` tool,
+which tears down and rebuilds the connection **in-process** (it never rides the wedged link).
+The rebuild is serialized — manual `/reconnect`, the supervisor's `closed()`, and the retry
+loop all funnel through one in-flight rebuild (a second trigger coalesces, never races a
+second `connectAndBind`), and a manual reconnect kicks an in-flight backoff to retry
+immediately. During the brief null window of a rebuild, user-facing ops throw "reconnecting"
+rather than NPE. An in-process agent tracks connectedness off the endpoint's `connection` event
+(fired on every (re)bind and every drop), not a local flag — so a self-heal it didn't initiate
+can't leave it wrongly believing it's offline (which would make shutdown skip the stop and leak
+the live connection). Status (`Reconnected ✓` / `Reconnect failed — still retrying automatically,
+or run /reconnect to retry now`) comes from the tool result, authoritative over the model's
+prose.
+
 **Two injection paths (different control profiles), composed.**
 
 - **Channel notifications** — async push. We own `content` and tag attributes fully, and the

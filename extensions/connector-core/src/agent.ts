@@ -114,6 +114,10 @@ export class MeshAgent extends EventEmitter {
     });
     this.ep.on("message", (m: CotalMessage, d: Delivery, meta?: MessageMeta) => this.ingest(m, d, meta));
     this.ep.on("error", (e: Error) => this.log(`endpoint error: ${e.message}`));
+    // The endpoint's (re)binds are the single source of truth for connectedness: this fires on
+    // initial start, manual reconnect, AND the background self-heal — so a recovery the endpoint
+    // did on its own can't leave us thinking we're offline (which would skip stop() → leak).
+    this.ep.on("connection", (e: { connected: boolean }) => { this._connected = e.connected; });
   }
 
   get id(): string {
@@ -133,7 +137,7 @@ export class MeshAgent extends EventEmitter {
     while (!this.stopping && !this._connected) {
       try {
         await this.ep.start();
-        this._connected = true;
+        // _connected is set by the endpoint's "connection" event (fired inside start()), not here.
         this.log(
           `connected to ${this.config.servers} as ${this.who()} in space "${this.config.space}" on #${this.config.channels.join(", #")}`,
         );
@@ -146,7 +150,26 @@ export class MeshAgent extends EventEmitter {
 
   async stop(): Promise<void> {
     this.stopping = true;
-    if (this._connected) await this.ep.stop();
+    // Unconditional: a background self-heal can flip _connected without us, so a `_connected`
+    // guard could skip the stop and leak the live connection/heartbeat/supervisor. ep.stop() is
+    // idempotent (early-returns once stopped), so calling it when already-down is a noop.
+    await this.ep.stop();
+  }
+
+  /** Manual reconnect: tear down the mesh connection and rebuild it in-process, WITHOUT
+   *  stopping the agent (the recovery path, so it does NOT assert connected). Delegates to
+   *  {@link CotalEndpoint.reconnect}, which is serialized with the self-heal supervisor and
+   *  interruptible. Returns a one-line status for the caller to surface (e.g. the
+   *  cotal_reconnect tool → TUI); on failure the endpoint keeps retrying in the background. */
+  async reconnect(): Promise<{ ok: boolean; message: string }> {
+    if (this.stopping) throw new Error("agent stopping — cannot reconnect");
+    try {
+      await this.ep.reconnect();
+      // _connected is set by the endpoint's "connection" event on the successful rebind, not here.
+      return { ok: true, message: `Reconnected ✓ (${this.config.name}@${this.config.space})` };
+    } catch (e) {
+      return { ok: false, message: `Reconnect failed: ${(e as Error).message}. Still retrying automatically — or run /reconnect to retry now.` };
+    }
   }
 
   // ---- inbox ---------------------------------------------------------------

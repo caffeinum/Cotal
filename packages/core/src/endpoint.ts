@@ -120,7 +120,11 @@ export interface ChannelMember {
 }
 
 /**
- * Events: "message" (CotalMessage), "presence" (PresenceEvent), "roster" (Presence[]), "error" (Error).
+ * Events: "message" (CotalMessage), "presence" (PresenceEvent), "roster" (Presence[]), "error" (Error),
+ * "connection" ({ connected: boolean }) — true on every successful (re)bind (initial start, manual
+ * reconnect, AND background self-heal), false the moment the connection drops (rebuild null window /
+ * terminal close). Lets an in-process agent track connectedness off the endpoint's own (re)binds
+ * instead of an imperative flag the self-heal path can't reach.
  *
  * Callers MUST attach an "error" listener before `start()`: async faults (incl. NATS
  * permission denials, surfaced via `watchStatus`) are emitted as "error", and Node throws
@@ -167,6 +171,20 @@ export class CotalEndpoint extends EventEmitter {
   private status: PresenceStatus = "idle";
   private activity?: string;
   private stopped = false;
+  /** In-flight rebuild (drain+rebind) — serializes manual reconnect, the supervisor's
+   *  closed(), and reestablishLoop so only ONE rebuild runs at a time (a second trigger
+   *  coalesces onto the shared promise, never starts a parallel connectAndBind). */
+  private rebuildPromise?: Promise<void>;
+  /** True only during the null window of a rebuild (this.nc unset) — user-facing ops then
+   *  throw a "reconnecting" message instead of the misleading "endpoint not started". */
+  private reconnecting = false;
+  /** One reestablishLoop at a time; concurrent triggers coalesce via rebuild(). */
+  private reestablishing = false;
+  /** Interruptible backoff for reestablishLoop — reconnect()/stop() resolves this to retry
+   *  now instead of awaiting the full retryMs. */
+  private backoffResolve?: () => void;
+  private backoffTimer?: ReturnType<typeof setTimeout>;
+  private readonly retryMs = 3000;
 
 
   constructor(opts: EndpointOptions) {
@@ -269,6 +287,10 @@ export class CotalEndpoint extends EventEmitter {
       if (!this.creds) await this.ensureStreams();
       await this.startConsumers();
     }
+
+    // Bound and live — covers initial start, manual reconnect, AND background self-heal (every
+    // path lands here). The single signal an in-process agent's connected flag tracks.
+    this.emit("connection", { connected: true });
   }
 
   /** Tear down everything {@link connectAndBind} (re)creates, so a rebind can't leak a
@@ -297,14 +319,37 @@ export class CotalEndpoint extends EventEmitter {
     this.channelDefaults = {};
   }
 
+  /** If stop() ran during a rebuild's `await connectAndBind`, the just-bound connection +
+   *  heartbeat + supervisor would be left live on a stopped endpoint. Tear that fresh
+   *  connection back down and report it. Reads `this.nc` in its own scope (a bare `this.nc`
+   *  in doRebuild narrows to `never` via TS inlining connectAndBind's assignment). Returns
+   *  true iff it tore something down (caller bails out of the rebuild). */
+  private async tearDownIfStopped(): Promise<boolean> {
+    if (!this.stopped) return false;
+    const nc = this.nc;
+    this.clearConnectionScoped();
+    try {
+      await nc?.drain();
+    } catch {
+      /* already closing */
+    }
+    this.nc = undefined;
+    return true;
+  }
+
   /** Watch for a terminal close (nats.js has exhausted its own reconnect) and rebuild.
    *  Our own stop()/drain also resolves closed(), so the `stopped` guard keeps a clean
-   *  shutdown from re-establishing. */
+   *  shutdown from re-establishing. The identity guard (`this.nc !== nc`) no-ops a STALE
+   *  supervisor — one whose connection reconnect()/rebuild already replaced — so only a
+   *  close of the CURRENT connection triggers a rebuild. The rebuild itself is serialized
+   *  with the manual path via {@link rebuild}. */
   private superviseConnection(): void {
     const nc = this.nc;
     if (!nc) return;
     void nc.closed().then((err) => {
       if (this.stopped) return;
+      if (this.nc !== nc) return; // epoch-stale — a rebuild already swapped this connection
+      this.emit("connection", { connected: false }); // dropped — report it before the rebuild kicks in
       this.emit(
         "error",
         new Error(`mesh connection closed${err ? `: ${(err as Error).message}` : ""} — re-establishing`),
@@ -313,25 +358,108 @@ export class CotalEndpoint extends EventEmitter {
     });
   }
 
-  /** Rebuild the connection with backoff until it sticks or we're stopped, then re-arm the
-   *  supervisor on the fresh connection. Unacked in-flight messages redeliver on the rebound
-   *  durables, so nothing is lost across the gap. */
-  private async reestablishLoop(retryMs = 3000): Promise<void> {
-    while (!this.stopped) {
+  /** Single serialized rebuild: drain the old connection and rebind via {@link connectAndBind},
+   *  guarded so concurrent triggers (manual {@link reconnect}, the supervisor's closed(), the
+   *  retry loop) coalesce onto ONE in-flight rebuild instead of racing two connectAndBinds and
+   *  leaking a connection. Returns the shared promise; a second caller gets the in-flight one. */
+  private rebuild(): Promise<void> {
+    if (this.rebuildPromise) return this.rebuildPromise;
+    const p = this.doRebuild().finally(() => {
+      if (this.rebuildPromise === p) this.rebuildPromise = undefined;
+    });
+    this.rebuildPromise = p;
+    return p;
+  }
+
+  /** The transition: stop the connection-scoped timers FIRST (so nothing live touches
+   *  this.nc during the null window), drop the connection refs, drain the old nc, then
+   *  rebind + re-arm the supervisor on the fresh connection. clearConnectionScoped is
+   *  idempotent, so connectAndBind's own call here is a noop. */
+  private async doRebuild(): Promise<void> {
+    const oldNc = this.nc;
+    this.reconnecting = true;
+    try {
+      this.clearConnectionScoped();
+      this.nc = undefined;
+      this.js = undefined;
+      this.jsm = undefined;
+      this.kv = undefined;
+      this.channelKv = undefined;
+      this.emit("connection", { connected: false }); // null window opened — not live until the rebind below
       try {
-        await this.connectAndBind();
-        this.superviseConnection();
-        return;
-      } catch (e) {
-        this.emit("error", e as Error);
-        await new Promise((r) => setTimeout(r, retryMs));
+        await oldNc?.drain();
+      } catch {
+        /* already closing */
       }
+      await this.connectAndBind();
+      // stop() may have run during the await — don't leave a live connection + heartbeat +
+      // supervisor on a stopped endpoint. (Reads this.nc in its own scope — a bare `this.nc`
+      // here in doRebuild narrows to `never` via TS inlining connectAndBind's assignment.)
+      if (await this.tearDownIfStopped()) return;
+      this.superviseConnection(); // re-arm on the fresh nc
+    } finally {
+      this.reconnecting = false;
+    }
+  }
+
+  /** Rebuild with backoff until it sticks or we're stopped. Interruptible: a manual
+   *  {@link reconnect} kicks the backoff so the next attempt runs immediately instead of
+   *  awaiting the full retryMs. One loop at a time ({@link reestablishing}); concurrent
+   *  triggers coalesce via {@link rebuild}. */
+  private async reestablishLoop(): Promise<void> {
+    if (this.reestablishing) return;
+    this.reestablishing = true;
+    try {
+      while (!this.stopped) {
+        try {
+          await this.rebuild();
+          return; // success — re-armed; the supervisor re-triggers on the next terminal close
+        } catch (e) {
+          if (!this.stopped) this.emit("error", e as Error);
+          await new Promise<void>((resolve) => {
+            this.backoffResolve = resolve;
+            this.backoffTimer = setTimeout(resolve, this.retryMs);
+          });
+        }
+      }
+    } finally {
+      this.reestablishing = false;
+    }
+  }
+
+  /** Cut an in-flight reestablish backoff short so the next attempt runs immediately, and
+   *  clear its timer so it can't fire later on a stopped/restarted loop. */
+  private kickBackoff(): void {
+    this.backoffResolve?.();
+    if (this.backoffTimer) {
+      clearTimeout(this.backoffTimer);
+      this.backoffTimer = undefined;
+    }
+  }
+
+  /** Manual reconnect: tear down the current connection and rebuild, WITHOUT the permanent
+   *  stop (stopped/stopping stay false). Serialized with the self-heal supervisor via
+   *  {@link rebuild}, and interruptible — if a backoff is in flight, kick it so the attempt
+   *  is now, not in retryMs. Throws if stopped. On failure, leaves {@link reestablishLoop}
+   *  running in the background so the endpoint never stays dead, and rethrows so the caller
+   *  can report it. */
+  async reconnect(): Promise<void> {
+    if (this.stopped) throw new Error("endpoint stopped — cannot reconnect");
+    this.kickBackoff();
+    try {
+      await this.rebuild();
+    } catch (e) {
+      void this.reestablishLoop(); // background retry until success or stop
+      throw e;
     }
   }
 
   async stop(): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
+    // Wake a reestablishLoop sitting in backoff so it sees `stopped` and exits instead of
+    // sleeping out retryMs; also clears the timer so it can't fire later.
+    this.kickBackoff();
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     if (this.sweepTimer) clearInterval(this.sweepTimer);
     for (const msgs of this.streamMsgs) {
@@ -501,7 +629,7 @@ export class CotalEndpoint extends EventEmitter {
     req: ControlRequestInit,
     timeoutMs = 5000,
   ): Promise<ControlReply> {
-    if (!this.nc) throw new Error("endpoint not started");
+    if (!this.nc) throw new Error(this.notLiveMsg());
     const body: ControlRequest = { ...req, from: req.from ?? this.ref() };
     const m = await this.nc.request(
       controlServiceSubject(this.space, service, this.card.id),
@@ -557,7 +685,7 @@ export class CotalEndpoint extends EventEmitter {
    * the number of historical messages backfilled (emitted as `historical` "message" events).
    */
   async joinChannel(channel: string): Promise<{ joined: boolean; backfilled: number }> {
-    if (!this.jsm) throw new Error("endpoint not started");
+    if (!this.jsm) throw new Error(this.notLiveMsg());
     if (this.channels.includes(channel)) return { joined: false, backfilled: 0 };
     const next = collapseFilterSubjects(
       [...this.channels, channel].map((ch) => chatSubject(this.space, "*", ch)),
@@ -578,7 +706,7 @@ export class CotalEndpoint extends EventEmitter {
    *  the *last* channel (an empty filter would match every chat subject — the opposite of
    *  leaving). Returns whether anything changed. */
   async leaveChannel(channel: string): Promise<{ left: boolean }> {
-    if (!this.jsm) throw new Error("endpoint not started");
+    if (!this.jsm) throw new Error(this.notLiveMsg());
     const i = this.channels.indexOf(channel);
     if (i < 0) return { left: false };
     if (this.channels.length === 1)
@@ -596,7 +724,7 @@ export class CotalEndpoint extends EventEmitter {
    *  entry (configured-but-empty), each tagged with its {@link ChannelConfig}. Works even on
    *  observer endpoints (no consumers needed). */
   async listChannels(): Promise<{ channel: string; messages: number; config?: ChannelConfig }[]> {
-    if (!this.nc) throw new Error("endpoint not started");
+    if (!this.nc) throw new Error(this.notLiveMsg());
     const mgr = await jetstreamManager(this.nc);
     // Subjects carry the sender (chat.<sender>.<channel>), so collapse across senders: sum
     // each channel's counts regardless of who published.
@@ -772,8 +900,18 @@ export class CotalEndpoint extends EventEmitter {
     });
   }
 
+  /** The error message for a guard that finds the endpoint unbound: "reconnecting" during a
+   *  rebuild's null window OR an inter-retry backoff (so a concurrent op reports the real
+   *  reason, not "not started" — `reestablishing` spans the whole retry loop incl. backoff),
+   *  else "endpoint not started" (genuine pre-start). */
+  private notLiveMsg(): string {
+    return this.reconnecting || this.reestablishing
+      ? "reconnecting — try again shortly"
+      : "endpoint not started";
+  }
+
   private async publishMsg(subject: string, msg: CotalMessage): Promise<void> {
-    if (!this.js) throw new Error("endpoint not started");
+    if (!this.js) throw new Error(this.notLiveMsg());
     // msgID = message id → free server-side dedup across JetStream redelivery.
     await this.js.publish(subject, JSON.stringify(msg), { msgID: msg.id });
   }
@@ -1092,7 +1230,7 @@ export class CotalEndpoint extends EventEmitter {
     channel: string,
     sinceSeq: number,
   ): Promise<{ messages: CotalMessage[]; dropped: boolean }> {
-    if (!this.jsm) throw new Error("endpoint not started");
+    if (!this.jsm) throw new Error(this.notLiveMsg());
     if (!isConcreteChannel(channel)) return { messages: [], dropped: false };
     const policy = await this.joinPolicyFresh(channel);
     if (!policy.replay) return { messages: [], dropped: false };
