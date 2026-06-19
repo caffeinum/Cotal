@@ -346,7 +346,7 @@ export function cotalToolSpecs(config: AgentConfig, source = "connector"): Cotal
       description:
         "Ask the manager to start a new peer endpoint in your space. It joins the mesh as a lateral peer (and, when the manager runs the cmux runtime, appears in its own tab). Use when the team needs another agent.",
       schema: {
-        name: z.string().describe("Unique name for the new peer."),
+        name: z.string().describe("Name for the new peer; auto-numbered (e.g. reviewer-2) if taken."),
         role: z
           .string()
           .optional()
@@ -356,10 +356,14 @@ export function cotalToolSpecs(config: AgentConfig, source = "connector"): Cotal
         try {
           const reply = await agent.spawn(name, role);
           if (!reply.ok) return err(`Couldn't spawn ${name}: ${reply.error ?? "manager refused"}`);
-          const mode = (reply.data as { mode?: string } | undefined)?.mode;
-          return ok(
-            `Spawning ${role ? `${name}/${role}` : name}${mode ? ` (${mode})` : ""} — it will appear in the roster shortly.`,
-          );
+          const d = reply.data as { name?: string; mode?: string } | undefined;
+          const actual = d?.name ?? name; // the manager auto-numbers on a collision — report what it spawned
+          const mode = d?.mode;
+          const who = role ? `${actual}/${role}` : actual;
+          // Make the rename unmissable: a colliding caller must see it asked for `name` but got
+          // `actual`, not silently address the wrong peer later (the tool result is the only channel).
+          const lead = actual !== name ? `"${name}" was taken — spawning ${who} instead` : `Spawning ${who}`;
+          return ok(`${lead}${mode ? ` (${mode})` : ""} — it will appear in the roster shortly.`);
         } catch (e) {
           return err(
             `Couldn't spawn ${name}: no manager reachable (${(e as Error).message}). Is the manager running?`,
