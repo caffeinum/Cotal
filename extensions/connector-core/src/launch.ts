@@ -16,7 +16,8 @@
  */
 
 /** OS env a coding-agent TUI genuinely needs to run — find its binary (PATH), render (TERM /
- *  COLORTERM), resolve home/config (HOME), locale (LANG / LC_*), timezone (TZ), temp (TMPDIR),
+ *  COLORTERM), resolve home/config/data dirs (HOME / XDG_CONFIG_HOME / XDG_DATA_HOME — where a tool
+ *  finds its config and credential store), locale (LANG / LC_*), timezone (TZ), temp (TMPDIR),
  *  session/runtime dir (XDG_RUNTIME_DIR), and the shell it may invoke. NOT a model key, NOT an
  *  operator secret. A fixed, named allow-list. */
 const OS_ENV_ALLOW = [
@@ -35,6 +36,8 @@ const OS_ENV_ALLOW = [
   "TZ",
   "TMPDIR",
   "TMP",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
   "XDG_RUNTIME_DIR",
 ] as const;
 

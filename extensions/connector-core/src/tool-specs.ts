@@ -495,7 +495,7 @@ export function cotalToolSpecs(config: AgentConfig, source = "connector"): Cotal
       name: "cotal_reconnect",
       title: "Cotal: reconnect to the mesh",
       description:
-        "Tear down and rebuild this session's mesh connection in-process — the manual recovery path when the connection has wedged (the counterpart to Claude Code's /mcp reconnect, and a complement to the automatic self-heal). Zero-argument; local only — it does not ride the mesh link. Returns a one-line status (Reconnected ✓ / Reconnect failed — still retrying automatically, or run /reconnect to retry now).",
+        "Tear down and rebuild this session's mesh connection in-process — the manual recovery path when the connection has wedged (the counterpart to Claude Code's /mcp reconnect, and a complement to the automatic self-heal). Zero-argument; local only — it does not ride the mesh link. Returns a one-line status (Reconnected ✓ / Reconnect failed — still retrying automatically, or this session is shutting down).",
       async run(agent) {
         const r = await agent.reconnect();
         return r.ok ? ok(r.message) : err(r.message);

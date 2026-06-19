@@ -21,7 +21,16 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import { once } from "node:events";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 
 const BIN = process.env.COTAL_OPENCODE_BIN?.trim() || "opencode";
 
@@ -53,13 +62,40 @@ async function killServe(serve: ChildProcess): Promise<void> {
   }
 }
 
+/** opencode keeps provider logins (`auth.json`) and the opencode.ai account (`account.json`) under
+ *  the DATA dir — the same XDG_DATA_HOME we redirect per-agent to isolate the session SQLite. opencode
+ *  has no env to relocate auth on its own (sst/opencode#5423), so a redirected data dir starts the
+ *  agent with an EMPTY auth store: the operator's openai/anthropic logins vanish ("logged out").
+ *  Symlink the real files into the per-agent dir so the agent shares the operator's LIVE login (a
+ *  later re-login / token refresh writes through), self-healing any stale copy a prior launch left. */
+function shareCredentials(dataHome: string): void {
+  const realDataHome = process.env.XDG_DATA_HOME?.trim() || `${process.env.HOME}/.local/share`;
+  const ocDir = `${dataHome}/opencode`;
+  mkdirSync(ocDir, { recursive: true });
+  for (const file of ["auth.json", "account.json"]) {
+    const src = `${realDataHome}/opencode/${file}`;
+    const dst = `${ocDir}/${file}`;
+    if (!existsSync(src)) continue;
+    let linked = false;
+    try {
+      linked = lstatSync(dst).isSymbolicLink() && readlinkSync(dst) === src;
+    } catch {
+      /* dst absent */
+    }
+    if (linked) continue;
+    rmSync(dst, { force: true }); // drop a stale regular-file copy a buggy launch left behind
+    symlinkSync(src, dst);
+  }
+}
+
 async function main(): Promise<void> {
   const port = process.env.COTAL_OPENCODE_PORT?.trim() || String(await freePort());
   const url = `http://127.0.0.1:${port}`;
   // Own data dir per agent: opencode keeps sessions in one SQLite file under XDG_DATA_HOME,
   // and concurrent serves sharing it stall session-create on the write lock (the "agent
-  // session never came up" failure). Per-peer session state is the right scoping anyway;
-  // provider config/auth lives under XDG_CONFIG_HOME, untouched.
+  // session never came up" failure). Per-peer session state is the right scoping anyway.
+  // CAVEAT: auth.json/account.json ALSO live under XDG_DATA_HOME, so redirecting it drops the
+  // operator's provider logins — shareCredentials() symlinks them back in (called below).
   const name = process.env.COTAL_NAME?.trim() || "agent";
   const dataHome = `${process.cwd()}/.cotal/opencode/${name}`;
 
@@ -78,11 +114,12 @@ async function main(): Promise<void> {
     rmSync(pidFile);
   }
 
+  shareCredentials(dataHome); // creates dataHome/opencode + symlinks the operator's logins in
+
   const serve = spawn(BIN, ["serve", "--hostname", "127.0.0.1", "--port", port], {
     env: { ...process.env, OPENCODE_SERVER_PASSWORD: SECRET, XDG_DATA_HOME: dataHome },
     stdio: ["ignore", "pipe", "pipe"],
   });
-  mkdirSync(dataHome, { recursive: true });
   writeFileSync(pidFile, String(serve.pid));
   serve.on("exit", () => rmSync(pidFile, { force: true }));
 
