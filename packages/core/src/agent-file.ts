@@ -44,6 +44,12 @@ export interface AgentDef {
    *  absent — nats-server, not a handler, is the boundary. Granting authority is operator-level
    *  (`definePersona` is itself privileged), so no peer can self-grant via its own agent file. */
   capabilities?: string[];
+  /** Authenticated id of the agent that first defined this persona via `definePersona` (P6). A
+   *  POLICY field, not content: the privileged tier may *redefine* an existing file only if its
+   *  `owner` equals the caller; everyone else needs the admin tier. Fail-closed — an ownerless
+   *  file (legacy / operator-written) is admin-only, and a caller can never claim ownership of an
+   *  existing file. Set once at creation (owner = creator), preserved on every later redefine. */
+  owner?: string;
   /** Frontmatter keys not modelled above, kept verbatim so a connector can read its own launcher
    *  hints without core knowing about each one (e.g. the OpenCode face viewer's `face:` avatar id). */
   meta?: Record<string, string>;
@@ -111,7 +117,7 @@ export function loadAgentFile(path: string): AgentDef {
 
   // Sweep every scalar frontmatter key we don't model into meta, verbatim — connector hints
   // (face, etc.) ride here so core stays ignorant of surface-specific keys.
-  const known = new Set(["name", "role", "kind", "description", "tags", "channels", "publish", "model", "capabilities"]);
+  const known = new Set(["name", "role", "kind", "description", "tags", "channels", "publish", "model", "capabilities", "owner"]);
   const meta: Record<string, string> = {};
   for (const [k, v] of Object.entries(fm)) if (!known.has(k) && typeof v === "string") meta[k] = v;
 
@@ -125,6 +131,7 @@ export function loadAgentFile(path: string): AgentDef {
     publish: list("publish"),
     model: str("model"),
     capabilities: list("capabilities"),
+    owner: str("owner"),
     meta: Object.keys(meta).length ? meta : undefined,
     persona: persona || undefined,
   };
@@ -145,6 +152,7 @@ export function saveAgentFile(path: string, def: AgentDef): void {
   if (def.publish?.length) lines.push(`publish: [${def.publish.map(fmItem).join(", ")}]`);
   if (def.model) lines.push(`model: ${fmScalar(def.model)}`);
   if (def.capabilities?.length) lines.push(`capabilities: [${def.capabilities.map(fmItem).join(", ")}]`);
+  if (def.owner) lines.push(`owner: ${fmScalar(def.owner)}`);
   if (def.meta) for (const [k, v] of Object.entries(def.meta)) lines.push(`${k}: ${fmScalar(v)}`);
   lines.push("---");
   const body = def.persona ? `${def.persona.trim()}\n` : "";

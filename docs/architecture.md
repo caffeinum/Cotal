@@ -593,7 +593,9 @@ server, not by agent goodwill. It is containment + authenticity for a single tru
   builders so the ACLs can't drift from the wire layout):
   - **agent** — publish only `chat.<ownId>.<declared-channel>` (the `publish:` list in the
     agent file, falling back to `channels:`; wildcard subtrees like `team.>` flow through),
-    plus `inst.*.<ownId>` / `svc.*.<ownId>` / `ctl.<mgr>.<ownId>`. Presence PUT scoped to its
+    plus `inst.*.<ownId>` / `svc.*.<ownId>`, and `ctl.self.<ownId>` (self-service control, every
+    agent) — the privileged `ctl.manager.<ownId>` **only** when the agent file declares
+    `capabilities: [spawn]` (default-deny otherwise). Presence PUT scoped to its
     own key. `$JS.API` scoped to its own chat/task/DM durables (chat & task self-created
     name-scoped; **DM and TASK bind-only** — create denied). `sub.allow = [_INBOX_<ownId>.>]`.
   - **observer** — read-only: `sub.allow = [chat.>, _INBOX_<ownId>.>]`, pub = CHAT + presence
@@ -607,6 +609,40 @@ server, not by agent goodwill. It is containment + authenticity for a single tru
     `DM_<space>` is the DM-confidentiality surface, granted here only for this profile.
   - **manager** — privileged (broad), the provisioner host; pre-creates others' DM/TASK
     durables. (Eventually should be scoped too — see limitations.)
+- **The control plane is split into three privilege tiers**, op↔tier routed **fail-closed** by the
+  manager (a misrouted op is rejected before anything acts — the cred gates *who reaches* a subject,
+  this gates *what each subject honors*):
+  - `ctl.self.<id>` (every agent) — only the no-name self stop/despawn; the target resolves from the
+    authenticated sender, so there's no field to forge.
+  - `ctl.manager.<id>` (**privileged**, default-denied to agents — granted only when the agent file
+    declares `capabilities: [spawn]`) — spawn, plus stop/despawn/attach of the caller's **own**
+    children (`spawner == caller`) and redefining its own personas. So spawn is a *declared
+    capability*, off by default, enforced by nats-server, not a handler.
+  - `ctl.admin.<id>` (reached only by the manager's allow-all profile — **no agent ever gets it**) —
+    the destructive / cross-agent operator ops: `purge`, and stop/despawn/attach/`definePersona` of
+    *any* agent. Admin is transport-proven (reaching the subject = holding manager creds), so the
+    handler never guesses it. `purge` lives here on purpose: on the privileged tier any spawn-capable
+    agent could wipe space history.
+- **`definePersona` separates content from policy.** Its write path takes only content
+  (`model` / `persona`) — `role` / `publish` / `capabilities` / `owner` are policy and have no slot,
+  so a peer can't grant itself a capability or seize ownership by redefining. A fresh name records
+  its creator as `owner`; redefining an existing file preserves all policy and is allowed on the
+  privileged tier only if `owner == caller`, else admin. Fail-closed: an ownerless (legacy /
+  operator-written) file is admin-only.
+- **Spawn is bounded (availability).** A synchronous gate caps concurrent + in-flight agents
+  (`MAX_AGENTS`), and a minimum-lifetime "cooling" floor bounds spawn↔despawn churn — so a
+  capability-holding-but-compromised peer can't fork-bomb the host. The ceiling holds under **every**
+  runtime. *Caveat:* reaping a self-**exited** agent's slot is wired only where the runtime streams an
+  exit signal (pty/tmux); under cmux a self-exited agent lingers until explicitly despawned — the cap
+  still holds (it counts the corpse), only the reaping is deferred. Runtime-agnostic exit-reaping
+  (cmux liveness → sweep-at-gate) is a tracked follow-up.
+- **Spawned children get a declared env, not the manager's.** Runtimes pass only an explicit
+  allow-list (`launchEnv()` — PATH / HOME / locale / TERM, plus the one model key the connector
+  needs), never `process.env`, so the operator's *unrelated* secrets (cloud creds, tokens) stop
+  bleeding into every agent. Honest scope: this closes **env-var** bleed only. It does **not** close
+  model-key exfil (the agent holds the key in-process to do inference — needs per-agent model auth)
+  or filesystem reads (`HOME` is forwarded, so a child can still read `~/.aws` / `~/.ssh` off disk —
+  needs a workspace sandbox).
 - **DM & TASK confidentiality close two leak paths.** *Delivery path:* all NATS delivery rides
   the connection inbox, and NATS delivers a subject to every subscriber, so a wildcard
   `_INBOX.>` subscribe would sniff peers' deliveries. Fix: a **per-identity inbox prefix**
@@ -634,7 +670,12 @@ server, not by agent goodwill. It is containment + authenticity for a single tru
 - **Signing key + operator seed are hot** in `.cotal/auth` (the mint/manager box) — not yet
   key-confined; the "real boundary" holds only given operator-controlled cred distribution.
   Operator seed should be cold-stored (it's the root; only needed for account setup/rotation).
-- **No revocation / TTL** on minted creds yet.
+- **No credential revocation / TTL** on minted creds yet — and this bounds containment:
+  `cotal_despawn` cuts an agent's **session**, not its **credential**. A compromised agent that
+  copied its own (no-TTL bearer) creds can reconnect afterward, from any host, until the space
+  signing key is **rotated** (which re-mints *everyone* — the only per-cred revocation today) or it's
+  cut at the network. Despawn is the immediate lever, not full containment of a compromised identity;
+  per-cred TTL/rotation is the deferred fix (auth-callout, below).
 - `isReachable` conflates auth-failure with server-down (misleading "run cotal up").
 - The **manager profile is allow-all** — fine for Demo 1, but the most-privileged identity
   should eventually be scoped for the full untrusted-peer claim.

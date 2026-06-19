@@ -2,9 +2,11 @@
  * Control-plane authz smoke (P2a/P5) — the transport boundary, verified at runtime.
  *
  * Spins up its OWN JWT-auth nats-server and proves nats-server — not a handler — enforces the
- * privileged / self-service control-subject split:
- *   - non-capable agent: publish to ctl.self.<id> ALLOWED; publish to ctl.manager.<id> DENIED
- *   - spawn-capable agent (capabilities:["spawn"]): publish to ctl.manager.<id> ALLOWED
+ * three-tier admin / privileged / self-service control-subject split:
+ *   - non-capable agent: publish to ctl.self.<id> ALLOWED; ctl.manager.<id> + ctl.admin.<id> DENIED
+ *   - spawn-capable agent (capabilities:["spawn"]): ctl.manager.<id> ALLOWED; ctl.admin.<id> DENIED
+ * Admin is manager-profile-only — no agent cred, capable or not, may reach it (default-deny by
+ * omission), so purge + cross-agent ops can't be published by a compromised peer at all.
  * A denied publish rejects the request with an Authorization Violation; an allowed publish with
  * no manager running rejects with "No Responders" / timeout — the error type tells them apart.
  *
@@ -27,6 +29,7 @@ import {
   controlServiceSubject,
   CONTROL_PRIVILEGED,
   CONTROL_SELF_SERVICE,
+  CONTROL_ADMIN,
 } from "./src/index.js";
 
 const PORT = 14226;
@@ -96,14 +99,18 @@ try {
 
   const plainSelf = controlServiceSubject(space, CONTROL_SELF_SERVICE, plainId.id);
   const plainPriv = controlServiceSubject(space, CONTROL_PRIVILEGED, plainId.id);
+  const plainAdmin = controlServiceSubject(space, CONTROL_ADMIN, plainId.id);
   const capPriv = controlServiceSubject(space, CONTROL_PRIVILEGED, capId.id);
+  const capAdmin = controlServiceSubject(space, CONTROL_ADMIN, capId.id);
 
   console.log("non-capable agent:");
   check("publish ctl.self.<id> ALLOWED", await tryPublish(plainCreds, plainSelf, plainId.id) === "allowed");
   check("publish ctl.manager.<id> DENIED by nats-server", await tryPublish(plainCreds, plainPriv, plainId.id) === "denied");
+  check("publish ctl.admin.<id> DENIED by nats-server", await tryPublish(plainCreds, plainAdmin, plainId.id) === "denied");
 
   console.log("spawn-capable agent (capabilities:[spawn]):");
   check("publish ctl.manager.<id> ALLOWED", await tryPublish(capCreds, capPriv, capId.id) === "allowed");
+  check("publish ctl.admin.<id> DENIED by nats-server", await tryPublish(capCreds, capAdmin, capId.id) === "denied");
 
   console.log(`\nCONTROL-AUTH SMOKE ${fail === 0 ? "OK ✅" : "FAILED ❌"}  (${pass} passed, ${fail} failed)`);
   if (fail) process.exitCode = 1;

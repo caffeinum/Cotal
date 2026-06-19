@@ -14,8 +14,10 @@ import {
   newIdentity,
   registry,
   CONTROL_PRIVILEGED,
+  CONTROL_ADMIN,
   type Command,
   type ControlReply,
+  type ControlTier,
 } from "@cotal-ai/core";
 import { Manager } from "./manager.js";
 import { loadRoster } from "./roster.js";
@@ -63,13 +65,17 @@ function parse(argv: string[]): Values {
   return values as Values;
 }
 
-/** Connect a short-lived client, send one control request to the manager, disconnect. */
+/** Connect a short-lived client, send one control request to the manager, disconnect. `tier` picks
+ *  the control subject: privileged for spawn/ps; admin for the operator's cross-agent ops
+ *  (stop/attach/purge), which the manager refuses on the privileged subject for a non-owner. The
+ *  CLI mints a "manager" cred (allow-all), so it can reach either subject. */
 async function ask(
   space: string,
   server: string,
   op: string,
   args?: Record<string, unknown>,
   credsPath?: string,
+  tier: ControlTier = CONTROL_PRIVILEGED,
 ): Promise<ControlReply> {
   // An explicit --creds wins; else self-mint a privileged "manager" cred from .cotal/auth so the
   // operator's start/stop/ps reach the privileged control subject (P5: only spawn-capable/admin/
@@ -105,7 +111,7 @@ async function ask(
   ep.on("error", (e: Error) => console.error(c.red("! " + e.message)));
   await ep.start();
   try {
-    return await ep.requestControl(CONTROL_PRIVILEGED, { op, args });
+    return await ep.requestControl(tier, { op, args });
   } catch (e) {
     return { ok: false, error: `no manager reachable (${(e as Error).message})` };
   } finally {
@@ -148,9 +154,11 @@ async function stop(argv: string[]): Promise<void> {
     console.error(c.red("--name is required"));
     process.exit(1);
   }
+  // Operator stop is a cross-agent (admin) op — the CLI operator isn't the agent's spawner, so the
+  // privileged subject would reject it; admin (its allow-all "manager" cred reaches it) is correct.
   const reply = await ask(spaceFor(v), v.server ?? DEFAULT_SERVER, "stop", {
     name: v.name,
-  }, v.creds);
+  }, v.creds, CONTROL_ADMIN);
   failIfNotOk(reply);
   console.log(c.dim(`✓ stopped ${v.name}`));
 }
@@ -196,9 +204,11 @@ async function attach(argv: string[]): Promise<void> {
     console.error(c.red("--name is required"));
     process.exit(1);
   }
+  // Operator attach is a cross-agent (admin) op — same reasoning as stop (the operator isn't the
+  // spawner; admin reaches any agent).
   const reply = await ask(spaceFor(v), v.server ?? DEFAULT_SERVER, "attach", {
     name: v.name,
-  }, v.creds);
+  }, v.creds, CONTROL_ADMIN);
   failIfNotOk(reply);
   const { ws } = reply.data as { ws: string };
   console.error(c.dim(`attached to ${v.name} — Ctrl-] to detach`));
