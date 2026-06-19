@@ -52,6 +52,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
 
+      # Keep the "version packages" PR out of the generated release notes (excluded via .github/release.yml).
+      - name: Label the release PR
+        if: steps.changesets.outputs.pullRequestNumber
+        run: gh pr edit ${{ steps.changesets.outputs.pullRequestNumber }} --add-label skip-changelog
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+
       # ci:publish is `pnpm publish` (for OIDC provenance), which doesn't create git tags — so tag
       # the released versions ourselves whenever a publish actually happened. `changeset tag` creates
       # one tag per package at its current version (e.g. @cotal-ai/connector-core@0.1.3), skipping
