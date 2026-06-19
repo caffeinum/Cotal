@@ -55,8 +55,8 @@ export interface StartAgentOpts {
   role?: string;
   /** Explicit agent-file name-or-path; otherwise `.cotal/agents/<name>.md` is discovered if present. */
   config?: string;
-  /** Mirror the session's transcript to `tr-<name>`. Defaults to on; `false` (the
-   *  `--no-transcript` flag) disables it. */
+  /** Mirror the session's transcript to `tr-<name>`. Defaults to off; `true` (the
+   *  `--transcript` flag) opts in. */
   transcript?: boolean;
 }
 

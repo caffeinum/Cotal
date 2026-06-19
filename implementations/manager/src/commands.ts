@@ -137,8 +137,8 @@ async function start(argv: string[]): Promise<void> {
     role: v.role,
     agent: v.agent,
     config: v.config,
-    // Only sent when explicitly disabled; absent => the daemon's default (mirror on).
-    transcript: v["no-transcript"] ? false : undefined,
+    // Opt-in: only sent when `--transcript` is given; absent => the daemon's default (mirror off).
+    transcript: v.transcript ? true : undefined,
   }, v.creds);
   failIfNotOk(reply);
   const d = reply.data as { name: string; role?: string; agent: string; mode: string };
