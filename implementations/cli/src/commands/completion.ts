@@ -164,9 +164,15 @@ function install(shell?: string): void {
     return;
   }
   if (sh === "bash" || sh === "zsh") {
-    // bash/zsh load completion from their rc — append a single marked source line, once.
+    // Write the stub to a cached file and source THAT from the rc — deterministic (process
+    // substitution is slower and empirically flaky on macOS bash) and fast (no `cotal` spawn on
+    // every shell start). Re-running regenerates the stub; the rc line is added at most once.
+    const dir = join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "cotal");
+    const stub = join(dir, `completion.${sh}`);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(stub, SCRIPTS[sh]);
     const rc = sh === "zsh" ? join(process.env.ZDOTDIR || homedir(), ".zshrc") : join(homedir(), ".bashrc");
-    const line = `source <(cotal completion ${sh})`;
+    const line = `source "${stub}"`;
     let current = "";
     try {
       current = readFileSync(rc, "utf8");
@@ -175,11 +181,12 @@ function install(shell?: string): void {
     }
     if (current.includes(line)) {
       console.log(c.dim(`already installed in ${rc}`));
+      console.log(c.dim(`  refreshed ${stub}`));
       return;
     }
     appendFileSync(rc, `${current && !current.endsWith("\n") ? "\n" : ""}# cotal shell completion\n${line}\n`);
     console.log(c.green(`✓ installed ${sh} completion`));
-    console.log(c.dim(`  appended to ${rc}\n  open a new shell (or: ${line})`));
+    console.log(c.dim(`  ${stub}\n  appended to ${rc}\n  open a new shell (or: source ${stub})`));
     return;
   }
   // powershell: $PROFILE isn't resolvable from here, so print the exact line rather than guess.

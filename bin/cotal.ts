@@ -15,6 +15,15 @@ import "@cotal-ai/cmux"; // opt into the cmux integration — registers the `cmu
 import { claudeConnector } from "@cotal-ai/connector-claude-code";
 import { registry } from "@cotal-ai/core";
 
+// A CLI must exit quietly when its stdout is closed early — piped to `head`, a pager that quits,
+// or a shell's process substitution (`source <(cotal completion bash)`). Node otherwise turns the
+// closed-pipe write into a fatal unhandled 'error' event with a stack trace. Mirror SIGPIPE: exit
+// 0. Registered before any command can write.
+process.stdout.on("error", (e: NodeJS.ErrnoException) => {
+  if (e.code === "EPIPE") process.exit(0);
+  throw e;
+});
+
 // The manager's default agent type is "cotal"; make it a real Claude coder so a bare
 // cotal_spawn / `cotal start --name x` (no --agent) brings up a Claude Code session.
 registry.register({ ...claudeConnector, name: "cotal" });

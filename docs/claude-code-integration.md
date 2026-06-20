@@ -146,8 +146,10 @@ on save (a save that breaks the frontmatter fails loud, never ships a bad card),
 <name> --force` deletes it.
 
 **Tab completion.** `cotal completion <bash|zsh|fish|powershell>` prints a shell stub to
-stdout and writes nothing else; `cotal completion install [shell]` wires it in for you
-(auto-detects `$SHELL`, idempotent, opt-in — never run by `setup`). Each `<TAB>` then forwards
+stdout for a manual or one-shot `source`; `cotal completion install [shell]` installs it
+persistently — it caches the stub (`~/.config/cotal/completion.<shell>`, or fish's completions
+dir) and sources that from your shell rc (auto-detects `$SHELL`, idempotent, opt-in — never run
+by `setup`). Each `<TAB>` then forwards
 to a hidden `cotal __complete`, so completion sees real data: `cotal spawn <TAB>` lists your
 personas, `cotal msg <TAB>` the channels your agent files **declare**, `cotal ask <TAB>` the
 declared roles. By contract `__complete` reads only local files — never the mesh — so a
