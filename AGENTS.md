@@ -8,12 +8,10 @@ Keep your answers short and to the point.
 ## What this is
 
 **Cotal** is a standard wire interface for software, especially AI agents, to coordinate in
-real time as **lateral peers in a shared pub/sub space**, not as nodes in an orchestrator tree.
+real time.
 The wire contract (subjects, message schemas, presence/discovery conventions) *is* the standard;
 libraries are thin clients over it. Transport is **NATS + JetStream**; the reference
 implementation is **TypeScript**.
-
-> Write the name as **Cotal**, not "COTAL" (the directory is all-caps, the name is not).
 
 ## Read these first
 
@@ -107,6 +105,9 @@ endpoint methods; those go into `core`, generalized.
   Avoid shortcuts that add technical debt or fragility.
 - **Look at the relevant docs**, make sure `.internal` is current, and follow its guidelines
   when making changes.
+- **Track plan status.** `.internal/plans/STATUS.md` is the single source of truth for whether each
+  plan is executed — check it before acting on a plan. When you start, advance, finish, block, or
+  supersede a plan, update its row there in the same change; add a `planned` row for any new plan.
 
 ## Git and public messages
 
@@ -125,9 +126,4 @@ endpoint methods; those go into `core`, generalized.
   (`tavily_search` / `tavily_research`); it returns higher-signal results than built-in search.
 - **Fetching a known URL:** use the built-in `WebFetch`; do not route those through Tavily.
 
-## Status
-
-Demo 1 (the lateral-coordination showcase,
-[examples/01](examples/01-lateral-coordination/README.md)) is **done**: mesh, control plane, and
-the coding-agent connectors run end-to-end. Current work is public-facing: the README
-([guideline](.internal/guidelines/readme.md)), docs, and the hosted onboarding funnel.
+You are strictly forbidden from changing the current worktree into another branch, if you need another branch you MUST use git worktree (not the main one).
