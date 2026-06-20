@@ -15,7 +15,7 @@ import { signer } from "./commands/signer.js";
 import { channels } from "./commands/channels.js";
 import { history } from "./commands/history.js";
 import { feedback } from "./commands/feedback.js";
-import { dm, msg, ask } from "./commands/send.js";
+import { dm, msg, ask, msgComplete, askComplete } from "./commands/send.js";
 
 /** The minimal mesh CLI: thin NATS clients (up/join/watch), plus `spawn` — a
  *  foreground agent launch that reuses the connector's launch recipe. Self-registers
@@ -79,6 +79,7 @@ const baseCommands: Command[] = [
     summary: "broadcast a message to a channel",
     usage: 'msg <channel> "<text>"  [--space <s>] [--server <url>] [--creds <path>]',
     run: msg,
+    complete: msgComplete,
   },
   {
     kind: "command",
@@ -87,6 +88,7 @@ const baseCommands: Command[] = [
     summary: "anycast a message to a role (one instance answers)",
     usage: 'ask <role> "<text>"  [--space <s>] [--server <url>] [--creds <path>]',
     run: ask,
+    complete: askComplete,
   },
   {
     kind: "command",
@@ -123,7 +125,7 @@ const baseCommands: Command[] = [
     name: "personas",
     group: "Agents",
     summary:
-      "list/manage local personas (.cotal/agents) — personas <list [-v] | show <name> | new <name> (--prompt <t>|--from <f>) [--role <r>] [--model <m>] | rm <name> --force>",
+      "list/manage local personas (.cotal/agents) — personas <list [-v] [--running] | show <name> | edit <name> | new <name> (--prompt <t>|--from <f>) [--role <r>] [--model <m>] | rm <name> --force>",
     run: personas,
     complete: personasComplete,
   },
@@ -131,7 +133,7 @@ const baseCommands: Command[] = [
     kind: "command",
     name: "completion",
     group: "Agents",
-    summary: "print a shell-completion script — completion <bash|zsh|fish|powershell>",
+    summary: "shell completion — completion <bash|zsh|fish|powershell | install [shell]>",
     run: completion,
     complete: completionComplete,
   },

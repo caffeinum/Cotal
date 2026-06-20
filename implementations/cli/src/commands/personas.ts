@@ -1,15 +1,18 @@
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import {
   agentFilePath,
   assertValidName,
+  loadAgentFile,
   saveAgentFile,
   type AgentDef,
   type CompletionResult,
 } from "@cotal-ai/core";
 import { cotalRoot } from "../lib/paths.js";
 import { listPersonas, listPersonaNames, personasDir } from "../lib/personas.js";
+import { openTransient, type ConnectValues } from "../lib/transient.js";
 import { c } from "../ui.js";
 
 /**
@@ -18,8 +21,9 @@ import { c } from "../ui.js";
  * and writes the files directly (instant, works offline). The privileged, ownership-checked
  * path stays in the manager's `definePersona` for *agents* defining personas over the wire.
  *
- *   cotal personas [list] [--verbose]
+ *   cotal personas [list] [--verbose] [--running]
  *   cotal personas show <name>
+ *   cotal personas edit <name>
  *   cotal personas new <name> (--prompt <text> | --from <file|->) [--role <r>] [--model <m>] [--force]
  *   cotal personas rm <name> --force
  */
@@ -38,14 +42,20 @@ export async function personas(argv: string[]): Promise<void> {
       from: { type: "string" },
       verbose: { type: "boolean", short: "v" },
       force: { type: "boolean" },
+      running: { type: "boolean" },
+      space: { type: "string" },
+      server: { type: "string" },
+      creds: { type: "string" },
     },
   });
 
   switch (positionals[0] ?? "list") {
     case "list":
-      return list(values.verbose === true);
+      return list(values.verbose === true, values.running === true, values);
     case "show":
       return show(positionals[1]);
+    case "edit":
+      return edit(positionals[1]);
     case "new":
       return create(positionals[1], values);
     case "rm":
@@ -61,18 +71,19 @@ export function personasComplete(argv: string[]): CompletionResult {
     items: [
       { value: "list", description: "list the persona catalog" },
       { value: "show", description: "print a persona's card" },
+      { value: "edit", description: "open a persona in $EDITOR" },
       { value: "new", description: "create a persona" },
       { value: "rm", description: "delete a persona" },
     ],
     directive: "nofiles",
   };
   if (argv.length <= 1) return subs; // completing the subcommand
-  if (argv[0] === "show" || argv[0] === "rm")
+  if (argv[0] === "show" || argv[0] === "edit" || argv[0] === "rm")
     return { items: listPersonaNames().map((value) => ({ value })), directive: "nofiles" };
   return { items: [], directive: "nofiles" };
 }
 
-function list(verbose: boolean): void {
+async function list(verbose: boolean, running: boolean, values: ConnectValues): Promise<void> {
   const entries = listPersonas();
   if (!entries.length) {
     console.log(
@@ -81,6 +92,9 @@ function list(verbose: boolean): void {
     );
     return;
   }
+  // `--running` is an explicit live overlay: connect, snapshot who's present, and mark each persona.
+  // Fails loud if the mesh is unreachable (presentNames exits) — never a silent best-effort.
+  const present = running ? await presentNames(values) : undefined;
   const pad = Math.max(...entries.map((e) => e.name.length));
   for (const e of entries) {
     if (e.error) {
@@ -88,13 +102,35 @@ function list(verbose: boolean): void {
       continue;
     }
     const d = e.def!;
-    const meta = [d.role && c.cyan(d.role), d.model && c.dim(`model=${d.model}`), d.owner && c.dim(`owner=${d.owner}`)]
+    const live = present ? (present.has(e.name) ? c.green("● running") : c.dim("○")) : undefined;
+    const meta = [d.role && c.cyan(d.role), d.model && c.dim(`model=${d.model}`), d.owner && c.dim(`owner=${d.owner}`), live]
       .filter(Boolean)
       .join("  ");
     console.log(`${c.bold(e.name.padEnd(pad))}  ${meta}`.trimEnd());
     const desc = d.description ?? firstLine(d.persona);
     if (desc) console.log(c.dim(`  ${truncate(desc, 100)}`));
     if (verbose && d.persona) console.log(d.persona.replace(/^/gm, "    ") + "\n");
+  }
+}
+
+/** Snapshot the names currently present on the mesh — the live overlay behind `personas list
+ *  --running`. Presence is a KV watch that replays asynchronously after connect (no synced signal),
+ *  so let the roster settle (snapshot once its size holds steady) under a hard deadline so it never
+ *  hangs. A name is "running" when an agent of exactly that name is present and not offline. */
+async function presentNames(values: ConnectValues): Promise<Set<string>> {
+  const { ep } = await openTransient(values, "personas");
+  try {
+    let last = -1;
+    let stable = 0;
+    for (let i = 0; i < 20 && stable < 3; i++) {
+      const n = ep.getRoster().length;
+      stable = n === last ? stable + 1 : 0;
+      last = n;
+      await new Promise((r) => setTimeout(r, 75));
+    }
+    return new Set(ep.getRoster().filter((p) => p.status !== "offline").map((p) => p.card.name));
+  } finally {
+    await ep.stop();
   }
 }
 
@@ -105,6 +141,39 @@ function show(name?: string): void {
   // Print the file verbatim — the canonical card (frontmatter + persona body).
   console.log(c.dim(path));
   process.stdout.write(readFileSync(path, "utf8"));
+}
+
+/** `cotal personas edit <name>` — open the card in $EDITOR (or $VISUAL), then re-validate on exit
+ *  so a save that breaks the frontmatter fails loud instead of silently shipping a bad card. */
+function edit(name?: string): void {
+  if (!name) return usage();
+  const path = agentFilePath(cotalRoot(), name);
+  if (!existsSync(path)) return notFound(name, path);
+  const editor = process.env.VISUAL || process.env.EDITOR;
+  if (!editor) {
+    console.error(c.red("no editor set — export EDITOR (or VISUAL), e.g. export EDITOR=vim"));
+    process.exit(1);
+  }
+  // Hand the terminal to the editor (inherit stdio so it draws). $EDITOR may carry flags
+  // (e.g. "code --wait"), so go through the shell.
+  const res = spawnSync(`${editor} "${path}"`, { stdio: "inherit", shell: true });
+  if (res.error) {
+    console.error(c.red(`couldn't launch editor "${editor}": ${res.error.message}`));
+    process.exit(1);
+  }
+  if (res.status !== 0) {
+    console.error(c.red(`editor exited ${res.signal ? `on ${res.signal}` : `with status ${res.status}`} — not saved`));
+    process.exit(1);
+  }
+  // Re-validate: a save that breaks the frontmatter must fail loud, not ship a broken card.
+  try {
+    loadAgentFile(path);
+  } catch (e) {
+    console.error(c.red(`⨯ "${name}" is now unparseable — fix it:`));
+    console.error(c.dim(`  ${(e as Error).message}`));
+    process.exit(1);
+  }
+  console.log(c.green(`✓ saved "${name}"`));
 }
 
 function create(name: string | undefined, v: { role?: string; model?: string; prompt?: string; from?: string; force?: boolean }): void {
@@ -180,7 +249,7 @@ function notFound(name: string, path: string): never {
 function usage(): never {
   console.error(
     c.red(
-      "usage: cotal personas <list [--verbose] | show <name> | " +
+      "usage: cotal personas <list [--verbose] [--running] | show <name> | edit <name> | " +
         'new <name> (--prompt <text> | --from <file|->) [--role <r>] [--model <m>] [--force] | rm <name> --force>',
     ),
   );

@@ -115,12 +115,12 @@ Full scenario and run steps:
   path. Accepted limits: no mid-turn interrupt in attach mode, and channel push is
   research-preview-gated. Detail in [architecture.md](architecture.md).
 - **Agent files (identity + persona).** An agent is defined by `.cotal/agents/<name>.md`:
-  YAML frontmatter (name, role, description, tags, channels, publish, model, capabilities)
-  that produces an A2A `AgentCard`, plus an optional Markdown body that is the **persona**
+  YAML frontmatter (name, role, description, tags, subscribe, allowSubscribe, allowPublish,
+  model, capabilities) that produces an A2A `AgentCard`, plus an optional Markdown body that is the **persona**
   (an appended system prompt). `role` is the addressable **service** (anycast). The
   connector resolves it from `COTAL_AGENT_FILE`; a peer can mint one on the fly with
   `cotal_persona` (the manager writes the file), and an operator manages the local catalog
-  with `cotal personas` (list/show/new/rm). Personas are **optional**, since Cotal
+  with `cotal personas` (list/show/edit/new/rm). Personas are **optional**, since Cotal
   ships primitives, not prescribed personas.
 - **Identity & authorization (on by default; `cotal up --open` to disable).** The mesh is
   a real boundary against untrusted peers in a shared space. The **sender is encoded in

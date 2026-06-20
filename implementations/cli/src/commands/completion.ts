@@ -1,3 +1,6 @@
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, join } from "node:path";
 import {
   registry,
   type Command,
@@ -16,10 +19,14 @@ import { c } from "../ui.js";
  * tolerant (unknown lines are ignored), so it can grow without anyone re-installing the stub.
  *
  *   cotal completion bash|zsh|fish|powershell   # print the stub to stdout
+ *   cotal completion install [shell]            # install it persistently (auto-detects $SHELL)
  *   cotal __complete <words…>                   # internal: emit candidates for the cursor
  *
- * `__complete` is import-light and side-effect-free by contract — persona completion is a
- * filesystem read, never a mesh connection — so a keystroke never blocks on the network.
+ * `__complete` is import-light and side-effect-free by contract — completion reads only local
+ * files (your personas and their declared channels/roles), never the mesh — so a keystroke never
+ * blocks on the network. And there is no fallback: a completer that can't produce its authoritative
+ * answer (e.g. a malformed agent file) fails the process — nothing on stdout, non-zero exit — so a
+ * partial set is never mistaken for a complete one. Set COTAL_COMPLETE_DEBUG to see why on stderr.
  */
 
 /** Wire format: one `value\tdescription` (or bare `value`) per line, then a `:directive`
@@ -47,8 +54,13 @@ export async function complete(argv: string[]): Promise<void> {
   try {
     const res = await cmd.complete(argv.slice(1));
     emit(res.items, res.directive ?? "nofiles");
-  } catch {
-    emit([], "default"); // a throwing completer yields nothing — never noisy on stderr/stdout
+  } catch (e) {
+    // No fallback: a completer that can't produce its authoritative set (e.g. a malformed agent
+    // file) fails the process — nothing on stdout, non-zero exit — so the shell offers nothing and
+    // never mistakes a failure for a successful empty result. Silent unless explicitly debugging.
+    if (process.env.COTAL_COMPLETE_DEBUG)
+      process.stderr.write(`cotal __complete: ${(e as Error).message}\n`);
+    process.exit(1);
   }
 }
 
@@ -118,22 +130,73 @@ const SCRIPTS: Record<string, string> = {
 };
 
 export async function completion(argv: string[]): Promise<void> {
+  if (argv[0] === "install") return install(argv[1]);
   const script = argv[0] ? SCRIPTS[argv[0]] : undefined;
   if (!script) {
-    console.error(c.red("usage: cotal completion <bash|zsh|fish|powershell>"));
+    console.error(c.red("usage: cotal completion <bash|zsh|fish|powershell | install [shell]>"));
     console.error(c.dim("  enable it now (this shell):"));
     console.error(c.dim("    bash/zsh:  source <(cotal completion bash)"));
     console.error(c.dim("    fish:      cotal completion fish | source"));
     console.error(c.dim("    pwsh:      cotal completion powershell | Out-String | Invoke-Expression"));
+    console.error(c.dim("  or install it persistently:  cotal completion install"));
     process.exit(1);
   }
   process.stdout.write(script);
 }
 
-/** Argument completion for `cotal completion` itself: the supported shells. */
+/** `cotal completion install [shell]` — wire the stub into your shell persistently. Opt-in (never
+ *  run by `setup`). Auto-detects the shell from $SHELL when omitted; fails loud on an unknown or
+ *  unsupported one (no silent guess). Idempotent — re-running once installed is a no-op. */
+function install(shell?: string): void {
+  const sh = shell ?? basename(process.env.SHELL ?? "");
+  if (!SCRIPTS[sh]) {
+    console.error(c.red(`can't install for "${sh || "unknown shell"}" — pass one of: bash, zsh, fish`));
+    process.exit(1);
+  }
+  if (sh === "fish") {
+    // Fish auto-loads files from its completions dir — drop the stub straight in (no rc edit).
+    const dir = join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "fish", "completions");
+    const file = join(dir, "cotal.fish");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(file, SCRIPTS.fish);
+    console.log(c.green("✓ installed fish completion"));
+    console.log(c.dim(`  ${file}\n  open a new shell (or: source ${file})`));
+    return;
+  }
+  if (sh === "bash" || sh === "zsh") {
+    // bash/zsh load completion from their rc — append a single marked source line, once.
+    const rc = sh === "zsh" ? join(process.env.ZDOTDIR || homedir(), ".zshrc") : join(homedir(), ".bashrc");
+    const line = `source <(cotal completion ${sh})`;
+    let current = "";
+    try {
+      current = readFileSync(rc, "utf8");
+    } catch {
+      /* rc doesn't exist yet — appendFileSync creates it */
+    }
+    if (current.includes(line)) {
+      console.log(c.dim(`already installed in ${rc}`));
+      return;
+    }
+    appendFileSync(rc, `${current && !current.endsWith("\n") ? "\n" : ""}# cotal shell completion\n${line}\n`);
+    console.log(c.green(`✓ installed ${sh} completion`));
+    console.log(c.dim(`  appended to ${rc}\n  open a new shell (or: ${line})`));
+    return;
+  }
+  // powershell: $PROFILE isn't resolvable from here, so print the exact line rather than guess.
+  console.error(c.red("auto-install isn't supported for powershell."));
+  console.error(c.dim("  add to your $PROFILE:  cotal completion powershell | Out-String | Invoke-Expression"));
+  process.exit(1);
+}
+
+/** Argument completion for `cotal completion` itself: the supported shells, plus `install`. */
 export function completionComplete(argv: string[]): CompletionResult {
+  const shells = Object.keys(SCRIPTS).map((value) => ({ value }));
   if (argv.length <= 1)
-    return { items: Object.keys(SCRIPTS).map((value) => ({ value })), directive: "nofiles" };
+    return {
+      items: [...shells, { value: "install", description: "install for your shell" }],
+      directive: "nofiles",
+    };
+  if (argv[0] === "install") return { items: shells, directive: "nofiles" };
   return { items: [], directive: "nofiles" };
 }
 
