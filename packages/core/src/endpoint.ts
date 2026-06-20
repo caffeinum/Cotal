@@ -11,6 +11,7 @@ import {
   type Subscription,
 } from "@nats-io/transport-node";
 import { idFromCreds } from "./identity.js";
+import { assertValidName } from "./resolve.js";
 import { createSpaceStreams, dmDurableConfig, taskDurableConfig, MAX_MSGS_PER_SUBJECT } from "./streams.js";
 import {
   jetstream,
@@ -190,6 +191,10 @@ export class CotalEndpoint extends EventEmitter {
   constructor(opts: EndpointOptions) {
     super();
     this.space = opts.space;
+    // A display name is the client-side handle a peer is addressed by; reject the reserved `/`
+    // (the future owner/name separator) and surrounding whitespace at the one identity choke
+    // point every join/spawn path flows through.
+    assertValidName(opts.card.name);
     // Identity precedence: an explicit card.id, else the creds' identity, else a random
     // uuid. When both an id and creds are given they MUST name the same nkey — otherwise
     // the subject sender token wouldn't match the authenticated user and every publish

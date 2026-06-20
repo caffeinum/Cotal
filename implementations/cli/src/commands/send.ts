@@ -3,12 +3,15 @@ import { readFileSync } from "node:fs";
 import {
   CotalEndpoint,
   isReachable,
+  resolvePeer,
+  AmbiguousPeerError,
   DEFAULT_SERVER,
   DEFAULT_SPACE,
   authDir,
   loadSpaceAuth,
   mintCreds,
   newIdentity,
+  type Presence,
 } from "@cotal-ai/core";
 import { c } from "../ui.js";
 import { cotalRoot } from "../lib/paths.js";
@@ -84,21 +87,28 @@ export async function dm(argv: string[]): Promise<void> {
   }
   const { ep, space } = await connectSender(values);
   // Presence arrives asynchronously after connect; poll briefly (≤2s) for the target to appear.
-  const want = target.toLowerCase();
-  const find = (): string | undefined =>
-    ep.getRoster().find((p) => p.card.name.toLowerCase() === want)?.card.id;
-  let id = find();
-  for (let i = 0; i < 20 && !id; i++) {
-    await new Promise((r) => setTimeout(r, 100));
-    id = find();
+  // resolvePeer is fail-loud: an exact id or a unique name resolves, a same-name collision throws.
+  let peer: Presence | undefined;
+  for (let i = 0; i < 20 && !peer; i++) {
+    try {
+      peer = resolvePeer(ep.getRoster(), target);
+    } catch (e) {
+      if (!(e instanceof AmbiguousPeerError)) throw e;
+      console.error(c.red(`"${target}" is ambiguous — DM by instance id instead:`));
+      for (const cand of e.candidates)
+        console.error(c.dim(`  ${cand.name} (${cand.status})  ${cand.id}`));
+      await ep.stop();
+      process.exit(1);
+    }
+    if (!peer) await new Promise((r) => setTimeout(r, 100));
   }
-  if (!id) {
+  if (!peer) {
     console.error(c.red(`no agent "${target}" present in space ${space}`));
     await ep.stop();
     process.exit(1);
   }
-  await ep.unicast(id, text);
-  console.log(c.green(`→ ${target}`) + c.dim(`  ${text}`));
+  await ep.unicast(peer.card.id, text);
+  console.log(c.green(`→ ${peer.card.name}`) + c.dim(`  ${text}`));
   await ep.stop();
 }
 

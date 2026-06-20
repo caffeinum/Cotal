@@ -9,7 +9,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { z } from "zod";
-import { isConcreteChannel, type PresenceStatus } from "@cotal-ai/core";
+import { isConcreteChannel, AmbiguousPeerError, type PresenceStatus } from "@cotal-ai/core";
 import type { MeshAgent, InboxItem } from "./agent.js";
 import { FEEDBACK_URL, PUBLIC_FEEDBACK_URL, type AgentConfig } from "./config.js";
 
@@ -122,13 +122,21 @@ export function cotalToolSpecs(config: AgentConfig, source = "connector"): Cotal
         if (!agent.connected) return ok(`Not connected to the mesh yet (${config.servers}).`);
         const roster = agent.roster();
         if (!roster.length) return ok(`No one is present in "${config.space}" yet.`);
+        // Names aren't unique. Where one repeats, append the instance id so a DM can target the
+        // exact peer (the id is the only authoritative address); keep unique rows clean.
+        const counts = new Map<string, number>();
+        for (const p of roster) {
+          const n = p.card.name.toLowerCase();
+          counts.set(n, (counts.get(n) ?? 0) + 1);
+        }
         const lines = roster.map((p) => {
           const who = p.card.role ? `${p.card.name}/${p.card.role}` : p.card.name;
           const me =
             p.card.id === agent.id
               ? ` (you${agent.attention !== "open" ? `, ${agent.attention}` : ""})`
               : "";
-          return `${statusGlyph(p.status)} ${who} — ${p.status}${p.activity ? `: ${p.activity}` : ""}${me}`;
+          const id = (counts.get(p.card.name.toLowerCase()) ?? 0) > 1 ? ` — id: ${p.card.id}` : "";
+          return `${statusGlyph(p.status)} ${who} — ${p.status}${p.activity ? `: ${p.activity}` : ""}${me}${id}`;
         });
         return ok(`Present in "${config.space}" (${roster.length}):\n${lines.join("\n")}`);
       },
@@ -210,6 +218,15 @@ export function cotalToolSpecs(config: AgentConfig, source = "connector"): Cotal
           const { peer } = await agent.dm(to, stripFaceTags(msg));
           return ok(`DM sent to ${peer.card.name}.`);
         } catch (e) {
+          if (e instanceof AmbiguousPeerError) {
+            const who = e.candidates
+              .map((c) => `  • ${c.name}${c.role ? `/${c.role}` : ""} (${c.status}) — id: ${c.id}`)
+              .join("\n");
+            return err(
+              `"${e.target}" is ambiguous — ${e.candidates.length} peers share that name. ` +
+                `Re-send cotal_dm with the exact instance id as "to":\n${who}`,
+            );
+          }
           return err(`Couldn't DM: ${(e as Error).message}`);
         }
       },

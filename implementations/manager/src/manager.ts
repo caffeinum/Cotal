@@ -300,7 +300,10 @@ export class Manager {
   }
 
   /** Resolve once `name` shows up on the mesh roster (presence registered), or after `timeoutMs`.
-   *  Lets the pre-spawn loop stagger heavy agent cold-starts so they don't all boot at once. */
+   *  Lets the pre-spawn loop stagger heavy agent cold-starts so they don't all boot at once.
+   *  Best-effort, keyed on the manager-owned (auto-numbered, unique) spawn name — NOT identity
+   *  resolution: a same-named *unmanaged* peer already present could satisfy this early. That's
+   *  acceptable for cold-start staggering; it never routes anything. */
   async waitForPresence(name: string, timeoutMs = 30_000): Promise<boolean> {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {

@@ -452,6 +452,16 @@ handle (see *Instance continuity*). `role` is the SLIM **service** (the addressa
 role label is therefore *load-bearing*: it is the **anycast** address, so `svc.reviewer` reaches
 "whoever is a reviewer," not just a roster label.
 
+**Addressing by name.** The instance id is the authoritative address; a `name` is a best-effort
+convenience a client resolves against its observed roster. Resolution is deterministic and
+fail-loud — an exact id wins, a unique name resolves (a live peer beats a stale offline one),
+and a same-name collision among live peers **throws** with the candidates' ids instead of
+silently picking the wrong one (re-address by id). With no live match a unique offline peer
+still resolves best-effort, but multiple offline ghosts of one name also throw. Names carry no
+uniqueness guarantee (the
+manager auto-numbers its own spawns, `reviewer → reviewer-2`), and `/` is reserved in a name for
+a future owner-scoped `owner/name` handle.
+
 A **role** is a reusable template that produces a card, in three layers:
 
 - **Advertisement** (A2A): `role`, `description`, and `skills[]` (each `id` / `name` / `tags` /
