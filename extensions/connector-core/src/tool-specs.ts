@@ -9,7 +9,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { z } from "zod";
-import { isConcreteChannel, AmbiguousPeerError, type PresenceStatus } from "@cotal-ai/core";
+import { isConcreteChannel, AmbiguousPeerError, isPermissionDenied, type PresenceStatus } from "@cotal-ai/core";
 import type { MeshAgent, InboxItem } from "./agent.js";
 import { FEEDBACK_URL, PUBLIC_FEEDBACK_URL, type AgentConfig } from "./config.js";
 
@@ -22,6 +22,22 @@ export interface ToolResult {
 
 const ok = (text: string): ToolResult => ({ text });
 const err = (text: string): ToolResult => ({ text, isError: true });
+
+/** Error for a failed privileged control request (spawn / despawn-other / definePersona). A
+ *  *permission denial* — this session's creds can't publish to the manager control subject
+ *  because its persona lacks `capabilities: [spawn]` — is a different failure with a different
+ *  fix than an *absent/unreachable manager*. Report them apart instead of always blaming the
+ *  manager (which sent the operator chasing a non-existent "manager down"). */
+function controlFailure(action: string, e: unknown): ToolResult {
+  const detail = (e as Error)?.message ?? String(e);
+  if (isPermissionDenied(e)) {
+    return err(
+      `${action}: this session isn't allowed to — its persona needs \`capabilities: [spawn]\` ` +
+        `(which grants the privileged manager control subject). Add it and respawn so its creds re-mint. [${detail}]`,
+    );
+  }
+  return err(`${action}: no manager reachable (${detail}). Is the manager running?`);
+}
 
 /** One Cotal tool, independent of any host's tool API. */
 export interface CotalToolSpec {
@@ -382,9 +398,7 @@ export function cotalToolSpecs(config: AgentConfig, source = "connector"): Cotal
           const lead = actual !== name ? `"${name}" was taken — spawning ${who} instead` : `Spawning ${who}`;
           return ok(`${lead}${mode ? ` (${mode})` : ""} — it will appear in the roster shortly.`);
         } catch (e) {
-          return err(
-            `Couldn't spawn ${name}: no manager reachable (${(e as Error).message}). Is the manager running?`,
-          );
+          return controlFailure(`Couldn't spawn ${name}`, e);
         }
       },
     },
@@ -473,9 +487,7 @@ export function cotalToolSpecs(config: AgentConfig, source = "connector"): Cotal
           const who = name ?? "self";
           return ok(`Stopping ${who}${graceful === false ? " (hard)" : ""} — it will leave the roster shortly.`);
         } catch (e) {
-          return err(
-            `Couldn't despawn ${name ?? "self"}: no manager reachable (${(e as Error).message}). Is the manager running?`,
-          );
+          return controlFailure(`Couldn't despawn ${name ?? "self"}`, e);
         }
       },
     },
@@ -502,9 +514,7 @@ export function cotalToolSpecs(config: AgentConfig, source = "connector"): Cotal
           if (!reply.ok) return err(`Couldn't define ${name}: ${reply.error ?? "manager refused"}`);
           return ok(`Persona \`${name}\` saved — spawn it with cotal_spawn(name="${name}") to bring it online.`);
         } catch (e) {
-          return err(
-            `Couldn't define ${name}: no manager reachable (${(e as Error).message}). Is the manager running?`,
-          );
+          return controlFailure(`Couldn't define ${name}`, e);
         }
       },
     },

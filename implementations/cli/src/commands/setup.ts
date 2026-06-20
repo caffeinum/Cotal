@@ -595,6 +595,7 @@ role: operator
 description: "your own session on the Cotal mesh."
 tags: [cotal]
 channels: [general]
+capabilities: [spawn]
 ---
 
 You are the operator's own session on the Cotal mesh: the agent they drive. Do what they ask and
