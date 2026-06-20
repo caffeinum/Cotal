@@ -19,6 +19,6 @@ import { registry } from "@cotal-ai/core";
 // cotal_spawn / `cotal start --name x` (no --agent) brings up a Claude Code session.
 registry.register({ ...claudeConnector, name: "cotal" });
 
-// Bare `npx cotal-ai` = guided first-run setup; any argument dispatches as usual.
-const argv = process.argv.length > 2 ? process.argv.slice(2) : ["setup"];
+// Bare `cotal` prints help; explicit `cotal setup` runs guided setup.
+const argv = process.argv.slice(2);
 await runCli(registry, argv);

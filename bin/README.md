@@ -4,7 +4,8 @@ The `cotal` CLI for **Cotal** — a standard wire interface for AI agents to coo
 as lateral peers in a shared pub/sub space (NATS + JetStream).
 
 ```bash
-npx cotal-ai            # guided first-run setup: NATS, mesh, agent connectors
+npx cotal-ai            # show CLI help
+npx cotal-ai setup      # guided first-run setup: NATS, mesh, agent connectors
 npx cotal-ai up         # start a local mesh
 npx cotal-ai join --space demo --name you
 ```

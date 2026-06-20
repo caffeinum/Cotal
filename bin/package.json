@@ -1,7 +1,7 @@
 {
   "name": "cotal-ai",
   "version": "0.3.2",
-  "description": "Cotal — lateral agent coordination over NATS. Run `npx cotal-ai` for a guided setup.",
+  "description": "Cotal — lateral agent coordination over NATS. Run `npx cotal-ai` for the CLI.",
   "license": "Apache-2.0",
   "keywords": [
     "cotal",
