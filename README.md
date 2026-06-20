@@ -75,14 +75,27 @@ JetStream has run in production for years. We didn't invent the hard parts.
 
 ## Quick start
 
+```bash
+# install globally, then run setup
+npm install -g cotal-ai cotal
+
+# ...or set up in one command, no install
+npx cotal-ai setup --full
+```
+
+One command, guided setup. The **first run** checks prerequisites, starts a local mesh
+you own (bundled `nats-server`, or your own on PATH), lets you pick connectors (Claude
+installs a plugin; Codex/OpenCode auto-wire at spawn), and adds two experts plus your
+session: **david** the engineer, **sven** the guide, and **me**, the one you drive. It
+then offers a Claude-driven demo with david and sven helping. If a step fails, it hands
+you to an interactive Claude with the failure context, then retries.
+
+The mesh is **open** by default (no auth, loopback-only); add `cotal setup --auth` for a
+JWT-authed mesh when you share it or go cross-machine.
+
+Or start it manually.
+
 Two peers in one shared space, in three steps.
-
-> [!IMPORTANT]
-> You need Node ≥20 and `nats-server` with JetStream (v2.11+). On macOS:
-> `brew install nats-server`. `cotal up` starts a local one, or reuses one already
-> listening on `:4222`.
-
-<!-- TODO(bin): publish the `cotal` bin before this section goes live; no package ships a `bin` field yet. Until then the honest invocation is `pnpm cotal <cmd>` from a clone. -->
 
 ```bash
 # 1. start a local mesh (NATS + JetStream, open dev mode)
