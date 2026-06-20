@@ -24,6 +24,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { EndpointKind } from "./types.js";
+import { assertValidName } from "./resolve.js";
 
 export interface AgentDef {
   name: string;
@@ -111,6 +112,7 @@ export function loadAgentFile(path: string): AgentDef {
 
   const name = str("name");
   if (!name) throw new Error(`agent file ${path}: "name" is required`);
+  assertValidName(name);
   const kind = str("kind");
   if (kind && kind !== "agent" && kind !== "endpoint")
     throw new Error(`agent file ${path}: "kind" must be "agent" or "endpoint"`);
@@ -143,6 +145,7 @@ export function loadAgentFile(path: string): AgentDef {
  *  persist a peer-defined agent as config. */
 export function saveAgentFile(path: string, def: AgentDef): void {
   if (!def.name) throw new Error('saveAgentFile: "name" is required');
+  assertValidName(def.name);
   const lines = ["---", `name: ${fmScalar(def.name)}`];
   if (def.role) lines.push(`role: ${fmScalar(def.role)}`);
   if (def.kind) lines.push(`kind: ${fmScalar(def.kind)}`);

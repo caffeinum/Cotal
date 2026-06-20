@@ -3,6 +3,7 @@ import {
   normalizeMentions,
   subjectMatches,
   isConcreteChannel,
+  resolvePeer as resolvePeerInRoster,
   CotalEndpoint,
   CONTROL_PRIVILEGED,
   CONTROL_SELF_SERVICE,
@@ -349,17 +350,11 @@ export class MeshAgent extends EventEmitter {
     return this.ep.anycast(role, text, { contextId: this._contextId });
   }
 
-  /** Resolve a peer by instance id (exact) or display name (case-insensitive, prefer present). */
+  /** Resolve a peer by instance id (exact) or display name. Deterministic and fail-loud: returns
+   *  one peer, `undefined` if none match, or throws `AmbiguousPeerError` on a same-name collision —
+   *  it never silently picks. See `resolvePeer` in @cotal-ai/core. */
   resolvePeer(target: string): Presence | undefined {
-    const roster = this.ep.getRoster().filter((p) => p.card.id !== this.id);
-    const byId = roster.find((p) => p.card.id === target);
-    if (byId) return byId;
-    const t = target.toLowerCase();
-    const present = roster.filter((p) => p.status !== "offline");
-    return (
-      present.find((p) => p.card.name.toLowerCase() === t) ??
-      roster.find((p) => p.card.name.toLowerCase() === t)
-    );
+    return resolvePeerInRoster(this.ep.getRoster(), target, { selfId: this.id });
   }
 
   async dm(target: string, text: string): Promise<{ msg: CotalMessage; peer: Presence }> {

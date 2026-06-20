@@ -6,6 +6,8 @@ import {
   CotalEndpoint,
   isReachable,
   parseJoinLink,
+  resolvePeer,
+  AmbiguousPeerError,
   DEFAULT_SERVER,
   type Delivery,
   type EndpointKind,
@@ -199,16 +201,17 @@ export async function join(argv: string[]): Promise<void> {
         else {
           const target = rest.slice(0, sp);
           const text = rest.slice(sp + 1);
-          const peer = ep
-            .getRoster()
-            .find(
-              (p) =>
-                p.card.name.toLowerCase() === target.toLowerCase() && p.card.id !== me,
-            );
-          if (!peer) print(c.red(`no peer named "${target}" present`));
-          else {
-            await ep.unicast(peer.card.id, text);
-            print(`${c.magenta("(DM)")} ${c.dim("you →")} ${c.bold(peer.card.name)}: ${text}`);
+          try {
+            const peer = resolvePeer(ep.getRoster(), target, { selfId: me });
+            if (!peer) print(c.red(`no peer named "${target}" present`));
+            else {
+              await ep.unicast(peer.card.id, text);
+              print(`${c.magenta("(DM)")} ${c.dim("you →")} ${c.bold(peer.card.name)}: ${text}`);
+            }
+          } catch (e) {
+            if (!(e instanceof AmbiguousPeerError)) throw e;
+            print(c.red(`"${target}" is ambiguous — DM by instance id:`));
+            for (const cand of e.candidates) print(c.dim(`  ${cand.name} (${cand.status})  ${cand.id}`));
           }
         }
       } else if (line.startsWith("/anycast ")) {

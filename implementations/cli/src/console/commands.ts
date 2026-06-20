@@ -2,7 +2,7 @@
 // the CLI `Command` registry, which is argv/process-exit shaped). The catalog drives both execution
 // and the palette's autocomplete. Write commands publish over the mesh via the observer endpoint;
 // they are gated on `canWrite` (open mode, or a privileged --creds).
-import { CONTROL_PRIVILEGED, type CotalEndpoint } from "@cotal-ai/core";
+import { CONTROL_PRIVILEGED, resolvePeer, AmbiguousPeerError, type CotalEndpoint } from "@cotal-ai/core";
 import type { MeshSnapshot } from "../view/mesh-view.js";
 import { mentionsIn } from "../lib/mentions.js";
 
@@ -27,10 +27,16 @@ export interface ConsoleCommand {
   run(ctx: CommandCtx, rest: string): Promise<void> | void;
 }
 
-/** Resolve an agent/endpoint name (with or without a leading @) to its instance id. */
+/** Resolve an agent/endpoint name (with or without a leading @) to its instance id. Fail-loud:
+ *  an exact id or a unique name resolves; a same-name collision throws `AmbiguousPeerError`
+ *  (the caller renders {@link ambiguityNote}). */
 function idOf(snap: MeshSnapshot, name: string): string | undefined {
-  const n = name.replace(/^@/, "").toLowerCase();
-  return [...snap.agents, ...snap.endpoints].find((p) => p.card.name.toLowerCase() === n)?.card.id;
+  return resolvePeer([...snap.agents, ...snap.endpoints], name.replace(/^@/, ""))?.card.id;
+}
+
+/** One-line note for the transient status bar when a name matched several peers. */
+function ambiguityNote(e: AmbiguousPeerError): string {
+  return `"${e.target}" is ambiguous — dm by id: ${e.candidates.map((c) => `${c.name} ${c.id}`).join(", ")}`;
 }
 
 export const COMMANDS: ConsoleCommand[] = [
@@ -60,7 +66,13 @@ export const COMMANDS: ConsoleCommand[] = [
     run: async (ctx, rest) => {
       const m = rest.match(/^@?(\S+)\s+([\s\S]+)/);
       if (!m) return ctx.notify("usage: dm <@agent> <text>");
-      const id = idOf(ctx.snapshot, m[1]);
+      let id: string | undefined;
+      try {
+        id = idOf(ctx.snapshot, m[1]);
+      } catch (e) {
+        if (e instanceof AmbiguousPeerError) return ctx.notify(ambiguityNote(e));
+        throw e;
+      }
       if (!id) return ctx.notify(`no agent "${m[1]}"`);
       await ctx.ep.unicast(id, m[2]);
       ctx.notify(`→ ${m[1].replace(/^@/, "")}`);
@@ -73,7 +85,13 @@ export const COMMANDS: ConsoleCommand[] = [
     write: true,
     run: async (ctx, rest) => {
       const name = rest.replace(/^@/, "").trim().split(/\s+/)[0] ?? "";
-      const id = idOf(ctx.snapshot, name);
+      let id: string | undefined;
+      try {
+        id = idOf(ctx.snapshot, name);
+      } catch (e) {
+        if (e instanceof AmbiguousPeerError) return ctx.notify(ambiguityNote(e));
+        throw e;
+      }
       if (!id) return ctx.notify(`no agent "${name}"`);
       await ctx.ep.unicast(id, "👋 ping");
       ctx.setMode("dm");
