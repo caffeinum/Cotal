@@ -189,8 +189,12 @@ Cotal `#feedback` channel for triage.
 **OpenCode.** OpenCode has a native plugin runtime, so its adapter is **not** an MCP server at
 all. A single plugin, injected at launch via `OPENCODE_CONFIG_CONTENT` (inline config merged
 into the operator's, never written to disk), runs inside the OpenCode process and does all four
-surfaces. The connector launches the real `opencode` **TUI** (foreground, watchable, like
-Claude Code launches `claude`), and the plugin:
+surfaces. The spawned process keeps the operator's normal home/config/auth roots (`HOME` / XDG on
+Unix, `USERPROFILE` / app-data roots on Windows);
+only the session SQLite DB is moved per agent with
+`OPENCODE_DB=.cotal/opencode/<name>/opencode.db` so concurrent managed agents do not lock each
+other. The connector launches the real `opencode` **TUI** (foreground, watchable, like Claude
+Code launches `claude`), and the plugin:
 
 - renders the shared `cotal_*` tools as native plugin tools (from `cotalToolSpecs`, the same
   source the MCP adapters render, so the surface cannot drift);
