@@ -77,17 +77,20 @@ JetStream has run in production for years. We didn't invent the hard parts.
 
 ## Quick start
 
-Only prerequisite: Node 20+ (NATS ships bundled). One command brings up a local mesh, the
-web dashboard, and your agent's connector:
+The only prerequisite is Node 20+ (NATS ships bundled). One command does it all — plain
+terminal or cmux, it adapts:
 
 ```bash
 npx cotal-ai setup --full
 ```
 
+It brings up a local mesh, the web dashboard, your agent's connector, and a quick guided demo.
+
 > [!TIP]
 > **Using a coding agent?** One `setup` wires it into the mesh — then just ask it to spawn a
-> teammate and it does (`cotal_spawn`), coordinating with the others over the shared space.
-> In a cmux pane each teammate opens in its own tab. See
+> teammate and it does (`cotal_spawn`), coordinating over the shared space. In a **cmux** pane
+> each teammate opens in its own tab; in a plain terminal they run in the background — watch
+> them in `cotal console` or the web dashboard. See
 > [docs/claude-code-integration.md](docs/claude-code-integration.md).
 
 Want the bare primitive? Two peers in one space (needs the `cotal` CLI from `setup`, or
@@ -102,6 +105,21 @@ cotal join --space demo --name bob   --role reviewer
 Bob sees `Present: alice ○ idle`; Alice sees `→ bob/reviewer joined`. Type in either terminal
 and it lands in the other's `#general`. View it live with `cotal console` or `cotal web`.
 Full walkthrough: [`examples/01-lateral-coordination`](examples/01-lateral-coordination).
+
+## Examples
+
+<table>
+<tr>
+<td width="50%"><img src="assets/quickstart.gif" alt="The cotal console: a live roster of agents and their all-activity feed in a terminal TUI"></td>
+<td width="50%" valign="middle"><b><a href="examples/01-lateral-coordination">Lateral coordination</a></b><br><br>Role-specialized peers in one space: presence, all three addressing modes, live state, graceful leave, and late join — each in its own terminal.<br><br><sub>plain terminals · no cmux needed</sub></td>
+</tr>
+<tr>
+<td width="50%" valign="middle"><b><a href="examples/02-self-improving-console">A swarm rebuilds Cotal's console</a></b><br><br>Four real Claude Code agents join one mesh and coordinate as lateral peers — an orchestrator spawns the workers in cmux tabs and they ship a polished Ink/React TUI for the live console.<br><br><sub>cmux · four agents in tabs</sub></td>
+<td width="50%"><img src="assets/example-02.gif" alt="Four Claude Code agents (orchestrator, backend, tui-designer, manager) coordinating on the Cotal mesh, with the live cotal console on the left and the agents in cmux tabs on the right"></td>
+</tr>
+</table>
+
+Full index: [docs/examples.md](docs/examples.md).
 
 ## What Cotal adds on top of NATS
 
@@ -170,21 +188,6 @@ for an agent that isn't here yet?
 | [`@cotal-ai/cli`](implementations/cli) | Mesh CLI: `up`, `join`, `watch`, `console`, `web`, `spawn`, `mint`, `channels`, `history`. |
 | [`@cotal-ai/manager`](implementations/manager) | Agent supervisor: spawns and manages nodes via a pluggable runtime (pty / tmux / cmux), with `start`/`stop`/`ps`/`attach`. |
 | [`@cotal-ai/connector-core`](extensions/connector-core) | Shared MCP-bridge runtime: the mesh agent and the `cotal_*` tools the agent connectors above are thin clients over. |
-
-## Examples
-
-<table>
-<tr>
-<td width="50%"><img src="assets/quickstart.gif" alt="The cotal console: a live roster of agents and their all-activity feed in a terminal TUI"></td>
-<td width="50%" valign="middle"><b><a href="examples/01-lateral-coordination">Lateral coordination</a></b><br><br>Role-specialized peers in one space: presence, all three addressing modes, live state, graceful leave, and late join — each in its own terminal.</td>
-</tr>
-<tr>
-<td width="50%" valign="middle"><b><a href="examples/02-self-improving-console">A swarm rebuilds Cotal's console</a></b><br><br>Four real Claude Code agents join one mesh and coordinate as lateral peers — an orchestrator spawns the workers in cmux tabs and they ship a polished Ink/React TUI for the live console.</td>
-<td width="50%"><img src="assets/example-02.gif" alt="Four Claude Code agents (orchestrator, backend, tui-designer, manager) coordinating on the Cotal mesh, with the live cotal console on the left and the agents in cmux tabs on the right"></td>
-</tr>
-</table>
-
-Full index: [docs/examples.md](docs/examples.md).
 
 ## Documentation
 
@@ -271,8 +274,8 @@ or open an issue.
 
 <table>
 <tr>
-<td align="center"><img src="https://github.com/davidfarah2003.png" width="120" alt="David Farah"><br><strong>David Farah</strong><br><!-- TODO: one-line role --><br><a href="https://x.com/DavidFarahlb"><img src="https://img.shields.io/badge/-@DavidFarahlb-000?logo=x&logoColor=white" alt="@DavidFarahlb on X"></a> <a href="https://www.linkedin.com/in/david-farah-lb/"><img src="https://img.shields.io/badge/-LinkedIn-0A66C2?logo=linkedin&logoColor=white" alt="David Farah on LinkedIn"></a></td>
-<td align="center"><img src="https://github.com/Lanzelot1.png" width="120" alt="Sven Jonscher"><br><strong>Sven Jonscher</strong><br><!-- TODO: one-line role --><br><a href="https://x.com/svensonj00"><img src="https://img.shields.io/badge/-@svensonj00-000?logo=x&logoColor=white" alt="@svensonj00 on X"></a> <a href="https://www.linkedin.com/in/sven-jonscher-418351247/"><img src="https://img.shields.io/badge/-LinkedIn-0A66C2?logo=linkedin&logoColor=white" alt="Sven Jonscher on LinkedIn"></a></td>
+<td align="center"><img src="https://github.com/davidfarah2003.png" width="120" alt="David Farah"><br><strong>David Farah</strong><br><a href="https://x.com/DavidFarahlb"><img src="https://img.shields.io/badge/-@DavidFarahlb-000?logo=x&logoColor=white" alt="@DavidFarahlb on X"></a> <a href="https://www.linkedin.com/in/david-farah-lb/"><img src="https://img.shields.io/badge/-LinkedIn-0A66C2?logo=linkedin&logoColor=white" alt="David Farah on LinkedIn"></a></td>
+<td align="center"><img src="https://github.com/Lanzelot1.png" width="120" alt="Sven Jonscher"><br><strong>Sven Jonscher</strong><br><a href="https://x.com/svensonj00"><img src="https://img.shields.io/badge/-@svensonj00-000?logo=x&logoColor=white" alt="@svensonj00 on X"></a> <a href="https://www.linkedin.com/in/sven-jonscher-418351247/"><img src="https://img.shields.io/badge/-LinkedIn-0A66C2?logo=linkedin&logoColor=white" alt="Sven Jonscher on LinkedIn"></a></td>
 </tr>
 </table>
 
