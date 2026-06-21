@@ -61,9 +61,22 @@ export function openWorkspace(name: string, layout: string, opts: { focus?: bool
   return id;
 }
 
-/** Close a workspace (tab) by id/ref. */
+/** cmux exits non-zero with `not_found: Workspace not found` once the tab is already gone. */
+function isWorkspaceNotFound(err: unknown): boolean {
+  const e = err as { stderr?: unknown; message?: unknown };
+  return /not_found: Workspace not found/i.test(`${String(e?.stderr ?? "")}${String(e?.message ?? "")}`);
+}
+
+/** Close a workspace (tab) by id/ref. Idempotent: closing an already-gone tab is a no-op, not an
+ *  error — both runtime teardown and stale-ref cleanup mean "ensure it's closed". Only cmux's
+ *  workspace-not-found is swallowed; other CLI/socket failures still throw. */
 export function closeWorkspace(workspace: string): void {
-  cmux(["close-workspace", "--workspace", workspace]);
+  try {
+    cmux(["close-workspace", "--workspace", workspace]);
+  } catch (err) {
+    if (isWorkspaceNotFound(err)) return;
+    throw err;
+  }
 }
 
 /** All open workspace lines (name + ref), or `[]` if cmux can't be reached. */

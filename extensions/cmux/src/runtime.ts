@@ -111,7 +111,16 @@ export class CmuxRuntime implements Runtime {
         } catch {
           /* keystroke delivery failed — still ensure the tab is gone below */
         }
-        setTimeout(() => cmux.closeWorkspace(workspace), GRACE_MS);
+        // Deferred, so a throw here is uncaught in a timer and would crash the manager.
+        // closeWorkspace already no-ops on an already-gone tab; guard anyway and log a genuine
+        // cmux failure rather than let teardown cleanup take the process down.
+        setTimeout(() => {
+          try {
+            cmux.closeWorkspace(workspace);
+          } catch (err) {
+            console.error(`cmux runtime: failed to close tab for "${name}":`, err);
+          }
+        }, GRACE_MS);
       },
       interrupt: () => {
         cmux.sendKey("ctrl+c", { workspace });
