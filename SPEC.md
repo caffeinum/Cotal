@@ -401,7 +401,13 @@ channel (its `allowSubscribe` covers it), so an authorized but offline target st
 agent holds **no content-bearing read** on this mixed store. A **trusted reader** (the privileged
 provisioner) pulls each pending entry, re-authorizes `(instance, channel, message)` against the
 member's **current read ACL** — and, for `durable`-channel fan-out entries, its **current membership** —
-and delivers only authorized copies to the member (e.g. on its `inbox`), acking the backstop. So content
+and delivers each authorized copy to the member over an **at-least-once** handoff (e.g. its `inbox`,
+carrying the same ack semantics — not a fire-and-forget publish). The trusted reader MUST NOT ack or
+delete the backstop entry until the member has confirmed the copy was surfaced or handled (or it has
+been transferred to an equivalent per-member at-least-once mechanism with the same ack semantics); on a
+downstream nak, timeout, or crash before that confirmation, the entry remains pending and redelivers — so
+a crash between the inbox publish and the member surfacing the message cannot lose it, and `durable`
+stays at-least-once end-to-end, not maybe-once. So content
 for a channel dropped from the ACL, or (for a durable channel) left, is never surfaced (at-least-once for
 the member within retention; **leave is a hard read boundary for the backstop**); a `live`-channel
 `@mention` copy is delivered and `id`-deduped the same way. The read MUST run in this trusted component

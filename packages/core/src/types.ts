@@ -101,8 +101,8 @@ export interface ChannelConfig {
   /** Override the space default for history replay-on-join. */
   replay?: boolean;
   /** How far back a joiner's backfill reaches — a duration like `"24h"`, `"30m"`, `"7d"`.
-   *  Maps to a native Direct-Get `start_time` (now − window). Unset + `replay` ⇒ the full
-   *  retained window; ignored when replay is off. */
+   *  Bounds the join-backfill read horizon (now − window) on the pinned single-filter `chathist`
+   *  history consumer. Unset + `replay` ⇒ the full retained window; ignored when replay is off. */
   replayWindow?: string;
   /** Override the space default delivery class (SPEC §4, §7). See {@link DeliveryClass}. */
   deliveryClass?: DeliveryClass;
