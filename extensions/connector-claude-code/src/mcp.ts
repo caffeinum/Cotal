@@ -57,6 +57,11 @@ const claudeHandle: HookHandle = async (agent, ev) => {
     switch (event) {
       case "SessionStart": {
         mirror?.adopt(ev.transcript_path); // mirror from HERE — a resumed session never rebroadcasts
+        // Claude Code reports the session's actual model here (the ONLY hook that carries it; absent
+        // after /clear or conversation recovery, so guard on string). Surface it in presence when the
+        // operator didn't pin one. A mid-session /model switch fires no hook, so this holds until the
+        // next (re)start — acceptable for a display-only discovery field. setModel keeps the pin wins.
+        if (typeof ev.model === "string") await agent.setModel(ev.model);
         await agent.setStatus("idle");
         await agent.setAttention("open"); // F3: reset to fail-open on every (re)start — a crashed/restarted agent must not stay silently deaf
         // Boot push: a one-line note per subscribed channel (if the registry has loaded),
