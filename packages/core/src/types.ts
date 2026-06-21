@@ -207,6 +207,11 @@ export interface Delivery {
   ack(): void;
   /** Decline for now; the message redelivers (e.g. couldn't surface it yet). */
   nak(): void;
+  /** Whether {@link ack} actually COMMITS this copy (durable backstop / JetStream, at-least-once)
+   *  or is a no-op (live core-sub / history backfill, at-most-once). A receiver coalescing a
+   *  cross-path duplicate must NOT downgrade a durable ack to a live no-op — else the durable copy
+   *  is never committed, JetStream redelivers it, and it double-surfaces. See {@link DeliveryClass}. */
+  durable: boolean;
 }
 
 /** Control-plane request/reply (e.g. CLI → manager). */

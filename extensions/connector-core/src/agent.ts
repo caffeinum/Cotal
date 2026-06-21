@@ -205,10 +205,15 @@ export class MeshAgent extends EventEmitter {
   // ---- inbox ---------------------------------------------------------------
 
   private ingest(m: CotalMessage, delivery: Delivery, meta?: MessageMeta): void {
-    // Redelivery (we held it unacked past ack_wait): keep one entry, take the freshest ack handle.
+    // Duplicate id — keep ONE entry. Take the freshest ack handle, but NEVER downgrade a durable
+    // (committing) ack to a live no-op. Two cases produce a duplicate: same-path JetStream redelivery
+    // (always durable → upgrade to the fresh handle), and the cross-path live/durable transition
+    // window. There, if the DURABLE copy arrived first and a LIVE copy lands second, overwriting with
+    // the live no-op would leave the durable copy uncommitted → JS redelivers it → it double-surfaces.
+    // So only a durable delivery may replace the stored handle; a live duplicate is dropped as-is.
     const existing = this.inbox.find((p) => p.item.id === m.id);
     if (existing) {
-      existing.ack = delivery.ack;
+      if (delivery.durable) existing.ack = delivery.ack;
       return;
     }
     if (!meta)

@@ -1310,7 +1310,7 @@ export class CotalEndpoint extends EventEmitter {
           // is coalesced downstream by the receiver's commit-aware id-dedup (MeshAgent.ingest keeps ONE
           // entry and takes THIS durable ack handle) — so the durable copy is acked only once handled.
         }
-        const delivery: Delivery = { ack: () => m.ack(), nak: () => m.nak() };
+        const delivery: Delivery = { ack: () => m.ack(), nak: () => m.nak(), durable: true };
         this.emit("message", msg, delivery, {
           historical: false,
           kind: kindFromParsed(parsed.kind),
@@ -1386,7 +1386,7 @@ export class CotalEndpoint extends EventEmitter {
         }
         if (!msg.from || msg.from.id !== parsed.sender) return; // spoof/malformed — drop (at-most-once)
         if (msg.from.id === this.card.id) return; // our own echo
-        const delivery: Delivery = { ack: () => {}, nak: () => {} }; // live = at-most-once, not acked
+        const delivery: Delivery = { ack: () => {}, nak: () => {}, durable: false }; // live = at-most-once, not acked
         this.emit("message", msg, delivery, {
           historical: false,
           kind: kindFromParsed(parsed.kind),
@@ -1577,7 +1577,7 @@ export class CotalEndpoint extends EventEmitter {
       this.emit("error", e as Error);
       return 0;
     }
-    const noop: Delivery = { ack: () => {}, nak: () => {} };
+    const noop: Delivery = { ack: () => {}, nak: () => {}, durable: false };
     let n = 0;
     for (const sm of msgs) {
       let msg: CotalMessage;
