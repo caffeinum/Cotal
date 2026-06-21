@@ -49,3 +49,34 @@ export function listPersonas(root = cotalRoot()): PersonaEntry[] {
 export function listPersonaNames(root = cotalRoot()): string[] {
   return listPersonas(root).map((p) => p.name);
 }
+
+/** Collect a deduped, sorted set of values declared across every persona file, via `pick`.
+ *  Fail-closed: a single malformed file throws — the aggregate can't be trusted, so a derived
+ *  completer must decline rather than offer a silently-partial set. The broken file is named loudly
+ *  by `cotal personas list`, so the error stays visible; it's just not buried in a <TAB>. */
+function declaredValues(root: string, pick: (def: AgentDef) => (string | undefined)[]): string[] {
+  const out = new Set<string>();
+  for (const e of listPersonas(root)) {
+    if (e.error) throw new Error(`persona "${e.name}" is unparseable: ${e.error}`);
+    for (const v of pick(e.def!)) if (v) out.add(v);
+  }
+  return [...out].sort();
+}
+
+/** Channels the persona files declare (`subscribe` ∪ `allowSubscribe` ∪ `allowPublish`), as the
+ *  completion source for `cotal msg`/`send`. Wildcard ACL scopes (`team.>`, `*`) are excluded —
+ *  they're read/post patterns, not concrete send targets. Authoritative-for-intent, not a claim the
+ *  channel exists on the broker. Fail-closed via {@link declaredValues}. Filesystem-only — no mesh. */
+export function listDeclaredChannels(root = cotalRoot()): string[] {
+  return declaredValues(root, (d) => [
+    ...(d.subscribe ?? []),
+    ...(d.allowSubscribe ?? []),
+    ...(d.allowPublish ?? []),
+  ]).filter((ch) => !ch.includes(">") && !ch.includes("*"));
+}
+
+/** Roles the persona files declare (the `role:` field), as the completion source for
+ *  `cotal ask`/`anycast`. Fail-closed via {@link declaredValues}. Filesystem-only — no mesh. */
+export function listDeclaredRoles(root = cotalRoot()): string[] {
+  return declaredValues(root, (d) => [d.role]);
+}

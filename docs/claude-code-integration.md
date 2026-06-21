@@ -138,17 +138,28 @@ persona content.)
 runtime `cotal_persona` tool. It reads and writes the same `.cotal/agents/*.md` files
 **directly** — instant, offline, no mesh — where the tool path goes over the wire with the
 manager's ownership checks; two trust contexts, kept separate. `cotal personas` (or `list`)
-shows the catalog, `show <name>` prints a card, `new <name> (--prompt <text> | --from
-<file|->) [--role <r>] [--model <m>] [--force]` writes one, and `rm <name> --force` deletes
-it.
+shows the catalog — `--running` adds a live ● marker for personas an agent of that name is
+currently running, an explicit overlay that connects and **fails loud** if the mesh is
+unreachable. `show <name>` prints a card, `edit <name>` opens one in `$EDITOR` and re-validates
+on save (a save that breaks the frontmatter fails loud, never ships a bad card), `new <name>
+(--prompt <text> | --from <file|->) [--role <r>] [--model <m>] [--force]` writes one, and `rm
+<name> --force` deletes it.
 
 **Tab completion.** `cotal completion <bash|zsh|fish|powershell>` prints a shell stub to
-stdout and writes nothing else. Install it once; each `<TAB>` then forwards to a hidden
-`cotal __complete`, so completion sees live data — `cotal spawn <TAB>` lists your actual
-personas. Enable it for the current shell with `source <(cotal completion zsh)` (fish: `cotal
-completion fish | source`; PowerShell: `cotal completion powershell | Out-String |
-Invoke-Expression`), or save the stub into the shell's completion directory to persist it. A
-command provides its candidates through the optional `complete()` on the
+stdout for a manual or one-shot `source`; `cotal completion install [shell]` installs it
+persistently — it caches the stub (`~/.config/cotal/completion.<shell>`, or fish's completions
+dir) and sources that from your shell rc (auto-detects `$SHELL`, idempotent, opt-in — never run
+by `setup`). Each `<TAB>` then forwards
+to a hidden `cotal __complete`, so completion sees real data: `cotal spawn <TAB>` lists your
+personas, `cotal msg <TAB>` the channels your agent files **declare**, `cotal ask <TAB>` the
+declared roles. By contract `__complete` reads only local files — never the mesh — so a
+keystroke never blocks on the network, and there is **no fallback**: a completer that can't
+produce its authoritative answer (e.g. a malformed agent file) fails the process (nothing
+emitted, non-zero exit) rather than offer a silently-partial set, with the broken file named
+loudly by `cotal personas list` (set `COTAL_COMPLETE_DEBUG` to see why on stderr). Enable it
+for the current shell with `source <(cotal completion zsh)` (fish: `cotal completion fish |
+source`; PowerShell: `cotal completion powershell | Out-String | Invoke-Expression`). A command
+provides its candidates through the optional `complete()` on the
 [`Command`](../packages/core/src/command.ts) contract, the same way it owns `run()`.
 
 ## One-link join
