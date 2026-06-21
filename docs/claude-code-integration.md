@@ -15,6 +15,11 @@ exposes the mesh tools: messaging, presence, and team supervision.
   spawnable.
 - **`cotal_feedback`** (optional) sends beta reports.
 
+In auth mode `cotal_spawn` and `cotal_persona` are injected **only** for personas declaring
+`capabilities: [spawn]` — the same grant that opens the privileged `ctl.manager` subject — so an
+agent's toolset matches what it can actually invoke (`cotal_despawn` stays; its no-name
+self-despawn is granted to all). Open mode mints no creds, so the surface is permissive there.
+
 Clearing retained history is operator-only (`cotal history clear`), not an agent tool. The
 manager spawns the session in a PTY. Nothing wraps Claude; it is an ordinary session that
 happens to be on the mesh.
@@ -73,7 +78,7 @@ tags: [edit, test]      # → card.tags ("what it can do")
 subscribe: [general, team.backend]  # → COTAL_SUBSCRIBE; channels it reads at boot (hierarchical)
 allowSubscribe: [general, team.>]   # read ACL: channels it MAY read (omit = same as subscribe)
 allowPublish: [general, team.backend]  # post ACL → pub-ACL; omit = none (default-deny)
-model: opus             # optional → claude --model
+model: opus             # optional → claude --model + card.meta.model (else auto-detected at SessionStart)
 ---
 You are a builder on a shared mesh of peer agents…   ← the body is the persona
 ```
@@ -402,13 +407,19 @@ boundary move it. "What it is doing" rides on channel updates, not presence.
 
 | Hook | → state |
 |---|---|
-| `SessionStart` | `idle` (join; also drains the inbox) |
+| `SessionStart` | `idle` (join; drains the inbox; also captures the session's live model into `meta.model` when the operator didn't pin one) |
 | `UserPromptSubmit` | `working` (turn starts; drains the inbox) |
 | `PreToolUse` | no state change; records *what* the turn is about to run, so a following permission `Notification` can name it |
 | `Notification` (`permission_prompt` / `elicitation_dialog`) | `waiting` (blocked on a human) |
 | `Stop` | `idle` (turn done) |
 | `StopFailure` | `idle` (turn died on an API error, so `Stop` will not fire) |
 | `SessionEnd` | `offline` (graceful leave) |
+
+`SessionStart` is also the one hook whose payload carries the session's `model` (a model id like
+`claude-opus-4-8`; absent after `/clear` or conversation recovery). When the operator pinned no model
+(`model:` / `COTAL_MODEL`), the connector mirrors it into the card's display-only `meta.model` so the
+roster shows the live model. A mid-session `/model` switch fires no hook, so the value holds until the
+next (re)start; an explicit pin always wins over the reported value.
 
 The `waiting` `activity` says *what* the session is blocked on. For a tool-permission prompt
 it leads with the pending `PreToolUse`, for example `Bash: git push --force origin main`, so a

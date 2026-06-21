@@ -696,7 +696,12 @@ later).
   - `ctl.manager.<id>` (**privileged**, default-denied to agents, granted only when the agent
     file declares `capabilities: [spawn]`): spawn, plus stop/despawn/attach of the caller's
     **own** children (`spawner == caller`) and redefining its own personas. So spawn is a
-    *declared capability*, off by default, enforced by nats-server, not a handler.
+    *declared capability*, off by default, enforced by nats-server, not a handler. The **tool
+    surface mirrors this**: the `cotal_spawn` / `cotal_persona` tools are injected only to agents
+    that hold `capabilities: [spawn]`, so the advertised toolset matches what each agent can
+    actually invoke instead of failing at call time (`cotal_despawn` stays — its no-name
+    self-despawn is on `ctl.self`, granted to all). The cred is still the boundary; in open mode
+    (no creds minted) the gate is permissive, since nothing is enforced there anyway.
   - `ctl.admin.<id>` (reached only by the manager's allow-all profile, **no agent ever gets
     it**): the destructive / cross-agent operator ops: `purge`, and stop/despawn/attach/
     `definePersona` of *any* agent. Admin is transport-proven (reaching the subject = holding
