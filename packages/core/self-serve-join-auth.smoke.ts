@@ -31,9 +31,19 @@ import {
   type Delivery,
 } from "./src/index.js";
 
-const PORT = 14245;
+// Fresh random port per run + await-exit on every broker kill (below): a fixed port plus a SIGKILL
+// that doesn't await the child's exit leaks the broker, and the next run collides with the squatter
+// (the "Authorization Violation" contamination reviewers hit). The mid-test reconnect restart reuses
+// THIS port, so it too must await the old process's exit before respawning, or it races the dying one.
+const PORT = 20000 + Math.floor(Math.random() * 40000);
 const SERVERS = `nats://127.0.0.1:${PORT}`;
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const awaitExit = (proc: ReturnType<typeof spawn>, timeoutMs = 3000): Promise<void> =>
+  new Promise((resolve) => {
+    if (proc.exitCode !== null || proc.signalCode !== null) return resolve();
+    proc.once("exit", () => resolve());
+    setTimeout(resolve, timeoutMs);
+  });
 let pass = 0,
   fail = 0;
 const check = (name: string, cond: boolean, extra?: unknown) => {
@@ -131,7 +141,7 @@ try {
   // Reconnect resilience: a manager-free core-sub join must SURVIVE a broker restart — the rebind has
   // to reopen the core subscription (reconcile off the durable's real filter), not leave it inert.
   server.kill("SIGKILL");
-  await wait(600);
+  await awaitExit(server); // the restart reuses PORT — the old broker must fully exit + free the socket first
   server = spawn("nats-server", ["-c", join(dir, "server.conf")], { stdio: "ignore" });
   let back = false;
   for (let i = 0; i < 50; i++) {
@@ -218,7 +228,7 @@ try {
   console.error("  ✗ scenario threw:", (e as Error).message);
 } finally {
   server.kill("SIGKILL");
-  await wait(200);
+  await awaitExit(server); // await actual exit so a failed run never leaks the broker onto its port
   rmSync(dir, { recursive: true, force: true });
 }
 

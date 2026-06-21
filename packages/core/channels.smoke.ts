@@ -21,7 +21,11 @@ import {
   isReachable, chatSubject, type CotalMessage, type Delivery, type MessageMeta,
 } from "./src/index.js";
 
-const PORT = 14224;
+// Fresh random port per run: a fixed port means a single leaked broker (from a crashed/failed prior
+// run) collides with — or serves stale JetStream state to — every subsequent run, which reads as a
+// flaky gate. Randomizing isolates each run even if teardown ever leaks. Paired with an await-exit in
+// `finally` (a SIGKILLed child does not release the socket synchronously) so a clean run never leaks.
+const PORT = 20000 + Math.floor(Math.random() * 40000);
 const servers = `nats://127.0.0.1:${PORT}`;
 const space = "chansmoke";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -203,8 +207,15 @@ try {
   await W.ep.stop();
   console.log(`\nCHANNEL REGISTRY TESTS PASSED ✅  (${pass} checks)`);
 } finally {
+  // Await the broker's ACTUAL exit before cleanup — SIGKILL signals the child but does not free the
+  // port synchronously; returning early (the old `await sleep(150)`) can leave the broker alive past
+  // teardown, leaking it onto the port. Bounded by a timeout so teardown can never hang.
   srv.kill("SIGKILL");
-  await sleep(150);
+  await new Promise<void>((resolve) => {
+    if (srv.exitCode !== null || srv.signalCode !== null) return resolve();
+    srv.once("exit", () => resolve());
+    setTimeout(resolve, 3000);
+  });
   rmSync(dir, { recursive: true, force: true });
 }
 process.exit(0);
