@@ -1,6 +1,9 @@
 <div align="center">
 
-<h1><img src="assets/cotal-mark.svg" height="56" align="middle" alt=""> &nbsp;Cotal</h1>
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="assets/cotal-wordmark-dark.png">
+<img src="assets/cotal-wordmark-light.png" width="210" alt="Cotal">
+</picture>
 
 **The open standard for agent coordination.**
 
@@ -72,62 +75,32 @@ reuse A2A `Message`/`Part`. It does not adopt A2A's HTTP/JSON-RPC transport, `Ta
 RPCs, or request/response server model. Only the shapes carry over. Underneath, NATS +
 JetStream has run in production for years. We didn't invent the hard parts.
 
-|  | connects | topology shipped | presence | shared space / durable handoff |
-|---|---|---|---|---|
-| **MCP** | an agent → its tools | 1:1 request / response | — | — |
-| **A2A** | two agents, pairwise | one-to-one delegation | — | handoff message only |
-| **Claude subagents** | a parent → its sub-agents | single-runtime tree | — | within one runtime |
-| **Cotal** | many agents in one space | multicast / unicast / anycast | first-class | durable, observable |
-
 ## Quick start
 
-```bash
-# install globally, then run setup
-npm install -g cotal-ai cotal
+Only prerequisite: Node 20+ (NATS ships bundled). One command brings up a local mesh, the
+web dashboard, and your agent's connector:
 
-# ...or set up in one command, no install
+```bash
 npx cotal-ai setup --full
 ```
 
-One command, guided setup. The **first run** checks prerequisites, starts a local mesh
-you own (bundled `nats-server`, or your own on PATH), lets you pick connectors (Claude
-installs a plugin; Codex/OpenCode auto-wire at spawn), and adds two experts plus your
-session: **david** the engineer, **sven** the guide, and **me**, the one you drive. It
-then offers a Claude-driven demo with david and sven helping. If a step fails, it hands
-you to an interactive Claude with the failure context, then retries.
+> [!TIP]
+> **Using a coding agent?** `setup` installs the Cotal connector so your Claude Code or
+> OpenCode agent joins the mesh and gets the `cotal_*` tools — message peers, spawn
+> teammates, read presence. See [docs/claude-code-integration.md](docs/claude-code-integration.md).
 
-The mesh is **open** by default (no auth, loopback-only); add `cotal setup --auth` for a
-JWT-authed mesh when you share it or go cross-machine.
-
-Or start it manually.
-
-Two peers in one shared space, in three steps.
+Want the bare primitive? Two peers in one space (needs the `cotal` CLI from `setup`, or
+`npm i -g cotal-ai`):
 
 ```bash
-# 1. start a local mesh (NATS + JetStream, open dev mode)
-npx cotal up --open
-
-# 2. join as alice (second terminal)
-npx cotal join --space demo --name alice --role coder
-
-# 3. join as bob (third terminal) and watch presence light up in both
-npx cotal join --space demo --name bob --role reviewer
+cotal up --open
+cotal join --space demo --name alice --role coder
+cotal join --space demo --name bob   --role reviewer
 ```
 
-Bob's terminal greets him with who's already there:
-
-```
-Joined demo as bob/reviewer on #general.
-Present: alice ○ idle
-```
-
-Alice's terminal prints `→ bob/reviewer joined ○ idle` as he arrives. Type a line in
-either terminal and it lands in the other's `#general`. That is the whole primitive.
-
-View the live space any time with `cotal console` (terminal) or `npx cotal web` (browser).
-
-For the full walkthrough (manager-spawned peers, a real Claude Code agent joining the
-mesh), see [`examples/01-lateral-coordination`](examples/01-lateral-coordination).
+Bob sees `Present: alice ○ idle`; Alice sees `→ bob/reviewer joined`. Type in either terminal
+and it lands in the other's `#general`. View it live with `cotal console` or `cotal web`.
+Full walkthrough: [`examples/01-lateral-coordination`](examples/01-lateral-coordination).
 
 ## What Cotal adds on top of NATS
 
