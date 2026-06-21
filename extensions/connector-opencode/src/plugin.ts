@@ -93,7 +93,7 @@ export const cotal: Plugin = async ({ client }) => {
   };
 
   function pendingForWake(): number {
-    return agent.attention === "open" ? agent.inboxCount() : agent.directedPendingCount();
+    return agent.pendingWake(); // mode-and-channel-aware: excludes held dnd/quiet ambient
   }
 
   function adoptSession(id: string, reason: string): void {
@@ -218,12 +218,14 @@ export const cotal: Plugin = async ({ client }) => {
 
   // Inbound mesh → drive (never interrupt a running turn — matches Claude). A directed message
   // (DM / anycast / @mention) drives when idle; ambient channel chatter drives only in `open` while
-  // idle (dnd/focus hold it for the next turn). In `focus`, ambient/@mentions never reach "incoming"
-  // (acked-and-dropped at ingest); a focus @mention wakes us to PULL via "mention-wake" below.
+  // idle (dnd/focus hold it for the next turn), and a per-channel `quiet` channel never ambient-drives
+  // (read on the agent's terms; a `quiet` @mention still drives). `muted` ambient never reaches here
+  // (ack-dropped at ingest); in `focus`, ambient/@mentions never reach "incoming" either.
   agent.on("incoming", (item: InboxItem) => {
     if (busy) return; // buffer; completeTurn drives at turn end
     const directed = item.kind !== "channel" || item.mentionsMe;
-    if (directed || agent.attention === "open") void drive();
+    const quiet = item.kind === "channel" && agent.channelMode(item.channel) === "quiet";
+    if (directed || (!quiet && agent.attention === "open")) void drive();
   });
   agent.on("mention-wake", (item: InboxItem) => {
     // Focus: the @mention body was acked-and-dropped at ingest — wake a turn to PULL it (recall).

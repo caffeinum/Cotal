@@ -358,6 +358,42 @@ Focus's real effect is *reducing* the untrusted-ambient prompt-injection surface
 subject-authenticated dm/anycast auto-inject. It does not eliminate it. Focus resets to
 **open** on `SessionStart` (fail-open, so a restarted agent never stays silently deaf).
 
+### Per-channel attention: `quiet` / `muted`
+
+Attention can also be set *per channel*, overriding the global mode for one channel — "which
+channels I receive from, and which stay quiet." Set it with `cotal_channel_mode({ channel, mode })`;
+see all your channels and their modes at a glance in `cotal_channels`.
+
+- **quiet**: still delivered and buffered (read it on your terms, or with `cotal_inbox`), but it
+  never wakes you. An `@mention` on a quiet channel still wakes you. (Per-channel `dnd`.)
+- **muted**: you stop receiving the channel entirely — its ambient *and* `@mentions` are dropped on
+  receive. DMs and anycast are not channel-scoped, so they still reach you.
+- **normal** (default): the channel follows your global attention mode.
+
+A per-channel override is the **final word for that channel**. Precedence, per message: a DM/anycast
+always buffers + wakes (channel rules never apply); otherwise a per-channel `muted` drops, a
+per-channel `quiet` buffers without an ambient wake, and a channel with no override falls through to
+your global mode. So `quiet` buffers *even under global `focus`* ("retain this channel, just don't
+wake me"), and `muted` drops *even under global `open`*.
+
+| arrival | `quiet` channel | `muted` channel |
+|---|---|---|
+| channel `@`-mention | buffer + wake + inject | dropped; no wake |
+| ambient (no mention) | buffer; never wake; inject next turn | dropped; no wake |
+| dm / anycast | not channel-scoped — always buffer + wake + inject | same |
+
+**Two layers.** An operator sets a one-way *default* in the agent-file frontmatter (`quiet: [..]` /
+`muted: [..]` — concrete channels within your read ACL, `allowSubscribe`). Because the file is a shared template (many
+instances can wear one persona), the runtime never writes back to it: a live `cotal_channel_mode`
+change is per-instance and **resets on restart** (boot re-seeds from the file).
+
+**Visible to peers (advisory).** Your attention — the global mode and per-channel overrides — is
+published in your presence record, so peers see it in `cotal_roster` (e.g. "locally muted #deploys —
+DM to reach"). It is *advisory, not access control*: `muted` means you opted out of receiving a
+channel, **not** that the channel is blocked — the broker still authorises and could deliver it, and
+a successful send never implies you read it. `muted` ambient is **not** locally recallable (that is
+the "don't receive" contract; for "read later, no wake" use `quiet`).
+
 ## Presence mapping
 
 The connector wires a small subset of Claude Code hooks to Cotal presence states (`idle` /

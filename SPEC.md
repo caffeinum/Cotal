@@ -197,6 +197,8 @@ Presence is a per-space directory keyed by instance id. NATS binding: JetStream 
 | `card` | `AgentCard` | MUST | identity record |
 | `status` | `PresenceStatus` | MUST | `idle`, `waiting`, `working`, or `offline` |
 | `activity` | string | MAY | freeform current activity |
+| `attention` | `AttentionMode` | MAY | global attention mode: `open` \| `dnd` \| `focus`. Advisory observability; `open`/absent ⇒ receives everything. Reset: `open` published on `SessionStart`, removed on the offline sweep |
+| `channelModes` | `Record<string, ChannelMode>` | MAY | per-channel attention overrides (`ChannelMode` = `quiet` \| `muted`), keyed by concrete channel name. Advisory — **not** access control (the broker still authorises and delivers); a receive-side preference, reset on restart |
 | `ts` | number | MUST | epoch ms of last heartbeat |
 
 `AgentCard`:

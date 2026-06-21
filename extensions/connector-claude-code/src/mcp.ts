@@ -98,10 +98,10 @@ const claudeHandle: HookHandle = async (agent, ev) => {
         // drainInbox for surfaced items, and the focus ingest ack-drop for ambient/mentions a
         // focus agent declined.) Stop can't inject context itself, so we must NOT drain here —
         // that would ack with no vehicle to the model and silently lose the messages.
-        // Mode-aware: open flushes any held ambient too; dnd/focus wake only for held DIRECTED items
-        // (held ambient alone must not wake — it would empty-wake busy-loop; it rides the next human turn).
-        const pending = agent.attention === "open" ? agent.inboxCount() : agent.directedPendingCount();
-        if (pending > 0) agent.requestWake();
+        // Mode-and-channel-aware (pendingWake): open flushes held normal ambient too; dnd/focus and
+        // per-channel `quiet` wake only for held DIRECTED items (held quiet/dnd ambient alone must not
+        // wake — it would empty-wake busy-loop; it rides the next human turn).
+        if (agent.pendingWake() > 0) agent.requestWake();
         return {};
       case "SessionEnd":
         mirror?.flush(ev.transcript_path); // best-effort — the process may exit before it lands
@@ -154,6 +154,9 @@ async function main(): Promise<void> {
         `If you need to concentrate, cotal_status also sets your attention — dnd (channel ` +
         `chatter stops waking you; it still arrives on your next turn) or focus (only DMs and ` +
         `@mentions reach your context — pull the held chatter with cotal_inbox). ` +
+        `To silence one channel instead of all of them, cotal_channel_mode sets it quiet (still ` +
+        `delivered + readable, never wakes you; @mentions still wake) or muted (you stop receiving ` +
+        `it, @mentions included). ` +
         `Reply only when a reply is actually needed — a silent acknowledgement is correct; ` +
         `"agreed/thanks/good point" messages are noise. And @-mention a peer only when you need ` +
         `THAT specific peer to act: a mention wakes them, so mentioning in acknowledgements or ` +
@@ -190,12 +193,14 @@ async function main(): Promise<void> {
 
   // Mode-aware wake. A *directed* message (DM, anycast, or an @mention of us) always nudges, so the
   // addressee sees it promptly — woken now if idle, at the next turn boundary if busy. *Ambient*
-  // channel chatter nudges only in `open` while we're idle (suppressed mid-turn, never in dnd/focus).
-  // In `focus`, ambient/mentions never reach "incoming" (acked-and-dropped at ingest) — only directed
-  // does — so this nudges exactly the buffered, injectable set.
+  // channel chatter nudges only in `open` while idle (suppressed mid-turn, never in dnd/focus), and a
+  // per-channel `quiet` channel never ambient-nudges (its ambient was buffered to read on the agent's
+  // own terms; a `quiet` @mention still nudges via directedOrMention). `muted` ambient never reaches
+  // here (ack-dropped at ingest); in `focus`, ambient/mentions never reach "incoming" either.
   agent.on("incoming", (item: InboxItem) => {
     const directedOrMention = item.kind !== "channel" || item.mentionsMe;
-    const ambientWakes = agent.attention === "open" && agent.status !== "working";
+    const quiet = item.kind === "channel" && agent.channelMode(item.channel) === "quiet";
+    const ambientWakes = !quiet && agent.attention === "open" && agent.status !== "working";
     if (directedOrMention || ambientWakes) nudge(item);
   });
   // Focus-only: a channel @mention was acked-and-dropped (not buffered) but still wakes us to PULL it

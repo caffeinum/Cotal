@@ -39,6 +39,8 @@ import type {
   Part,
   Presence,
   PresenceStatus,
+  AttentionMode,
+  ChannelMode,
   CotalMessage,
 } from "./types.js";
 import {
@@ -107,6 +109,9 @@ export interface EndpointOptions {
   watchPresence?: boolean;
   /** Create inbound stream consumers (DM / chat / anycast). Default true; a pure observer sets false. */
   consume?: boolean;
+  /** Initial per-channel attention overrides to publish in presence from the first heartbeat (the
+   *  connector's file-default seed). Mirror only — never read back into delivery. */
+  channelModes?: Record<string, ChannelMode>;
   /** How long an unacked (un-surfaced) message waits before redelivery (ms). */
   ackWaitMs?: number;
   /** Retire this instance's durable consumers after it's been gone this long (ms). */
@@ -177,6 +182,10 @@ export class CotalEndpoint extends EventEmitter {
   private readonly roster = new Map<string, Presence>();
   private status: PresenceStatus = "idle";
   private activity?: string;
+  /** Mirror of the connector's authoritative attention state, published in presence (advisory). The
+   *  endpoint never reads these back into delivery — they exist only to broadcast. */
+  private attentionMode?: AttentionMode;
+  private channelModes?: Record<string, ChannelMode>;
   private stopped = false;
   /** In-flight rebuild (drain+rebind) — serializes manual reconnect, the supervisor's
    *  closed(), and reestablishLoop so only ONE rebuild runs at a time (a second trigger
@@ -222,6 +231,9 @@ export class CotalEndpoint extends EventEmitter {
     this.doRegister = opts.registerPresence ?? true;
     this.doWatch = opts.watchPresence ?? true;
     this.doConsume = opts.consume ?? true;
+    // Seed the presence mirror so file-default channel modes are visible from the first publish
+    // (not only after the first runtime toggle). Mirror only — delivery reads the connector's state.
+    this.channelModes = opts.channelModes && Object.keys(opts.channelModes).length ? opts.channelModes : undefined;
     this.ackWaitMs = opts.ackWaitMs ?? 60_000;
     this.inactiveThresholdMs = opts.inactiveThresholdMs ?? 600_000;
   }
@@ -665,6 +677,20 @@ export class CotalEndpoint extends EventEmitter {
 
   async setStatus(status: PresenceStatus): Promise<void> {
     this.status = status;
+    await this.publishPresence();
+  }
+
+  /** Publish the agent's global attention mode into presence (advisory observability). Mirror only —
+   *  delivery decisions stay in the connector's authoritative state. */
+  async setAttention(attention: AttentionMode): Promise<void> {
+    this.attentionMode = attention;
+    await this.publishPresence();
+  }
+
+  /** Publish the agent's per-channel attention overrides into presence (advisory). An empty map drops
+   *  the field. Mirror only — never read back into delivery. */
+  async setChannelModes(modes: Record<string, ChannelMode>): Promise<void> {
+    this.channelModes = Object.keys(modes).length ? modes : undefined;
     await this.publishPresence();
   }
 
@@ -1434,9 +1460,15 @@ export class CotalEndpoint extends EventEmitter {
       card: this.card,
       status: this.status,
       activity: this.activity,
+      attention: this.attentionMode,
+      channelModes: this.channelModes,
       ts: Date.now(),
     };
-    await this.kv.put(this.card.id, JSON.stringify(p));
+    // Wire contract (SPEC §6): an OFFLINE record must not carry the advisory attention fields. Scrub at
+    // the publisher — this covers stop(), setStatus("offline"), and any future offline publish site, so
+    // the raw KV record is compliant, not only the observer-side roster materialization.
+    const record = this.status === "offline" ? this.toOffline(p) : p;
+    await this.kv.put(this.card.id, JSON.stringify(record));
   }
 
   private async startPresenceWatch(): Promise<void> {
@@ -1498,8 +1530,10 @@ export class CotalEndpoint extends EventEmitter {
   private applyPresence(id: string, raw: Presence): void {
     const prev = this.roster.get(id);
     const stale = Date.now() - raw.ts > this.ttlMs;
+    // Any offline materialization (a stale snapshot OR a graceful-leave record) drops the advisory
+    // attention fields — an offline peer must not carry a stale `[focus]`/`locally muted` hint.
     const p: Presence =
-      stale && raw.status !== "offline" ? { ...raw, status: "offline" } : raw;
+      stale || raw.status === "offline" ? this.toOffline(raw) : raw;
 
     // First time we hear about an already-offline peer (stale snapshot): record quietly.
     if (!prev && p.status === "offline") {
@@ -1515,7 +1549,9 @@ export class CotalEndpoint extends EventEmitter {
       prev.status !== "offline" &&
       p.status !== "offline" &&
       prev.status === p.status &&
-      prev.activity === p.activity
+      prev.activity === p.activity &&
+      prev.attention === p.attention &&
+      sameChannelModes(prev.channelModes, p.channelModes)
     ) {
       this.roster.set(id, p);
       return;
@@ -1532,11 +1568,18 @@ export class CotalEndpoint extends EventEmitter {
     this.emit("roster", this.getRoster());
   }
 
+  /** Materialize an OFFLINE presence record: drop the advisory attention fields. An offline peer must
+   *  not show a stale `[focus]` or "locally muted #x" hint — SPEC: attention removed on offline sweep,
+   *  channel modes reset on restart. card/activity/ts are kept. */
+  private toOffline(p: Presence): Presence {
+    return { ...p, status: "offline", attention: undefined, channelModes: undefined };
+  }
+
   /** Mark a known peer offline (on KV delete/purge), keeping it in the roster. */
   private markOffline(id: string): void {
     const prev = this.roster.get(id);
     if (!prev || prev.status === "offline") return;
-    const offline: Presence = { ...prev, status: "offline" };
+    const offline = this.toOffline(prev);
     this.roster.set(id, offline);
     this.emit("presence", { type: "offline", presence: offline });
     this.emit("roster", this.getRoster());
@@ -1545,10 +1588,11 @@ export class CotalEndpoint extends EventEmitter {
   private sweep(): void {
     const now = Date.now();
     let changed = false;
-    for (const [, p] of this.roster) {
+    for (const [id, p] of this.roster) {
       if (p.status !== "offline" && now - p.ts > this.ttlMs) {
-        p.status = "offline";
-        this.emit("presence", { type: "offline", presence: p });
+        const offline = this.toOffline(p);
+        this.roster.set(id, offline);
+        this.emit("presence", { type: "offline", presence: offline });
         changed = true;
       }
     }
@@ -1585,6 +1629,18 @@ function sameSet(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
   const s = new Set(a);
   return b.every((x) => s.has(x));
+}
+
+/** Shallow-equal two per-channel-mode maps (presence dedup): a change must re-emit, so an attention
+ *  toggle isn't swallowed as a quiet heartbeat. Absent and empty compare equal. */
+function sameChannelModes(
+  a?: Record<string, ChannelMode>,
+  b?: Record<string, ChannelMode>,
+): boolean {
+  const ak = a ? Object.keys(a) : [];
+  const bk = b ? Object.keys(b) : [];
+  if (ak.length !== bk.length) return false;
+  return ak.every((k) => a![k] === b?.[k]);
 }
 
 /** Auth subset of connect() options, shared by the endpoint and isReachable. */
