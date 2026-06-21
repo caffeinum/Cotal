@@ -96,6 +96,33 @@ try {
     check("two live copies: exactly one surfaced", items.length === 1);
   }
 
+  // ── Case 5 — live FIRST, DRAINED/surfaced, durable SECOND (the post-drain trap) ──
+  // The first copy is already handled and removed from the inbox when the durable copy arrives, so the
+  // pending-inbox check alone wouldn't catch it. It must NOT re-surface, and the durable copy must be
+  // COMMITTED (its logical message was already handled) so JetStream stops redelivering.
+  {
+    const lc = { n: 0 };
+    const dc = { n: 0 };
+    agent.ep.emit("message", msg("m5"), mkDelivery(false, lc), meta);
+    check("live-first/drain: surfaced on first drain", agent.drainInbox().length === 1);
+    agent.ep.emit("message", msg("m5"), mkDelivery(true, dc), meta); // durable copy AFTER the drain
+    check("live-first/drain/durable-second: durable duplicate does NOT re-buffer", agent.inboxCount() === 0);
+    check("live-first/drain/durable-second: nothing re-surfaces", agent.drainInbox().length === 0);
+    check("live-first/drain/durable-second: the durable duplicate is COMMITTED (acked, not lost)", dc.n === 1, { dc });
+  }
+
+  // ── Case 6 — durable FIRST, DRAINED/surfaced, live SECOND: live duplicate drops, no re-surface ──
+  {
+    const dc = { n: 0 };
+    const lc = { n: 0 };
+    agent.ep.emit("message", msg("m6"), mkDelivery(true, dc), meta);
+    agent.drainInbox(); // surfaces + commits the durable copy (dc.n → 1)
+    agent.ep.emit("message", msg("m6"), mkDelivery(false, lc), meta); // live copy AFTER the drain
+    check("durable-first/drain/live-second: live duplicate does NOT re-buffer", agent.inboxCount() === 0);
+    check("durable-first/drain/live-second: nothing re-surfaces", agent.drainInbox().length === 0);
+    check("durable-first/drain/live-second: durable committed once, live no-op added nothing", dc.n === 1 && lc.n === 0, { dc, lc });
+  }
+
   console.log(`\nCROSS-PATH DEDUP SMOKE OK ✅  (${pass} passed, 0 failed)`);
   process.exit(0);
 } catch (e) {

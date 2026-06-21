@@ -88,6 +88,15 @@ export class MeshAgent extends EventEmitter {
   readonly config: AgentConfig;
 
   private inbox: Pending[] = [];
+  /** Ids already SURFACED to the model (handled) — bounded, commit-aware dedup ACROSS a drain. The
+   *  live↔durable transition window can deliver the two copies of one message far enough apart that the
+   *  first is already drained (removed from {@link inbox}) when the second arrives; the pending-inbox
+   *  check alone would then re-buffer and double-surface it. Recorded at HANDLE time ({@link drainInbox}),
+   *  never at receive time — so a later durable duplicate of an already-handled id is safe to ack (the
+   *  logical message was delivered), which is exactly what the removed endpoint-level `firstSeenChat`
+   *  got wrong (it acked at receive time, before handling). Two rotating windows bound memory. */
+  private handledIds = new Set<string>();
+  private handledIdsPrev = new Set<string>();
   private _connected = false;
   private _status: PresenceStatus = "idle";
   private _attention: AttentionMode = "open"; // F3: fail-open default; reset to open on SessionStart
@@ -205,12 +214,21 @@ export class MeshAgent extends EventEmitter {
   // ---- inbox ---------------------------------------------------------------
 
   private ingest(m: CotalMessage, delivery: Delivery, meta?: MessageMeta): void {
-    // Duplicate id — keep ONE entry. Take the freshest ack handle, but NEVER downgrade a durable
-    // (committing) ack to a live no-op. Two cases produce a duplicate: same-path JetStream redelivery
-    // (always durable → upgrade to the fresh handle), and the cross-path live/durable transition
-    // window. There, if the DURABLE copy arrived first and a LIVE copy lands second, overwriting with
-    // the live no-op would leave the durable copy uncommitted → JS redelivers it → it double-surfaces.
-    // So only a durable delivery may replace the stored handle; a live duplicate is dropped as-is.
+    // Already SURFACED and drained? This is a post-handle cross-path duplicate (the transition window's
+    // second copy, arriving after the first was handled). Don't surface it again; if it's the durable
+    // copy, ack it so JetStream stops redelivering — safe because the logical message was already
+    // handled (handledIds is recorded at drain time, never at receive time).
+    if (this.handledIds.has(m.id) || this.handledIdsPrev.has(m.id)) {
+      if (delivery.durable) delivery.ack();
+      return;
+    }
+    // Duplicate id still PENDING — keep ONE entry. Take the freshest ack handle, but NEVER downgrade a
+    // durable (committing) ack to a live no-op. Two cases produce a duplicate: same-path JetStream
+    // redelivery (always durable → upgrade to the fresh handle), and the cross-path live/durable
+    // transition window. There, if the DURABLE copy arrived first and a LIVE copy lands second,
+    // overwriting with the live no-op would leave the durable copy uncommitted → JS redelivers it → it
+    // double-surfaces. So only a durable delivery may replace the stored handle; a live duplicate is
+    // dropped as-is.
     const existing = this.inbox.find((p) => p.item.id === m.id);
     if (existing) {
       if (delivery.durable) existing.ack = delivery.ack;
@@ -278,8 +296,22 @@ export class MeshAgent extends EventEmitter {
   drainInbox(limit?: number): InboxItem[] {
     const n = limit && limit > 0 ? Math.min(limit, this.inbox.length) : this.inbox.length;
     const taken = this.inbox.splice(0, n);
-    for (const p of taken) p.ack();
+    for (const p of taken) {
+      p.ack();
+      this.markHandled(p.item.id);
+    }
     return taken.map((p) => p.item);
+  }
+
+  /** Record an id as surfaced/handled, for {@link ingest}'s commit-aware cross-path dedup. Bounded via
+   *  two rotating windows: when the live set fills, it becomes the previous window and a fresh one
+   *  starts — so memory stays ~2× the cap while the lookup horizon never shrinks below it. */
+  private markHandled(id: string): void {
+    this.handledIds.add(id);
+    if (this.handledIds.size >= 4096) {
+      this.handledIdsPrev = this.handledIds;
+      this.handledIds = new Set();
+    }
   }
 
   /** Return pending messages without acking them (they stay on the stream). */
