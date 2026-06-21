@@ -177,6 +177,19 @@ export class CotalEndpoint extends EventEmitter {
   private histLock: Promise<unknown> = Promise.resolve();
   private readonly subs: Subscription[] = [];
   private readonly streamMsgs: ConsumerMessages[] = [];
+  /** Overlay (SPEC v0.3): per-channel native core subscriptions — the manager-free live read path,
+   *  added alongside the legacy `chat_<id>` durable. Keyed by channel so leave unsubscribes just one. */
+  private readonly chatSubs = new Map<string, Subscription>();
+  /** Channels whose core-sub the broker refused (async sub.allow violation) — read by the
+   *  broker-confirmed join: a denied subscribe is NOT a successful join (SPEC conformance #13). */
+  private readonly chatSubDenied = new Set<string>();
+  /** Channels the legacy `chat_<id>` durable filter currently covers (boot set + mediated joins). The
+   *  core-sub drops these (the durable owns their delivery+ack), so the two paths never double-deliver. */
+  private durableChannels: string[] = [];
+  /** Chat-join subjects currently being broker-confirmed. An out-of-ACL subscribe among these trips an
+   *  EXPECTED async permission violation that joinChannel turns into a clean throw, so watchStatus
+   *  suppresses it rather than surfacing a spurious connection error. */
+  private readonly confirmingChatSubs = new Set<string>();
   private heartbeatTimer?: ReturnType<typeof setInterval>;
   private sweepTimer?: ReturnType<typeof setInterval>;
   private readonly roster = new Map<string, Presence>();
@@ -336,6 +349,17 @@ export class CotalEndpoint extends EventEmitter {
       }
     }
     this.streamMsgs.length = 0;
+    for (const sub of this.chatSubs.values()) {
+      try {
+        sub.unsubscribe();
+      } catch {
+        /* already closed with the connection */
+      }
+    }
+    this.chatSubs.clear();
+    this.chatSubDenied.clear();
+    this.confirmingChatSubs.clear();
+    this.durableChannels = [];
     this.roster.clear();
     this.joinSeq.clear();
     this.channelConfigs.clear();
@@ -736,34 +760,62 @@ export class CotalEndpoint extends EventEmitter {
   async joinChannel(channel: string): Promise<{ joined: boolean; backfilled: number }> {
     if (!this.jsm) throw new Error(this.notLiveMsg());
     if (this.channels.includes(channel)) return { joined: false, backfilled: 0 };
-    // Arm the watermark BEFORE the filter flip (single-delivery: a tail message on the new
-    // channel is then either ≤ frontier → backfill-only or > frontier → tail-only, never both),
-    // and filter BEFORE backfill (gap-safe: backfill-first leaves a window in neither stream).
+    // Arm the watermark BEFORE going live: the backfill reads ≤ frontier and the core-sub only ever
+    // delivers post-subscribe live messages (> frontier), so the two never overlap.
     const armed = await this.armJoin([channel]);
-    try {
-      await this.setChatFilter([...this.channels, channel]);
-    } catch (e) {
-      this.joinSeq.delete(channel); // the flip was rejected (e.g. outside allowSubscribe) — undo the arm
-      throw e;
+    // Live read (SPEC v0.3): open the native core subscription — MANAGER-FREE, broker-enforced by
+    // sub.allow. This is what lets an agent join a channel's live feed on its own. The sub.allow
+    // refusal is async, so broker-confirm before committing local join state (conformance #13).
+    this.subscribeChat(channel);
+    await this.confirmChatSub();
+    this.confirmingChatSubs.delete(chatSubject(this.space, "*", channel));
+    if (this.chatSubDenied.has(channel)) {
+      this.unsubscribeChat(channel);
+      this.joinSeq.delete(channel);
+      throw new Error(`cannot join "${channel}": not within this agent's read ACL (allowSubscribe)`);
     }
     this.channels.push(channel);
+    // Durable backstop (best-effort, overlay): also move the legacy chat_<id> filter so the channel
+    // gets durable delivery WHEN a privileged provisioner is present. A manager-less auth session
+    // can't move it — fine now, the core-sub already delivers live; swallow ONLY the no-provisioner
+    // case. A real rejection (e.g. the manager refused the set) undoes the whole join.
+    try {
+      await this.setChatFilter([...this.durableChannels, channel]);
+      this.durableChannels.push(channel);
+    } catch (e) {
+      if (!isNoProvisioner(e)) {
+        this.unsubscribeChat(channel);
+        const i = this.channels.indexOf(channel);
+        if (i >= 0) this.channels.splice(i, 1);
+        this.joinSeq.delete(channel);
+        throw e;
+      }
+    }
     const backfilled = await this.backfillArmed(armed);
     return { joined: true, backfilled };
   }
 
-  /** Leave a channel mid-session: drop it from the durable's `filter_subjects`. Refuses to leave
-   *  the *last* channel (an empty filter would match every chat subject — the opposite of
-   *  leaving). Returns whether anything changed. */
+  /** Leave a channel mid-session (MANAGER-FREE): close its core subscription, and best-effort drop
+   *  it from the legacy durable filter if that path covered it. Leaving the last channel is now
+   *  permitted (an empty core-sub set subscribes to nothing) — but the legacy durable filter is never
+   *  emptied (that would match every chat subject), so a still-durable-covered last channel keeps its
+   *  durable delivery until the legacy tail is removed (overlay limitation). Returns whether changed. */
   async leaveChannel(channel: string): Promise<{ left: boolean }> {
     if (!this.jsm) throw new Error(this.notLiveMsg());
     const i = this.channels.indexOf(channel);
     if (i < 0) return { left: false };
-    if (this.channels.length === 1)
-      throw new Error(`cannot leave "${channel}" — it is your only channel (an empty filter would subscribe to all)`);
-    const remaining = this.channels.filter((c) => c !== channel);
-    await this.setChatFilter(remaining);
+    this.unsubscribeChat(channel);
     this.channels.splice(i, 1);
     this.joinSeq.delete(channel);
+    const remaining = this.durableChannels.filter((c) => c !== channel);
+    if (remaining.length && remaining.length !== this.durableChannels.length) {
+      try {
+        await this.setChatFilter(remaining);
+        this.durableChannels = remaining;
+      } catch (e) {
+        if (!isNoProvisioner(e)) throw e;
+      }
+    }
     return { left: true };
   }
 
@@ -969,7 +1021,13 @@ export class CotalEndpoint extends EventEmitter {
     if (!this.nc) return;
     void (async () => {
       for await (const s of this.nc!.status()) {
-        if (s.type === "error") this.emit("error", describeStatusError(s.error));
+        if (s.type !== "error") continue;
+        // Suppress the EXPECTED permission violation from a manager-free join we're confirming: an
+        // out-of-ACL `nc.subscribe` is refused async on its chat subject, which joinChannel catches
+        // and turns into a clean throw — it is not a connection error to surface.
+        if (s.error instanceof PermissionViolationError && this.confirmingChatSubs.has(s.error.subject))
+          continue;
+        this.emit("error", describeStatusError(s.error));
       }
     })().catch((e) => {
       if (!this.stopped) this.emit("error", e as Error);
@@ -1138,6 +1196,9 @@ export class CotalEndpoint extends EventEmitter {
         if (armed) await this.backfillArmed(armed);
       }
     }
+    // Overlay: the boot subscribe set is what the legacy chat_<id> durable filter covers, so the
+    // core-sub drops those (the durable owns them). Runtime joins add core-subs on top.
+    this.durableChannels = [...this.channels];
 
     // Anycast: a shared work-queue consumer for our role — one instance grabs each task.
     // Open mode self-creates; auth mode BINDS the provisioner-pre-created svc_<role>
@@ -1210,6 +1271,74 @@ export class CotalEndpoint extends EventEmitter {
     })().catch((e) => {
       if (!this.stopped) this.emit("error", e as Error);
     });
+  }
+
+  /** Open a native core subscription to a channel's live feed (overlay: the manager-free read path,
+   *  broker-enforced by `sub.allow`). At-most-once — no replay, no ack. The handler coverage-drops
+   *  copies the legacy durable already owns, plus our own echo and spoofed senders. */
+  private subscribeChat(channel: string): void {
+    if (!this.nc || this.chatSubs.has(channel)) return;
+    this.chatSubDenied.delete(channel);
+    const subject = chatSubject(this.space, "*", channel);
+    this.confirmingChatSubs.add(subject);
+    const sub = this.nc.subscribe(subject, {
+      callback: (err, m) => {
+        if (err) {
+          // async sub.allow refusal (or sub error): the live feed for this channel is dead. Never a
+          // leak — the broker refused it. The broker-confirmed join reads this flag.
+          this.chatSubDenied.add(channel);
+          return;
+        }
+        const parsed = parseSubject(m.subject);
+        if (!parsed || parsed.kind !== "chat") return;
+        // Coverage-partition dedup: if the legacy durable filter covers this channel it delivers +
+        // acks it, so drop the redundant core-sub copy — a channel is never double-delivered.
+        if (this.durableChannels.some((d) => subjectMatches(d, parsed.rest))) return;
+        let msg: CotalMessage;
+        try {
+          msg = m.json<CotalMessage>();
+        } catch (e) {
+          this.emit("error", e as Error);
+          return;
+        }
+        if (!msg.from || msg.from.id !== parsed.sender) return; // spoof/malformed — drop (at-most-once)
+        if (msg.from.id === this.card.id) return; // our own echo
+        const delivery: Delivery = { ack: () => {}, nak: () => {} }; // live = at-most-once, not acked
+        this.emit("message", msg, delivery, {
+          historical: false,
+          kind: kindFromParsed(parsed.kind),
+        } satisfies MessageMeta);
+      },
+    });
+    this.chatSubs.set(channel, sub);
+  }
+
+  /** Close a channel's core subscription (manager-free leave). */
+  private unsubscribeChat(channel: string): void {
+    this.confirmingChatSubs.delete(chatSubject(this.space, "*", channel));
+    const sub = this.chatSubs.get(channel);
+    if (sub) {
+      try {
+        sub.unsubscribe();
+      } catch {
+        /* closing with the connection */
+      }
+      this.chatSubs.delete(channel);
+    }
+    this.chatSubDenied.delete(channel);
+  }
+
+  /** Confirm a just-opened core subscription was accepted by the broker. A `sub.allow` violation is
+   *  async in NATS, so flush (round-trips the SUB) then settle briefly to let the refusal land — a
+   *  denied subscribe must not read as a successful join (SPEC conformance #13). */
+  private async confirmChatSub(): Promise<void> {
+    if (!this.nc) return;
+    try {
+      await this.nc.flush();
+    } catch {
+      /* drained mid-join */
+    }
+    await new Promise((r) => setTimeout(r, 50));
   }
 
   /** The highest join watermark among the joined subscriptions that cover `concreteChannel`
@@ -1699,6 +1828,13 @@ export function isPermissionDenied(e: unknown): boolean {
   if (e instanceof PermissionViolationError) return true;
   if ((e as { cause?: unknown } | null)?.cause instanceof PermissionViolationError) return true;
   return /permissions?\s+violation/i.test(String((e as { message?: unknown } | null)?.message ?? ""));
+}
+
+/** True when a channel change failed because no privileged provisioner (manager) is serving the mesh.
+ *  The overlay join/leave swallows this (the core-sub delivers live without a manager) but rethrows
+ *  real rejections. Matches the message thrown by the no-responders branch of `setChatFilter`. */
+function isNoProvisioner(e: unknown): boolean {
+  return /no privileged provisioner/i.test(String((e as { message?: unknown } | null)?.message ?? ""));
 }
 
 /** Whether a NATS server is *running* at `servers`. True on a successful connect AND on an
