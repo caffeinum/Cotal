@@ -65,8 +65,9 @@ The skeleton is the same on every view: **left** is navigation (roster, channels
   name (a short identity id only when it's unknown), not the raw instance id.
 - **Agent Detail:** a per-agent drill-down (from the roster or a NEEDS YOU card) rendering the
   peer's AgentCard — name, role, kind, the **harness** it runs on (`meta.connector`, shown as a
-  brand logo pill: claude / opencode / hermes), the **model** when the operator pinned one
-  (`meta.model`), description, capability tags, current activity / what it's blocked on, and its
+  brand logo pill: claude / opencode / hermes), the **model** when known (`meta.model` — the
+  operator's pin, else auto-detected from Claude's SessionStart hook), description, capability
+  tags, current activity / what it's blocked on, and its
   full instance id. Fields absent from the card are simply omitted.
 - **Needs you:** agents currently blocked or waiting, newest first. **Persistent on the
   right** across every view, so the attention lane never disappears on drill-in.

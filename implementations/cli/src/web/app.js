@@ -570,8 +570,8 @@ function renderAgentDetail() {
         .map((s) => `<div class="d-skill"><span class="nm">${esc(s.name || s.id)}</span>${s.description ? `<span class="dsc">${esc(s.description)}</span>` : ""}</div>`)
         .join("")}</div>`
     : "";
-  // Any other meta beyond the harness badge, generically rendered (escaped, key-sorted).
-  const extra = Object.entries(meta).filter(([k]) => k !== "connector").sort(([a], [b]) => a.localeCompare(b));
+  // Any other meta beyond the badges (connector → harness, model), generically rendered (escaped, key-sorted).
+  const extra = Object.entries(meta).filter(([k]) => k !== "connector" && k !== "model").sort(([a], [b]) => a.localeCompare(b));
   const metaKv = extra.length
     ? `<div class="d-kv">${extra
         .map(([k, v]) => `<div class="row"><span class="k">${esc(k)}</span><span class="v">${esc(typeof v === "string" ? v : JSON.stringify(v))}</span></div>`)

@@ -694,6 +694,18 @@ export class CotalEndpoint extends EventEmitter {
     await this.publishPresence();
   }
 
+  /** Overlay the host's live model onto the card's display-only `meta.model` and republish presence.
+   *  For connectors that learn the actual model only *after* launch (e.g. Claude Code's `SessionStart`
+   *  hook payload) rather than from an operator pin. Display-only discovery metadata; a no-op when the
+   *  value is empty or already current (no redundant publish). The mutated card is read live by every
+   *  later publish, so even a pre-connect call surfaces on the first presence write. */
+  async setCardModel(model: string): Promise<void> {
+    const m = model.trim();
+    if (!m || this.card.meta?.model === m) return;
+    this.card.meta = { ...(this.card.meta ?? {}), model: m };
+    await this.publishPresence();
+  }
+
   // ---- channel discovery ---------------------------------------------------
 
   /** This channel's registry config from the live local cache (undefined if unset). */
