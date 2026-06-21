@@ -118,7 +118,7 @@ try {
   const jr = await B.ep.joinChannel("incident");
   await sleep(300);
   check("dynamic join backfills replay channel", jr.joined === true && jr.backfilled === 1 && B.got.filter((g) => g.channel === "incident" && g.historical).length === 1);
-  check("re-join is a no-op", JSON.stringify(await B.ep.joinChannel("incident")) === JSON.stringify({ joined: false, backfilled: 0 }));
+  check("re-join is a no-op", JSON.stringify(await B.ep.joinChannel("incident")) === JSON.stringify({ joined: false, backfilled: 0, durable: true }));
 
   // ---- dynamic join (no-replay) → tail drop suppresses pre-join history ----
   B.got.length = 0;
@@ -140,7 +140,7 @@ try {
   check("leave stops delivery", has(B.got, "chat-after-leave").length === 0);
   await B.ep.leaveChannel("incident");
   await B.ep.leaveChannel("general");
-  await assert.rejects(() => B.ep.leaveChannel("log"), /only channel/);
+  await assert.rejects(() => B.ep.leaveChannel("log"), /only durable-covered channel/);
   check("can't leave the last channel", true);
 
   // ---- rebind = pure resume, no re-backfill ----

@@ -590,8 +590,10 @@ export class MeshAgent extends EventEmitter {
     }));
   }
 
-  /** Join a channel mid-session (backfills history if replay is on; idempotent). */
-  async joinChannel(channel: string): Promise<{ joined: boolean; backfilled: number }> {
+  /** Join a channel mid-session (backfills history if replay is on; idempotent). `durable` reports
+   *  whether the durable backstop was established (a privileged provisioner moved the legacy filter) —
+   *  `false` means joined LIVE only, so messages sent while this session is offline won't be replayed. */
+  async joinChannel(channel: string): Promise<{ joined: boolean; backfilled: number; durable: boolean }> {
     this.assertConnected();
     return this.ep.joinChannel(channel);
   }

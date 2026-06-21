@@ -190,11 +190,6 @@ export class CotalEndpoint extends EventEmitter {
    *  EXPECTED async permission violation that joinChannel turns into a clean throw, so watchStatus
    *  suppresses it rather than surfacing a spurious connection error. */
   private readonly confirmingChatSubs = new Set<string>();
-  /** Receive-side `id` dedup for chat (overlay backstop): the core-sub and the legacy durable can
-   *  briefly both deliver the same channel during the durable-filter transition window. Two rotating
-   *  windows bound memory to ~2× the cap while keeping a wide-enough horizon. */
-  private chatSeen = new Set<string>();
-  private chatSeenPrev = new Set<string>();
   private heartbeatTimer?: ReturnType<typeof setInterval>;
   private sweepTimer?: ReturnType<typeof setInterval>;
   private readonly roster = new Map<string, Presence>();
@@ -365,8 +360,6 @@ export class CotalEndpoint extends EventEmitter {
     this.chatSubDenied.clear();
     this.confirmingChatSubs.clear();
     this.durableChannels = [];
-    this.chatSeen.clear();
-    this.chatSeenPrev.clear();
     this.roster.clear();
     this.joinSeq.clear();
     this.channelConfigs.clear();
@@ -776,7 +769,17 @@ export class CotalEndpoint extends EventEmitter {
     // refusal is async — broker-confirm before committing local join state; the subscribe handler
     // ALSO drops a channel on ANY refusal (incl. a late one), so this is not a timing gamble (#13).
     this.subscribeChat(channel);
-    await this.confirmChatSub();
+    try {
+      await this.confirmChatSub();
+    } catch (e) {
+      // The confirm boundary (flush) failed — the connection drained/closed mid-join, so we have NO
+      // confirmation the subscribe was accepted. Fail closed: undo the half-open join rather than
+      // returning as if it were confirmed (a reconnect re-confirms from this.channels, which we never
+      // pushed to). unsubscribeChat clears chatSubs + confirmingChatSubs.
+      this.unsubscribeChat(channel);
+      this.joinSeq.delete(channel);
+      throw new Error(`cannot join "${channel}": live subscription could not be confirmed (${(e as Error).message})`);
+    }
     this.confirmingChatSubs.delete(chatSubject(this.space, "*", channel));
     if (this.chatSubDenied.has(channel)) {
       this.unsubscribeChat(channel);
@@ -788,8 +791,9 @@ export class CotalEndpoint extends EventEmitter {
     // gets durable delivery WHEN a privileged provisioner is present. A manager-less auth session
     // can't move it — fine, the core-sub already delivers live (the result is `joined live` with the
     // durable backstop unestablished, NOT `joined durable`; see `durable` below). A real rejection
-    // undoes the join. Receive-side `id` dedup (firstSeenChat) covers the brief window between the
-    // filter update taking effect and `durableChannels` updating, so no message double-delivers.
+    // undoes the join. `durableChannels` is pushed synchronously right after the filter update resolves
+    // (below), so the core-sub coverage-partition is exact for anything published after the join; a
+    // live-first duplicate in the transition window is coalesced downstream (commit-aware id-dedup).
     let durable = false;
     try {
       await this.setChatFilter([...this.durableChannels, channel]);
@@ -1299,13 +1303,12 @@ export class CotalEndpoint extends EventEmitter {
             m.ack();
             continue;
           }
-          // Cross-path dedup backstop (overlay): if the core-sub already surfaced this id (the brief
-          // durable-filter-update→coverage-flag window), ack the durable copy so JS stops redelivering,
-          // but do not re-surface it.
-          if (!this.firstSeenChat(msg.id)) {
-            m.ack();
-            continue;
-          }
+          // No pre-commit dedup here: the durable is the at-least-once path, so it must NEVER ack a copy
+          // just because an id was "seen" — that would drop an unhandled message (the security/critic
+          // HIGH). Steady state is single-path (coverage-partition: the core-sub drops durable-covered
+          // channels). The only overlap is the brief live-first transition window, and a duplicate there
+          // is coalesced downstream by the receiver's commit-aware id-dedup (MeshAgent.ingest keeps ONE
+          // entry and takes THIS durable ack handle) — so the durable copy is acked only once handled.
         }
         const delivery: Delivery = { ack: () => m.ack(), nak: () => m.nak() };
         this.emit("message", msg, delivery, {
@@ -1316,19 +1319,6 @@ export class CotalEndpoint extends EventEmitter {
     })().catch((e) => {
       if (!this.stopped) this.emit("error", e as Error);
     });
-  }
-
-  /** True the FIRST time a chat `msg.id` is seen (caller surfaces it); false on a duplicate (caller
-   *  drops, acking any durable copy so JetStream stops redelivering). Bounded via two rotating windows
-   *  so a long-lived endpoint never grows the set unboundedly. */
-  private firstSeenChat(id: string): boolean {
-    if (this.chatSeen.has(id) || this.chatSeenPrev.has(id)) return false;
-    this.chatSeen.add(id);
-    if (this.chatSeen.size >= 4096) {
-      this.chatSeenPrev = this.chatSeen;
-      this.chatSeen = new Set();
-    }
-    return true;
   }
 
   /** The channels the legacy `chat_<id>` durable's filter ACTUALLY covers right now (parsed from its
@@ -1396,7 +1386,6 @@ export class CotalEndpoint extends EventEmitter {
         }
         if (!msg.from || msg.from.id !== parsed.sender) return; // spoof/malformed — drop (at-most-once)
         if (msg.from.id === this.card.id) return; // our own echo
-        if (!this.firstSeenChat(msg.id)) return; // cross-path dedup: the durable already surfaced it
         const delivery: Delivery = { ack: () => {}, nak: () => {} }; // live = at-most-once, not acked
         this.emit("message", msg, delivery, {
           historical: false,
@@ -1426,12 +1415,12 @@ export class CotalEndpoint extends EventEmitter {
    *  async in NATS, so flush (round-trips the SUB) then settle briefly to let the refusal land — a
    *  denied subscribe must not read as a successful join (SPEC conformance #13). */
   private async confirmChatSub(): Promise<void> {
-    if (!this.nc) return;
-    try {
-      await this.nc.flush();
-    } catch {
-      /* drained mid-join */
-    }
+    if (!this.nc) throw new Error("connection not established");
+    // flush() is the deterministic boundary: the broker's -ERR for an out-of-ACL SUB arrives BEFORE the
+    // PONG, so once flush resolves the subscribe callback has already recorded any denial. A flush
+    // FAILURE means the connection drained/closed mid-join — we have no confirmation, so let it throw
+    // (joinChannel fails closed) instead of swallowing it and continuing as if confirmed.
+    await this.nc.flush();
     await new Promise((r) => setTimeout(r, 50));
   }
 

@@ -403,7 +403,12 @@ export function cotalToolSpecs(config: AgentConfig, source = "connector"): Cotal
             r.backfilled > 0
               ? `\nBackfilled ${r.backfilled} earlier message${r.backfilled === 1 ? "" : "s"} into your inbox (marked "history" — they pre-date your join; read with cotal_inbox).`
               : "";
-          return ok(`Joined #${channel}.\n${info}${caught}`);
+          // `durable:false` = joined the LIVE feed only (no provisioner moved the durable backstop), so
+          // messages sent while you're offline won't be replayed to you. Say so — don't hide it.
+          const headline = r.durable
+            ? `Joined #${channel}.`
+            : `Joined #${channel} (live only — durable backstop unavailable in this session, so messages sent while you're offline won't be replayed).`;
+          return ok(`${headline}\n${info}${caught}`);
         } catch (e) {
           return err(`Couldn't join #${channel}: ${(e as Error).message}`);
         }
