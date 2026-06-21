@@ -252,6 +252,31 @@ export function channelBucket(space: string): string {
  *  outside `[A-Za-z0-9_-]` to `_`), so this key can never collide with a real channel. */
 export const CHANNEL_DEFAULTS_KEY = "=defaults";
 
+/** Name of the KV bucket holding the durable-membership registry (Plane-3) for a space — a
+ *  privileged-write sibling of the channels/presence buckets. One record per (concrete channel,
+ *  owner) under {@link memberKey}; the source of truth for `channelMembers()` and the fan-out's
+ *  member list, moved off JetStream consumer topology (which core-sub joins don't create). */
+export function membersBucket(space: string): string {
+  return `cotal_members_${token(space)}`;
+}
+
+/** KV key for one membership record: `<channel>/<owner>`. The channel is concrete (no `*`/`>`,
+ *  validated at the write path) so it is dotted-but-`/`-free, and an owner id is an nkey
+ *  (`[A-Z0-9]`, also `/`-free), so the single `/` separates them unambiguously — both halves
+ *  recover via {@link parseMemberKey}. `/`, `.`, and `[A-Za-z0-9_-]` are all legal KV-key chars
+ *  (`/^[-/=.\w]+$/`), so no encoding is needed. */
+export function memberKey(channel: string, owner: string): string {
+  return `${channel}/${owner}`;
+}
+
+/** Inverse of {@link memberKey}: split a member key back into `{ channel, owner }`, or `null` if
+ *  it isn't one (no `/`). Splits on the single separator — channels and owner ids are both `/`-free. */
+export function parseMemberKey(key: string): { channel: string; owner: string } | null {
+  const i = key.indexOf("/");
+  if (i <= 0 || i >= key.length - 1) return null;
+  return { channel: key.slice(0, i), owner: key.slice(i + 1) };
+}
+
 // ---- JetStream streams (the durable backing for the three delivery modes) ----
 
 /** Stream capturing `chat.>` — multicast backlog + history. */

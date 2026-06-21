@@ -1,0 +1,158 @@
+/**
+ * Durable-membership registry (Plane-3 Piece 1) against a REAL broker (no test runner).
+ *
+ * Exercises members.ts end-to-end on a live KV bucket: record create/read, the generation guard +
+ * revision CAS (a stale control reply can't clobber a newer rejoin/tombstone), tombstone-by-cursor,
+ * the membership-interval eligibility rule (`joinCursor < seq <= leaveCursor`, durable-active only),
+ * the channel/owner scans, and the concrete-only key round-trip. No endpoint, no manager — just the
+ * privileged registry primitives the rest of Stage 4 builds on.
+ *
+ * Run: pnpm smoke:members
+ */
+import { strict as assert } from "node:assert";
+import { spawn } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { connect } from "@nats-io/transport-node";
+import {
+  membersBucket,
+  memberKey,
+  parseMemberKey,
+  openMembersRegistry,
+  commitMember,
+  readMember,
+  tombstoneMember,
+  deleteMember,
+  listMembers,
+  durableEligible,
+  StaleMembershipWrite,
+  type MembershipRecord,
+} from "./src/index.js";
+
+const PORT = 20000 + Math.floor(Math.random() * 40000);
+const servers = `nats://127.0.0.1:${PORT}`;
+const space = "memreg";
+const W = "writer_priv"; // the privileged writer identity (audit)
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const dir = mkdtempSync(join(tmpdir(), "cotal-memreg-"));
+const srv = spawn("nats-server", ["-js", "-p", String(PORT), "-sd", join(dir, "js")], { stdio: "ignore" });
+
+let pass = 0;
+const check = (name: string, cond: boolean, extra?: unknown) => {
+  assert.ok(cond, `${name}${extra !== undefined ? ` — ${JSON.stringify(extra)}` : ""}`);
+  pass++;
+  console.log(`  ✓ ${name}`);
+};
+const rec = (over: Partial<MembershipRecord> & Pick<MembershipRecord, "channel" | "owner">): MembershipRecord => ({
+  state: "durable-active",
+  joinCursor: 0,
+  generation: 1,
+  writerIdentity: W,
+  updatedAt: Date.now(),
+  ...over,
+});
+
+async function main() {
+  for (let i = 0; i < 50; i++) {
+    try {
+      const probe = await connect({ servers });
+      await probe.close();
+      break;
+    } catch {
+      await sleep(200);
+    }
+  }
+  const nc = await connect({ servers });
+  const kv = await openMembersRegistry(nc, space, { create: true });
+
+  // ---- key encoding round-trips, incl. a dotted (hierarchical) channel ----
+  check("memberKey/parseMemberKey round-trip (flat)", JSON.stringify(parseMemberKey(memberKey("review", "OWNERA"))) === JSON.stringify({ channel: "review", owner: "OWNERA" }));
+  check("memberKey/parseMemberKey round-trip (dotted channel)", JSON.stringify(parseMemberKey(memberKey("team.backend", "OWNERB"))) === JSON.stringify({ channel: "team.backend", owner: "OWNERB" }));
+  check("parseMemberKey rejects a non-key", parseMemberKey("=defaults") === null);
+  check("bucket name", membersBucket(space) === "cotal_members_memreg");
+
+  // ---- create + read ----
+  await commitMember(kv, rec({ channel: "review", owner: "ALICE", joinCursor: 10, state: "durable-active" }));
+  const a = await readMember(kv, "review", "ALICE");
+  check("created record reads back", a?.record.owner === "ALICE" && a.record.joinCursor === 10 && a.record.state === "durable-active");
+  check("absent record reads undefined", (await readMember(kv, "review", "NOBODY")) === undefined);
+
+  // ---- same-generation upgrade (live-confirmed -> durable-active) is allowed ----
+  await commitMember(kv, rec({ channel: "general", owner: "BOB", generation: 1, state: "live-confirmed", joinCursor: 5 }));
+  await commitMember(kv, rec({ channel: "general", owner: "BOB", generation: 1, state: "durable-active", joinCursor: 5 }));
+  check("same-generation state upgrade commits", (await readMember(kv, "general", "BOB"))?.record.state === "durable-active");
+
+  // ---- generation guard: a STALE (older-generation) write is rejected, record unchanged ----
+  await commitMember(kv, rec({ channel: "review", owner: "ALICE", generation: 3, joinCursor: 100 })); // rejoin: gen 3
+  let threw = false;
+  try {
+    await commitMember(kv, rec({ channel: "review", owner: "ALICE", generation: 2, joinCursor: 50 })); // stale reply: gen 2
+  } catch (e) {
+    threw = e instanceof StaleMembershipWrite;
+  }
+  check("stale-generation write throws StaleMembershipWrite", threw);
+  check("stale write left the newer record intact (gen 3, cursor 100)", (await readMember(kv, "review", "ALICE"))?.record.joinCursor === 100);
+
+  // ---- tombstone (leave) sets leaveCursor; a stale leave (older gen) can't tombstone the rejoin ----
+  await commitMember(kv, rec({ channel: "ops", owner: "CAROL", generation: 1, joinCursor: 0 }));
+  await tombstoneMember(kv, "ops", "CAROL", 200, W);
+  const tomb = await readMember(kv, "ops", "CAROL");
+  check("tombstone sets leaveCursor", tomb?.record.leaveCursor === 200 && tomb.record.state === "live-confirmed");
+  // a rejoin (gen 2, fresh cursor, clears leaveCursor) then a stale leave reply (gen 1) must not re-tombstone
+  await commitMember(kv, rec({ channel: "ops", owner: "CAROL", generation: 2, joinCursor: 300, state: "durable-active", leaveCursor: undefined }));
+  let staleLeaveThrew = false;
+  try {
+    // tombstoneMember reads current (gen 2) and writes back gen 2 with leaveCursor — that's a CURRENT
+    // leave, allowed. To simulate a STALE leave reply we commit an explicit gen-1 tombstone:
+    await commitMember(kv, rec({ channel: "ops", owner: "CAROL", generation: 1, leaveCursor: 250, state: "live-confirmed" }));
+  } catch (e) {
+    staleLeaveThrew = e instanceof StaleMembershipWrite;
+  }
+  check("stale leave reply (older gen) rejected — rejoin survives", staleLeaveThrew && (await readMember(kv, "ops", "CAROL"))?.record.joinCursor === 300 && (await readMember(kv, "ops", "CAROL"))?.record.leaveCursor === undefined);
+
+  // ---- membership-interval eligibility (durableEligible) ----
+  const open = rec({ channel: "x", owner: "Z", state: "durable-active", joinCursor: 100 });
+  check("durable-active: seq > joinCursor eligible", durableEligible(open, 101));
+  check("durable-active: seq == joinCursor NOT eligible (exclusive)", !durableEligible(open, 100));
+  check("durable-active: seq < joinCursor NOT eligible", !durableEligible(open, 50));
+  const left = rec({ channel: "x", owner: "Z", state: "durable-active", joinCursor: 100, leaveCursor: 200 });
+  check("interval: seq == leaveCursor eligible (inclusive)", durableEligible(left, 200));
+  check("interval: seq > leaveCursor NOT eligible (hard cut)", !durableEligible(left, 201));
+  check("interval: mid-interval eligible", durableEligible(left, 150));
+  const liveConf = rec({ channel: "x", owner: "Z", state: "live-confirmed", joinCursor: 0 });
+  check("live-confirmed record is NOT a durable recipient (no Plane-3 backstop)", !durableEligible(liveConf, 99999));
+
+  // ---- scans: by channel, by owner; concrete-only; tombstones included ----
+  await commitMember(kv, rec({ channel: "review", owner: "DAVE", joinCursor: 0 }));
+  await commitMember(kv, rec({ channel: "team.backend", owner: "DAVE", joinCursor: 0 }));
+  const reviewMembers = (await listMembers(kv, { channel: "review" })).map((m) => m.owner).sort();
+  check("listMembers(channel=review) = ALICE,DAVE", JSON.stringify(reviewMembers) === JSON.stringify(["ALICE", "DAVE"]));
+  const daveMemberships = (await listMembers(kv, { owner: "DAVE" })).map((m) => m.channel).sort();
+  check("listMembers(owner=DAVE) = review,team.backend", JSON.stringify(daveMemberships) === JSON.stringify(["review", "team.backend"]));
+  check("channel scan does NOT bleed across the dotted prefix (review != team.backend)", !reviewMembers.includes("team.backend"));
+
+  // ---- delete (GC) removes the footprint ----
+  await deleteMember(kv, "review", "DAVE");
+  check("deleteMember purges the record", (await readMember(kv, "review", "DAVE")) === undefined);
+  check("delete left the sibling record intact", (await readMember(kv, "review", "ALICE")) !== undefined);
+
+  console.log(`\nMEMBERS-REGISTRY SMOKE PASSED ✅  (${pass} checks)`);
+  await nc.close();
+}
+
+main()
+  .catch((e) => {
+    console.error(e);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    srv.kill("SIGKILL");
+    await new Promise<void>((resolve) => {
+      if (srv.exitCode !== null || srv.signalCode !== null) return resolve();
+      srv.once("exit", () => resolve());
+      setTimeout(resolve, 3000);
+    });
+    rmSync(dir, { recursive: true, force: true });
+    process.exit(process.exitCode ?? 0);
+  });

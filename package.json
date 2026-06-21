@@ -24,6 +24,7 @@
     "smoke": "tsx packages/core/smoke.ts",
     "smoke:auth": "tsx packages/core/smoke-auth.ts",
     "smoke:view": "tsx implementations/cli/view.smoke.ts",
+    "smoke:members": "tsx packages/core/members.smoke.ts",
     "smoke:membership": "tsx packages/core/membership.smoke.ts",
     "smoke:membership:auth": "tsx packages/core/membership-auth.smoke.ts",
     "smoke:channels": "tsx packages/core/channels.smoke.ts",

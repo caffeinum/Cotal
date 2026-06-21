@@ -25,6 +25,7 @@ import {
   anycastSubject,
   presenceBucket,
   channelBucket,
+  membersBucket,
 } from "./subjects.js";
 
 /** Default presence-bucket entry TTL (ms) — matches the endpoint's default liveness window. */
@@ -187,6 +188,10 @@ export async function setupSpaceStreams(opts: {
     const kvm = new Kvm(nc);
     await kvm.create(presenceBucket(opts.space), { ttl: PRESENCE_TTL_MS });
     await kvm.create(channelBucket(opts.space));
+    // Durable-membership registry (Plane-3): privileged-write, no TTL (durable config, like the
+    // channel registry). Pre-created so the manager (and open-mode self) can OPEN it; agents hold no
+    // grant. Idempotent.
+    await kvm.create(membersBucket(opts.space));
   } finally {
     await nc.drain();
   }

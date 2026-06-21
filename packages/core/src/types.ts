@@ -121,6 +121,44 @@ export interface ChannelDefaults {
   deliveryClass?: DeliveryClass;
 }
 
+/**
+ * Durable-membership state (Plane-3, SPEC §7). One {@link MembershipRecord} per (concrete channel,
+ * owner) in the privileged members registry KV.
+ * - `live-confirmed` — the owner is live-subscribed (core-sub / boot durable); no Plane-3 backstop.
+ *   Fan-out does NOT target these (their durability, if any, is the legacy tail until Stage 5).
+ * - `durable-active` — a Plane-3 durable backstop is established for this (channel, owner). Fan-out
+ *   targets these; the trusted reader re-authorizes each entry against the interval below.
+ */
+export type MembershipState = "live-confirmed" | "durable-active";
+
+/**
+ * A durable-membership record (privileged write only; agent-authored membership is forbidden —
+ * it would self-authorize delivery + reads). Eligibility is by **CHAT stream sequence**, never
+ * wall-clock: a `durable-channel` entry is deliverable to this owner iff
+ * `joinCursor < seq <= leaveCursor` (open leave ⇒ no upper bound) — SPEC §7 L355-356. `leaveCursor`
+ * present ⇒ this is a tombstone (kept through the retention horizon so late entries are denied
+ * deterministically); a rejoin bumps {@link generation} and takes a fresh {@link joinCursor}.
+ */
+export interface MembershipRecord {
+  /** Concrete channel (never a wildcard — wildcard ACLs grant live breadth, durable is per-channel). */
+  channel: string;
+  /** Owner agent id (nkey). */
+  owner: string;
+  state: MembershipState;
+  /** CHAT stream seq captured at join — durable eligibility is `seq > joinCursor`. */
+  joinCursor: number;
+  /** CHAT stream seq captured at leave — eligibility upper bound `seq <= leaveCursor`. Present ⇒
+   *  tombstone. Absent ⇒ open membership (no upper bound). */
+  leaveCursor?: number;
+  /** Bumped each (re)join. Stale-write guard (with the KV revision CAS) + idempotency-key component
+   *  for fan-out/catch-up (`<msgId>:<owner>:<generation>`). */
+  generation: number;
+  /** The privileged writer's id (audit; never an agent). */
+  writerIdentity: string;
+  /** Epoch ms of the last write (diagnostics only — eligibility is seq, never this). */
+  updatedAt: number;
+}
+
 /** Reverse-DNS extension part kind, e.g. `com.acme.snapshot`.
  * @pattern ^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$ */
 export type ExtensionPartKind = `${string}.${string}`;
