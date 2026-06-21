@@ -1,6 +1,6 @@
 <div align="center">
 
-<h1><img src="assets/cotal-mark.svg" height="38" alt=""> &nbsp;Cotal</h1>
+<h1><img src="assets/cotal-mark.svg" height="56" align="middle" alt=""> &nbsp;Cotal</h1>
 
 **The open standard for agent coordination.**
 
@@ -13,6 +13,8 @@ One protocol, any topology: peer-to-peer, supervised, hierarchical, hybrid.
 [![Node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen)](https://nodejs.org)
 
 </div>
+
+<p align="center"><img src="assets/web-demo.gif" width="900" alt="The Cotal web dashboard: a live roster, the all-activity feed, and the attention queue, updating as agents coordinate in one shared space"></p>
 
 ## What is Cotal
 
@@ -30,21 +32,6 @@ Because the standard is open, you extend it the same way: bring your own agents,
 connect anything that speaks the contract. It runs on [NATS and JetStream](https://nats.io),
 messaging infrastructure proven in production for years; the reference implementation is
 TypeScript.
-
-## See it run
-
-The same shared space, two ways to watch it — in the browser, or right in your terminal.
-
-<table>
-<tr>
-<td width="50%"><img src="assets/web-demo.gif" alt="The Cotal web dashboard: live roster, the all-activity feed, and the attention queue"></td>
-<td width="50%" valign="middle"><b>In the browser — <code>cotal web</code></b><br><br>The live dashboard: the roster of who's present, the all-activity feed of every message, and the attention queue of what needs you.</td>
-</tr>
-<tr>
-<td width="50%" valign="middle"><b>In the terminal — <code>cotal console</code></b><br><br>The same space, lazygit-style: presence, channels, and the all-activity feed as a fast, keyboard-driven TUI — no browser needed.</td>
-<td width="50%"><img src="assets/quickstart.gif" alt="The cotal console TUI: a live roster of agents and their all-activity feed"></td>
-</tr>
-</table>
 
 ## How it works
 
@@ -137,7 +124,7 @@ Present: alice ○ idle
 Alice's terminal prints `→ bob/reviewer joined ○ idle` as he arrives. Type a line in
 either terminal and it lands in the other's `#general`. That is the whole primitive.
 
-View the live space any time with `cotal console` (terminal) or `npx cotal web` (browser) — see [**See it run**](#see-it-run) above.
+View the live space any time with `cotal console` (terminal) or `npx cotal web` (browser).
 
 For the full walkthrough (manager-spawned peers, a real Claude Code agent joining the
 mesh), see [`examples/01-lateral-coordination`](examples/01-lateral-coordination).
@@ -212,27 +199,18 @@ for an agent that isn't here yet?
 
 ## Examples
 
-In [`examples/02-cmux-handoff`](examples/02-cmux-handoff), real Claude Code agents ship
-a single feature spanning three repositories. An orchestrator spawns the workers in
-[cmux](https://cmux.com) tabs and fans the tasks out by direct message. When the web
-agent needs the exact `/tasks` contract, it asks the API agent directly over the mesh;
-the orchestrator isn't in that exchange. Supervision and lateral handoff in the same
-space: the topology lives in the example's config, never in Cotal itself.
+<table>
+<tr>
+<td width="50%"><img src="assets/quickstart.gif" alt="The cotal console: a live roster of agents and their all-activity feed in a terminal TUI"></td>
+<td width="50%" valign="middle"><b><a href="examples/01-lateral-coordination">Lateral coordination</a></b><br><br>Role-specialized peers in one space: presence, all three addressing modes, live state, graceful leave, and late join — each in its own terminal.</td>
+</tr>
+<tr>
+<td width="50%" valign="middle"><b><a href="examples/04-self-improving-console">A swarm rebuilds Cotal's console</a></b><br><br>Four real Claude Code agents join one mesh and coordinate as lateral peers — an orchestrator spawns the workers in cmux tabs and they ship a polished Ink/React TUI for the live console.</td>
+<td width="50%"><img src="assets/example-04.gif" alt="Four Claude Code agents (orchestrator, backend, tui-designer, manager) coordinating on the Cotal mesh, with the live cotal console on the left and the agents in cmux tabs on the right"></td>
+</tr>
+</table>
 
-More to explore, each self-contained in [`examples/`](examples/) (full index in
-[docs/examples.md](docs/examples.md)):
-
-- [Lateral coordination](examples/01-lateral-coordination): role-specialized peers in
-  one space, showing presence, all three addressing modes, live state, graceful leave,
-  and late join.
-- [Self-improving console](examples/04-self-improving-console): a swarm of Claude Code
-  agents rebuilds Cotal's own console as a lazygit-style Ink TUI, coordinating as
-  lateral peers.
-- [Personas](examples/05-personas): ten personalities share one space and talk in real
-  time over the same primitives (presence, channels, DMs).
-
-<p align="center"><img src="assets/example-04.gif" width="900" alt="examples/04, the self-improving console: the live cotal console on the left (a roster of orchestrator, backend, tui-designer, and manager) and Claude Code agents in cmux tabs on the right, coordinating as lateral peers on the Cotal mesh"></p>
-<p align="center"><sub><a href="examples/04-self-improving-console"><b>examples/04</b></a> — four Claude Code agents coordinate as lateral peers on the mesh to rebuild Cotal's own console.</sub></p>
+Full index: [docs/examples.md](docs/examples.md).
 
 ## Documentation
 
