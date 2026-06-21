@@ -400,7 +400,9 @@ members — and, for an `@mention` on a `live` channel, for each mentioned targe
 channel (its `allowSubscribe` covers it), so an authorized but offline target still receives it. The
 agent holds **no content-bearing read** on this mixed store. A **trusted reader** (the privileged
 provisioner) pulls each pending entry, re-authorizes `(instance, channel, message)` against the
-member's **current read ACL** — and, for `durable`-channel fan-out entries, its **current membership** —
+member's **current read ACL** — and, for `durable`-channel fan-out entries, its **membership interval**
+(the message's CHAT sequence is `> joinCursor` and `≤ leaveCursor`; §7), not a current-member boolean,
+so a pre-leave entry stays deliverable and a post-`leaveCursor` one does not —
 and delivers each authorized copy to the member over an **at-least-once** handoff (e.g. its `inbox`,
 carrying the same ack semantics — not a fire-and-forget publish). The trusted reader MUST NOT ack or
 delete the backstop entry until the member has confirmed the copy was surfaced or handled (or it has
