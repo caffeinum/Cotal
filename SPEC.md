@@ -407,7 +407,7 @@ delete the backstop entry until the member has confirmed the copy was surfaced o
 been transferred to an equivalent per-member at-least-once mechanism with the same ack semantics); on a
 downstream nak, timeout, or crash before that confirmation, the entry remains pending and redelivers — so
 a crash between the inbox publish and the member surfacing the message cannot lose it, and `durable`
-stays at-least-once end-to-end, not maybe-once. So content
+stays at-least-once end-to-end, not maybe-once. Content
 for a channel dropped from the ACL, or (for a durable channel) left, is never surfaced (at-least-once for
 the member within retention; **leave is a hard read boundary for the backstop**); a `live`-channel
 `@mention` copy is delivered and `id`-deduped the same way. The read MUST run in this trusted component
