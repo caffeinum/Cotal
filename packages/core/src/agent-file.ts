@@ -26,7 +26,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { EndpointKind } from "./types.js";
 import { assertValidName } from "./resolve.js";
-import { assertValidChannel, channelInAllow } from "./subjects.js";
+import { assertValidChannel, channelInAllow, isConcreteChannel } from "./subjects.js";
 
 export interface AgentDef {
   name: string;
@@ -46,6 +46,13 @@ export interface AgentDef {
    *  ACLs). Entries may be wildcard subtrees (`team.>`). Omitted ⇒ **deny** (default-deny):
    *  publishing is the dangerous capability, so it must be declared explicitly. */
   allowPublish?: string[];
+  /** Per-channel attention DEFAULT: channels delivered but never waking this agent — per-channel
+   *  `dnd`. Concrete channels within the read ACL (`allowSubscribe`). One-way operator default; the runtime toggle is
+   *  connector state, never written back here (the file is a shared template). */
+  quiet?: string[];
+  /** Per-channel attention DEFAULT: channels dropped on receive (incl. `@`-mentions) — "don't receive
+   *  this channel". Same one-way default semantics as {@link quiet}. */
+  muted?: string[];
   /** Model override handed to the agent CLI (e.g. `claude --model`). */
   model?: string;
   /** Capabilities this agent may exercise on the control plane (auth mode → minted into the
@@ -138,6 +145,8 @@ export function loadAgentFile(path: string): AgentDef {
   const subscribe = list("subscribe");
   const allowSubscribe = list("allowSubscribe");
   const allowPublish = list("allowPublish");
+  const quiet = list("quiet");
+  const muted = list("muted");
   // Reject channel names the wire layer would silently rewrite — a policy name must equal its wire
   // token, or the ACL aliases (see assertValidChannel). Covers all three scope fields.
   for (const ch of [...(subscribe ?? []), ...(allowSubscribe ?? []), ...(allowPublish ?? [])])
@@ -156,9 +165,28 @@ export function loadAgentFile(path: string): AgentDef {
         `agent file ${path}: subscribe channel "${ch}" is not within allowSubscribe [${effAllow.join(", ")}]`,
       );
 
+  // Per-channel attention defaults (quiet/muted): concrete channels within the read ACL (allowSubscribe)
+  // — silencing a channel you can't read, or with a wildcard the ingest match would never hit, is a config error. A
+  // channel can't be both at once. Fail loud (no silent no-op), matching the checks above.
+  const both = (quiet ?? []).filter((c) => (muted ?? []).includes(c));
+  if (both.length)
+    throw new Error(`agent file ${path}: channel(s) [${both.join(", ")}] are in both quiet and muted — pick one`);
+  for (const [field, chans] of [["quiet", quiet], ["muted", muted]] as const)
+    for (const ch of chans ?? []) {
+      try {
+        assertValidChannel(ch);
+      } catch (e) {
+        throw new Error(`agent file ${path}: ${(e as Error).message}`);
+      }
+      if (!isConcreteChannel(ch))
+        throw new Error(`agent file ${path}: ${field} channel "${ch}" must be a concrete channel (no wildcard)`);
+      if (!channelInAllow(effAllow, ch))
+        throw new Error(`agent file ${path}: ${field} channel "${ch}" is not within your read ACL / allowSubscribe [${effAllow.join(", ")}]`);
+    }
+
   // Sweep every scalar frontmatter key we don't model into meta, verbatim — connector hints
   // (face, etc.) ride here so core stays ignorant of surface-specific keys.
-  const known = new Set(["name", "role", "kind", "description", "tags", "subscribe", "allowSubscribe", "allowPublish", "model", "capabilities", "owner"]);
+  const known = new Set(["name", "role", "kind", "description", "tags", "subscribe", "allowSubscribe", "allowPublish", "quiet", "muted", "model", "capabilities", "owner"]);
   const meta: Record<string, string> = {};
   for (const [k, v] of Object.entries(fm)) if (!known.has(k) && typeof v === "string") meta[k] = v;
 
@@ -171,6 +199,8 @@ export function loadAgentFile(path: string): AgentDef {
     subscribe,
     allowSubscribe,
     allowPublish,
+    quiet,
+    muted,
     model: str("model"),
     capabilities: list("capabilities"),
     owner: str("owner"),
@@ -194,6 +224,8 @@ export function saveAgentFile(path: string, def: AgentDef): void {
   if (def.subscribe?.length) lines.push(`subscribe: [${def.subscribe.map(fmItem).join(", ")}]`);
   if (def.allowSubscribe?.length) lines.push(`allowSubscribe: [${def.allowSubscribe.map(fmItem).join(", ")}]`);
   if (def.allowPublish?.length) lines.push(`allowPublish: [${def.allowPublish.map(fmItem).join(", ")}]`);
+  if (def.quiet?.length) lines.push(`quiet: [${def.quiet.map(fmItem).join(", ")}]`);
+  if (def.muted?.length) lines.push(`muted: [${def.muted.map(fmItem).join(", ")}]`);
   if (def.model) lines.push(`model: ${fmScalar(def.model)}`);
   if (def.capabilities?.length) lines.push(`capabilities: [${def.capabilities.map(fmItem).join(", ")}]`);
   if (def.owner) lines.push(`owner: ${fmScalar(def.owner)}`);

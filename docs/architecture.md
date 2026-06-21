@@ -594,9 +594,14 @@ three things at once: live delivery, the inbound buffer, and late-join history.
   `idle` / `waiting` / `working` / `offline`. Heartbeat is roughly TTL/3; a graceful leave
   publishes a final `offline`; a lapsed heartbeat is swept to `offline`. Offline peers stay in
   the roster. (Instant offline via `$SYS` disconnect events is a documented upgrade, see
-  [Deferred](#deferred).) **Attention modes** (`open`/`dnd`/`focus`) are a local, per-agent
-  *delivery preference*, not broadcast as presence or any wire field (the only core/wire change
-  is `MessageMeta.kind` above).
+  [Deferred](#deferred).) **Attention** — a global mode (`open`/`dnd`/`focus`) plus optional
+  per-channel overrides (`quiet`/`muted`) — is a per-agent *delivery preference* enforced in the
+  connector, where local state is the sole authority for delivery. It is **mirrored** into the
+  presence record (`attention`, `channelModes`) as advisory observability so peers can see it (e.g.
+  "locally muted #deploys"); presence is a mirror only, never read back into delivery, and both
+  reset on restart (offline sweep + boot re-seed). `muted` is a receive-side preference, not access
+  control — the broker still authorises and delivers. (The other core/wire change is
+  `MessageMeta.kind` above.)
 - **Identity/discovery.** An A2A `AgentCard` (`id`=instance, `name`=handle, `role`=service,
   `kind`, `skills`/`tags`) carried in the presence record (our equivalent of `.well-known`). We
   omit A2A's `capabilities` field (protocol flags Cotal does not need) to avoid the name

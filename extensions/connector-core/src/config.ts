@@ -1,6 +1,6 @@
 import { userInfo } from "node:os";
 import { readFileSync } from "node:fs";
-import { DEFAULT_SERVER, assertValidChannel, channelInAllow, loadAgentFile, parseJoinLink, type AgentDef, type EndpointKind } from "@cotal-ai/core";
+import { DEFAULT_SERVER, assertValidChannel, channelInAllow, isConcreteChannel, loadAgentFile, parseJoinLink, type AgentDef, type ChannelMode, type EndpointKind } from "@cotal-ai/core";
 
 /** Keyed beta intake — used when a `COTAL_FEEDBACK_KEY` is configured. */
 export const FEEDBACK_URL = "https://broker.cotal.ai/v1/feedback";
@@ -35,6 +35,12 @@ export interface AgentConfig {
    *  **Default-deny** (empty): publishing must be declared. Informational only here; the broker
    *  enforces it under auth. */
   allowPublish: string[];
+  /** Per-channel attention DEFAULTS (operator, one-way from the agent file): channels to receive but
+   *  never wake on ({@link quiet}) / to drop on receive ({@link muted}). Seeds {@link MeshAgent}'s
+   *  runtime map; the runtime never writes them back. Concrete channels within {@link allowSubscribe}.
+   *  Optional (absent ⇒ none), like the other discovery fields. */
+  quiet?: string[];
+  muted?: string[];
   kind: EndpointKind;
   token?: string;
   user?: string;
@@ -90,6 +96,21 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AgentConfig
   const resolvedAllowPub = allowPub.length ? allowPub : (def?.allowPublish ?? []);
   // Reject channel names the wire layer would rewrite (env overrides bypass the file loader's check).
   for (const ch of [...resolvedSubscribe, ...resolvedAllowSub, ...resolvedAllowPub]) assertValidChannel(ch);
+  // Per-channel attention defaults (env > agent-file). Re-validate here too — the loader checked them
+  // against the file's read set, but an env override of allowSubscribe could have moved that boundary:
+  // each must be a concrete channel within the (resolved) read ACL (allowSubscribe), and quiet/muted disjoint.
+  const qEnv = splitList(env.COTAL_QUIET), mEnv = splitList(env.COTAL_MUTED);
+  const resolvedQuiet = qEnv.length ? qEnv : (def?.quiet ?? []);
+  const resolvedMuted = mEnv.length ? mEnv : (def?.muted ?? []);
+  const bothModes = resolvedQuiet.filter((c) => resolvedMuted.includes(c));
+  if (bothModes.length) throw new Error(`COTAL config: channel(s) [${bothModes.join(", ")}] are in both quiet and muted`);
+  for (const [field, chans] of [["quiet", resolvedQuiet], ["muted", resolvedMuted]] as const)
+    for (const ch of chans) {
+      assertValidChannel(ch);
+      if (!isConcreteChannel(ch)) throw new Error(`COTAL config: ${field} channel "${ch}" must be concrete (no wildcard)`);
+      if (!channelInAllow(resolvedAllowSub, ch))
+        throw new Error(`COTAL config: ${field} channel "${ch}" is not within allowSubscribe [${resolvedAllowSub.join(", ")}]`);
+    }
   const credsPath = env.COTAL_CREDS?.trim();
   return {
     space: env.COTAL_SPACE?.trim() || link?.space || "demo",
@@ -105,6 +126,8 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AgentConfig
     // Post ACL is default-DENY: only what's explicitly declared (env > agent-file). The broker
     // enforces it under auth; in open mode posting is unrestricted regardless (see laneLine).
     allowPublish: resolvedAllowPub,
+    quiet: resolvedQuiet,
+    muted: resolvedMuted,
     kind: (env.COTAL_KIND?.trim() as EndpointKind) || def?.kind || "agent",
     token: env.COTAL_TOKEN?.trim() || link?.token,
     user: link?.user,

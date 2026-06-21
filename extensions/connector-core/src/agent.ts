@@ -3,6 +3,7 @@ import {
   normalizeMentions,
   subjectMatches,
   isConcreteChannel,
+  channelInAllow,
   resolvePeer as resolvePeerInRoster,
   CotalEndpoint,
   CONTROL_PRIVILEGED,
@@ -12,9 +13,15 @@ import {
   type MessageMeta,
   type Presence,
   type PresenceStatus,
+  type AttentionMode,
+  type ChannelMode,
   type CotalMessage,
 } from "@cotal-ai/core";
 import type { AgentConfig } from "./config.js";
+
+// Attention modes + per-channel overrides are defined in core (they're published in presence now);
+// re-exported so connector consumers keep importing them from `@cotal-ai/connector-core`.
+export type { AttentionMode, ChannelMode };
 
 /** A message that has arrived for us, normalized for the agent to read. */
 export interface InboxItem {
@@ -48,18 +55,6 @@ interface Pending {
 
 const MAX_INBOX = 200;
 
-/**
- * How aggressively peer traffic interrupts this agent — chosen by the agent, orthogonal to
- * presence ({@link PresenceStatus}). Local-only (never broadcast as presence). Advisory UX, not
- * a security boundary (an @-mention is payload-forgeable — it can always *wake*; see docs).
- * - `open`   — receive everything; ambient channel chatter wakes when idle (today's behavior).
- * - `dnd`    — ambient never wakes (it still arrives in the next turn); dm/anycast/@mention wake.
- * - `focus`  — only subject-directed (dm/anycast) reach the buffer/context; channel ambient and
- *              @mentions are acked-and-dropped at ingest (an @mention still *wakes*, body pulled
- *              via {@link MeshAgent.recallAmbient}). Recall = "ambient since you entered focus".
- */
-export type AttentionMode = "open" | "dnd" | "focus";
-
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -87,6 +82,11 @@ export class MeshAgent extends EventEmitter {
   private _connected = false;
   private _status: PresenceStatus = "idle";
   private _attention: AttentionMode = "open"; // F3: fail-open default; reset to open on SessionStart
+  /** Per-channel attention overrides — the AUTHORITATIVE runtime state (read by {@link ingest} on
+   *  every message). Seeded from the agent-file default; mutated by {@link setChannelMode}; mirrored
+   *  to presence for peers. An absent key ⇒ that channel follows the global {@link _attention}. Reset
+   *  on restart (rebuilt from config; presence sweep clears the mirror). */
+  private channelModes = new Map<string, ChannelMode>();
   private _contextId: string | undefined;
   /** Chat-stream frontier captured when this agent entered `focus` — recall surfaces ambient
    *  published after it ("since you entered focus"). Undefined unless in focus. */
@@ -96,6 +96,10 @@ export class MeshAgent extends EventEmitter {
   constructor(config: AgentConfig) {
     super();
     this.config = config;
+    // Seed per-channel attention from the operator's file default (one-way: the runtime never writes
+    // back — the persona file is a shared template). muted/quiet are validated disjoint at file load.
+    for (const c of config.quiet ?? []) this.channelModes.set(c, "quiet");
+    for (const c of config.muted ?? []) this.channelModes.set(c, "muted");
     this.ep = new CotalEndpoint({
       space: config.space,
       servers: config.servers,
@@ -105,6 +109,7 @@ export class MeshAgent extends EventEmitter {
       creds: config.creds,
       tls: config.tls,
       channels: config.subscribe, // the endpoint's live filter = the active read set
+      channelModes: Object.fromEntries(this.channelModes), // seed presence so file defaults are visible at boot
       card: {
         id: config.id,
         name: config.name,
@@ -197,16 +202,26 @@ export class MeshAgent extends EventEmitter {
     if (!meta)
       throw new Error(`message ${m.id} delivered without MessageMeta — its class is unauthenticated`);
     const item = this.toInboxItem(m, meta.kind, meta.historical);
-    // Focus: only subject-directed (dm/anycast) reach the buffer. Channel ambient AND @mentions
-    // are acked-and-dropped right here — acking does NOT delete (the chat stream is Limits-
-    // retained), so they stay recallable via cotal_inbox (recallAmbient). An @mention still
-    // *wakes* (emit "mention-wake"), but its body is never buffered or auto-injected — F4=B
-    // (wake-only + pull), because the mention tag is payload-forgeable and must not earn the
-    // subject-directed privilege of auto-injection.
-    if (this._attention === "focus" && item.kind === "channel") {
-      delivery.ack();
-      if (item.mentionsMe) this.emit("mention-wake", item);
-      return;
+    // Per-channel override is the FINAL word for a channel message (DMs/anycast are never channel-
+    // scoped, so they bypass this entirely and always buffer). Evaluated BEFORE the global mode:
+    //  - `muted` → hard drop, incl. @mention (a mention rides the channel; you can't keep it if you
+    //    dropped the channel). Acking does NOT delete (Limits-retained) but it's not locally recallable.
+    //  - `quiet` → buffer (read it on your terms); no ambient wake (the gate's job); an @mention still
+    //    wakes. Overrides global `focus` so "retain this channel, just don't wake me" stays expressible.
+    // Focus (global, only when NOT overridden): channel ambient AND @mentions are acked-and-dropped —
+    // they stay recallable via cotal_inbox (recallAmbient); an @mention still *wakes* (mention-wake),
+    // body pulled (F4=B), never auto-injected (the mention tag is payload-forgeable).
+    if (item.kind === "channel") {
+      const cm = this.channelModes.get(item.channel ?? "");
+      if (cm === "muted") {
+        delivery.ack();
+        return;
+      }
+      if (cm !== "quiet" && this._attention === "focus") {
+        delivery.ack();
+        if (item.mentionsMe) this.emit("mention-wake", item);
+        return;
+      }
     }
     this.inbox.push({ item, ack: delivery.ack });
     if (this.inbox.length > MAX_INBOX) {
@@ -267,6 +282,22 @@ export class MeshAgent extends EventEmitter {
     return this.inbox.filter((p) => p.item.kind !== "channel" || p.item.mentionsMe).length;
   }
 
+  /** Buffered items that should WAKE a Stop→idle flush — the mode-and-channel-aware predicate the
+   *  connectors use instead of branching on attention themselves:
+   *  - directed (dm/anycast) or an @mention → always (a quiet @mention still wakes; muted never buffers);
+   *  - NORMAL ambient (no per-channel override) → only under global `open` (today's behavior);
+   *  - QUIET ambient → never (it rides the next human turn, not a proactive wake).
+   *  Subsumes {@link directedPendingCount}: in `dnd`/`focus` (no override) the open term is false, so it
+   *  equals the directed count; in `open` it adds normal ambient but excludes quiet-channel ambient. */
+  pendingWake(): number {
+    return this.inbox.filter((p) => {
+      const it = p.item;
+      if (it.kind !== "channel" || it.mentionsMe) return true;
+      if (this.channelMode(it.channel) === "quiet") return false;
+      return this._attention === "open";
+    }).length;
+  }
+
   /** Ask any push layer (the channel) to wake the session now — used by the Stop→idle flush
    *  to deliver a batch of held messages. Emits `"wake"`; a no-op if nothing listens. Never acks
    *  or drains. Ack sites are now two: {@link drainInbox} (surfaced items) and the focus ingest
@@ -277,9 +308,39 @@ export class MeshAgent extends EventEmitter {
 
   // ---- attention ------------------------------------------------------------
 
-  /** This agent's attention mode (how aggressively peer traffic interrupts it). Local-only. */
+  /** This agent's global attention mode. Authoritative here; mirrored to presence (advisory) so peers
+   *  can see it. Delivery never reads it back from presence — local state wins. */
   get attention(): AttentionMode {
     return this._attention;
+  }
+
+  /** This agent's per-channel override for `channel` (undefined ⇒ follow the global mode). */
+  channelMode(channel?: string): ChannelMode | undefined {
+    return channel ? this.channelModes.get(channel) : undefined;
+  }
+
+  /** A snapshot of every per-channel override (for the at-a-glance views). */
+  channelModeEntries(): Record<string, ChannelMode> {
+    return Object.fromEntries(this.channelModes);
+  }
+
+  /** Set (or clear, with `"normal"`) one channel's attention override. Validates the channel is
+   *  concrete and within this agent's read ACL (`allowSubscribe` — so a mode can be pre-set for a
+   *  channel it may read but hasn't joined yet), updates the AUTHORITATIVE in-memory map, then mirrors
+   *  the whole map to presence (best-effort; advisory). Per-instance + runtime: it NEVER writes the
+   *  agent file (a shared template) and resets on restart.
+   *
+   *  **Prospective only:** it does NOT purge messages already buffered from that channel — those were
+   *  already received and still drain/wake per their original handling. Muting changes what arrives
+   *  next, not what's already in the inbox. */
+  async setChannelMode(channel: string, mode: ChannelMode | "normal"): Promise<void> {
+    if (!isConcreteChannel(channel))
+      throw new Error(`"${channel}" must be a concrete channel (no wildcard) to set its attention`);
+    if (!channelInAllow(this.config.allowSubscribe, channel))
+      throw new Error(`"${channel}" is not within your read ACL (allowSubscribe) [${this.config.allowSubscribe.join(", ")}]`);
+    if (mode === "normal") this.channelModes.delete(channel);
+    else this.channelModes.set(channel, mode);
+    await this.ep.setChannelModes(this.channelModeEntries());
   }
 
   /** Set the attention mode. Entering `focus` captures the chat frontier as the focus-watermark
@@ -297,6 +358,9 @@ export class MeshAgent extends EventEmitter {
       this.focusSince = undefined;
     }
     this._attention = mode;
+    // Mirror to presence (advisory observability — peers can see "they're in focus"). Best-effort:
+    // a no-op until the KV is bound, and never read back into delivery.
+    await this.ep.setAttention(mode);
   }
 
   /** Focus recall: the channel ambient + @mentions ack-dropped since this agent entered focus,
@@ -313,6 +377,11 @@ export class MeshAgent extends EventEmitter {
     const droppedChannels: string[] = [];
     for (const channel of this.ep.joinedChannels()) {
       if (!isConcreteChannel(channel)) continue;
+      // Skip any channel with a per-channel override: `muted` must NOT resurface via recall (you opted
+      // out of receiving it at all), and `quiet` overrides focus so its messages were buffered live —
+      // recalling them would duplicate what's already in the inbox. Only NORMAL channels' focus-
+      // ack-dropped ambient is recalled.
+      if (this.channelModes.has(channel)) continue;
       const { messages, dropped } = await this.ep.recallChannel(channel, this.focusSince);
       for (const m of messages) items.push(this.toInboxItem(m, "channel", true));
       if (dropped) droppedChannels.push(channel);
@@ -479,7 +548,14 @@ export class MeshAgent extends EventEmitter {
    *  its one-line description, replay policy, and whether WE are subscribed (self only — never
    *  other peers' membership). The companion to cotal_join. */
   async listChannels(): Promise<
-    { channel: string; description?: string; replay: boolean; joined: boolean; messages: number }[]
+    {
+      channel: string;
+      description?: string;
+      replay: boolean;
+      joined: boolean;
+      messages: number;
+      mode: ChannelMode | "normal";
+    }[]
   > {
     const mine = this.ep.joinedChannels();
     return (await this.ep.listChannels()).map((c) => ({
@@ -488,6 +564,7 @@ export class MeshAgent extends EventEmitter {
       replay: this.ep.channelReplay(c.channel),
       joined: mine.some((p) => subjectMatches(p, c.channel)),
       messages: c.messages,
+      mode: this.channelMode(c.channel) ?? "normal",
     }));
   }
 

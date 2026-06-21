@@ -45,12 +45,34 @@ export interface AgentCard {
  */
 export type PresenceStatus = "idle" | "waiting" | "working" | "offline";
 
+/**
+ * How aggressively peer traffic interrupts an agent — chosen by the agent, orthogonal to
+ * {@link PresenceStatus}. Defined here (the wire layer) because it is now published in
+ * {@link Presence}; the connector imports it. Advisory observability, not a security boundary.
+ */
+export type AttentionMode = "open" | "dnd" | "focus";
+
+/**
+ * Per-channel attention override (more specific than the global {@link AttentionMode}).
+ * - `quiet` — still delivered + buffered, but never wakes; an `@`-mention still wakes (per-channel `dnd`).
+ * - `muted` — channel messages dropped on receive, incl. `@`-mentions ("don't receive this channel").
+ */
+export type ChannelMode = "quiet" | "muted";
+
 /** Live presence record. Stored in the space's KV bucket under key = card.id. */
 export interface Presence {
   card: AgentCard;
   status: PresenceStatus;
   /** Freeform "what I'm doing right now". */
   activity?: string;
+  /** This instance's current global attention mode. Advisory, within-space observability — a peer
+   *  can see "they're in focus" and choose to DM. Published from the connector's authoritative state
+   *  (presence is a mirror, never the source of truth for delivery). `open`/absent ⇒ receives all. */
+  attention?: AttentionMode;
+  /** Per-channel attention overrides this instance currently has (runtime, reset on restart). Keys are
+   *  concrete channel names. Advisory: lets a peer see "locally muted #deploys → DM to reach me". NOT
+   *  access control — the broker still authorizes and delivers; this is a receive-side presentation. */
+  channelModes?: Record<string, ChannelMode>;
   /** Epoch ms of the last heartbeat. */
   ts: number;
 }
