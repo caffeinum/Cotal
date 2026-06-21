@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Launch ONE example-04 agent as a Claude Code session wired into the Cotal mesh.
+# Launch ONE example-02 agent as a Claude Code session wired into the Cotal mesh.
 #
 #   run-agent.sh <orchestrator|research|backend|tui-designer>
 #
@@ -23,7 +23,7 @@ case "$role" in
 esac
 
 REPO="$(git rev-parse --show-toplevel)"
-HERE="$REPO/examples/04-self-improving-console"
+HERE="$REPO/examples/02-self-improving-console"
 CONN="$REPO/extensions/connector-claude-code"
 TSX="$REPO/node_modules/.bin/tsx"
 CFG="$HERE/.cotal" # git-ignored

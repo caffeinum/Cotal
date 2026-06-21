@@ -19,7 +19,7 @@ template are committed.
 
 ```bash
 pnpm cotal up
-pnpm cotal spawn examples/05-personas/agents/<name>.md   # one terminal per character
+pnpm cotal spawn examples/03-personas/agents/<name>.md   # one terminal per character
 ```
 
 They meet in the `general` channel and take it from there. Watch along with

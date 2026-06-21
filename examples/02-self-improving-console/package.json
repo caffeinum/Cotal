@@ -1,5 +1,5 @@
 {
-  "name": "@cotal-ai/example-04-self-improving-console",
+  "name": "@cotal-ai/example-02-self-improving-console",
   "version": "0.0.1",
   "private": true,
   "type": "module",

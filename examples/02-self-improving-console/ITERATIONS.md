@@ -14,7 +14,7 @@ worktree under `.runs/`).
 
 Run one iteration manually:
 ```bash
-examples/04-self-improving-console/harness/run-once.sh <iter>
+examples/02-self-improving-console/harness/run-once.sh <iter>
 ```
 
 | Iter | Outcome | build | peer-to-peer (pairs) | failure mode | fix applied |
@@ -34,7 +34,7 @@ Built and verified:
   `@inkjs/ui@2`), `jsx:react-jsx`, runnable placeholder `console-ink` command — `pnpm --filter
   @cotal/cli typecheck` GREEN.
 - Console skeleton anchors (`implementations/cli/src/console/{mesh.ts,app.tsx,ui/,SPEC.md}`).
-- Example-04 harness: `run-agent.sh` (4 roles, per-role cwd, contract via `--append-system-prompt`,
+- Example-02 harness: `run-agent.sh` (4 roles, per-role cwd, contract via `--append-system-prompt`,
   headless mode), `src/manager.ts` (runtime from env; `confirm` set so the PTY runtime auto-accepts
   the dev-channels prompt), `launch.sh` (cmux), `cmux.json`, 4 role contracts, `GOAL.md`,
   `research/INPUT.md`, README.

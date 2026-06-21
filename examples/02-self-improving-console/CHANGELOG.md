@@ -1,4 +1,4 @@
-# @cotal-ai/example-04-self-improving-console
+# @cotal-ai/example-02-self-improving-console
 
 ## 0.0.1
 

@@ -11,7 +11,7 @@
  * linger and short acks go quick — one loop runs ~targetSec, not rushed.
  *
  *   pnpm cotal up --open
- *   pnpm tsx examples/04-self-improving-console/harness/replay.ts <transcript.jsonl> demo-replay 120
+ *   pnpm tsx examples/02-self-improving-console/harness/replay.ts <transcript.jsonl> demo-replay 120
  *   pnpm cotal console --space demo-replay   # in a real terminal
  */
 import { readFileSync } from "node:fs";

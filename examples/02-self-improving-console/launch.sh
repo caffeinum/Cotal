@@ -65,7 +65,7 @@ if [[ "${1:-}" == "--drive" ]]; then
   echo "opening the cotal-console workspace (console + orchestrator)…"
   $CMUX open cotal-console "$(build_layout)"
   echo "✓ workspace opened. Approve the plugin in the orchestrator pane if prompted, then give it"
-  echo "  the goal (examples/04-self-improving-console/GOAL.md). It spawns research/backend/tui-designer."
+  echo "  the goal (examples/02-self-improving-console/GOAL.md). It spawns research/backend/tui-designer."
   exit 0
 fi
 

@@ -8,22 +8,22 @@
     {
       "name": "Cotal: launch orchestrator",
       "keywords": ["cotal", "orchestrator", "claude"],
-      "command": "bash -lc '$(git rev-parse --show-toplevel)/examples/04-self-improving-console/run-agent.sh orchestrator'"
+      "command": "bash -lc '$(git rev-parse --show-toplevel)/examples/02-self-improving-console/run-agent.sh orchestrator'"
     },
     {
       "name": "Cotal: launch research",
       "keywords": ["cotal", "research", "claude"],
-      "command": "bash -lc '$(git rev-parse --show-toplevel)/examples/04-self-improving-console/run-agent.sh research'"
+      "command": "bash -lc '$(git rev-parse --show-toplevel)/examples/02-self-improving-console/run-agent.sh research'"
     },
     {
       "name": "Cotal: launch backend",
       "keywords": ["cotal", "backend", "claude"],
-      "command": "bash -lc '$(git rev-parse --show-toplevel)/examples/04-self-improving-console/run-agent.sh backend'"
+      "command": "bash -lc '$(git rev-parse --show-toplevel)/examples/02-self-improving-console/run-agent.sh backend'"
     },
     {
       "name": "Cotal: launch tui-designer",
       "keywords": ["cotal", "tui", "designer", "claude"],
-      "command": "bash -lc '$(git rev-parse --show-toplevel)/examples/04-self-improving-console/run-agent.sh tui-designer'"
+      "command": "bash -lc '$(git rev-parse --show-toplevel)/examples/02-self-improving-console/run-agent.sh tui-designer'"
     }
   ]
 }

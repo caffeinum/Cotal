@@ -24,7 +24,7 @@ SERVER="${COTAL_SERVERS:-nats://127.0.0.1:4222}"
 TIMEOUT="${RUN_TIMEOUT:-900}"
 TSX="$REPO/node_modules/.bin/tsx"
 RESULTS="$REPO/.runs/run-$ITER"
-EXREL="examples/04-self-improving-console"
+EXREL="examples/02-self-improving-console"
 
 log() { echo "[run-once $ITER] $*"; }
 

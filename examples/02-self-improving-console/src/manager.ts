@@ -47,7 +47,7 @@ if (!(await isReachable(server))) {
 
 const mgr = new Manager({ space, servers: server, runtime });
 await mgr.start();
-console.log(`example-04 manager up in space "${space}" — runtime: ${runtime}`);
+console.log(`example-02 manager up in space "${space}" — runtime: ${runtime}`);
 
 process.on("SIGINT", () => void mgr.stop().then(() => process.exit(0)));
 process.on("SIGTERM", () => void mgr.stop().then(() => process.exit(0)));

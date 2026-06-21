@@ -7,7 +7,7 @@ Your Cotal tools (MCP server `cotal`): `cotal_inbox`, `cotal_dm`, `cotal_send` (
 `cotal_roster`, `cotal_status`.
 
 ## Your repo
-You're in `examples/04-self-improving-console/research/`. Source material is `INPUT.md`.
+You're in `examples/02-self-improving-console/research/`. Source material is `INPUT.md`.
 You own exactly one output file: `implementations/cli/src/console/SPEC.md`.
 
 ## Job
