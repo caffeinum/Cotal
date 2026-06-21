@@ -128,7 +128,14 @@ export function channelMeta(i: InboxItem): Record<string, string> {
 /** The full Cotal tool set for a given config. Renderers iterate this; `source` names the
  *  hosting connector and is stamped onto outgoing feedback. */
 export function cotalToolSpecs(config: AgentConfig, source = "connector"): CotalToolSpec[] {
-  return [
+  // Manager-op tools (cotal_spawn / cotal_persona) ride the `spawn` capability — publish to the
+  // privileged control subject. The cred layer is the real boundary: in auth mode an agent without
+  // it is denied at the wire (nats-server); open mode mints no creds, so anyone may spawn. Mirror
+  // that here so the advertised surface is truthful — an agent only sees these when it can actually
+  // use them, instead of discovering the denial by trying. cotal_despawn stays (its no-name
+  // self-despawn is granted to all). controlFailure remains the backstop if a wire denial slips by.
+  const canSpawn = !config.creds || (config.capabilities?.includes("spawn") ?? false);
+  const specs: CotalToolSpec[] = [
     {
       name: "cotal_roster",
       title: "Cotal: who's present",
@@ -575,4 +582,5 @@ export function cotalToolSpecs(config: AgentConfig, source = "connector"): Cotal
       },
     },
   ];
+  return specs.filter((spec) => canSpawn || (spec.name !== "cotal_spawn" && spec.name !== "cotal_persona"));
 }

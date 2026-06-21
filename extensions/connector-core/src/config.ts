@@ -27,6 +27,12 @@ export interface AgentConfig {
   /** Display-only metadata from unmodelled agent-file frontmatter keys (for example `face`).
    *  Connector-owned keys such as `connector` and `model` are overlaid later and cannot be spoofed here. */
   meta?: Record<string, string>;
+  /** Control-plane capabilities this session declares (from the agent file's `capabilities:`); today
+   *  only `spawn`. Used to gate the manager-op tools (cotal_spawn / cotal_persona) so the advertised
+   *  surface matches what the agent can actually invoke. The cred layer is the real boundary (auth
+   *  mode); open mode mints no creds, so the gate is permissive there. Same file the manager minted
+   *  creds from, so the tool gate mirrors the wire grant exactly. */
+  capabilities?: string[];
   servers: string;
   /** The *active* read set — channels this agent actually subscribes to (read). May include
    *  wildcard subtrees (`team.>`). Maps to the endpoint's live filter. ⊆ {@link allowSubscribe}. */
@@ -132,6 +138,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AgentConfig
     description: def?.description,
     tags: def?.tags,
     meta: def?.meta,
+    capabilities: def?.capabilities,
     model: env.COTAL_MODEL?.trim() || def?.model || undefined,
     servers: env.COTAL_SERVERS?.trim() || link?.servers || DEFAULT_SERVER,
     subscribe: resolvedSubscribe,
