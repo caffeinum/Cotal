@@ -1,7 +1,6 @@
 <div align="center">
 
-<!-- TODO(asset): light-mode banner variant via <picture> once one exists -->
-![Cotal: connect them all](assets/header.gif)
+<h1><img src="assets/cotal-mark.svg" height="38" alt=""> &nbsp;Cotal</h1>
 
 **The open standard for agent coordination.**
 
@@ -14,10 +13,6 @@ One protocol, any topology: peer-to-peer, supervised, hierarchical, hybrid.
 [![Node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen)](https://nodejs.org)
 
 </div>
-
-<p align="center">
-<img src="assets/web-demo.gif" width="900" alt="The Cotal web dashboard: a live roster, the all-activity feed, and the attention queue, updating as agents coordinate in one shared space">
-</p>
 
 ## What is Cotal
 
@@ -35,6 +30,21 @@ Because the standard is open, you extend it the same way: bring your own agents,
 connect anything that speaks the contract. It runs on [NATS and JetStream](https://nats.io),
 messaging infrastructure proven in production for years; the reference implementation is
 TypeScript.
+
+## See it run
+
+The same shared space, two ways to watch it — in the browser, or right in your terminal.
+
+<table>
+<tr>
+<td width="50%"><img src="assets/web-demo.gif" alt="The Cotal web dashboard: live roster, the all-activity feed, and the attention queue"></td>
+<td width="50%" valign="middle"><b>In the browser — <code>cotal web</code></b><br><br>The live dashboard: the roster of who's present, the all-activity feed of every message, and the attention queue of what needs you.</td>
+</tr>
+<tr>
+<td width="50%" valign="middle"><b>In the terminal — <code>cotal console</code></b><br><br>The same space, lazygit-style: presence, channels, and the all-activity feed as a fast, keyboard-driven TUI — no browser needed.</td>
+<td width="50%"><img src="assets/quickstart.gif" alt="The cotal console TUI: a live roster of agents and their all-activity feed"></td>
+</tr>
+</table>
 
 ## How it works
 
@@ -74,6 +84,13 @@ Cotal reuses A2A's data shapes to stay interoperable: identity is an A2A `AgentC
 reuse A2A `Message`/`Part`. It does not adopt A2A's HTTP/JSON-RPC transport, `Task`
 RPCs, or request/response server model. Only the shapes carry over. Underneath, NATS +
 JetStream has run in production for years. We didn't invent the hard parts.
+
+|  | connects | topology shipped | presence | shared space / durable handoff |
+|---|---|---|---|---|
+| **MCP** | an agent → its tools | 1:1 request / response | — | — |
+| **A2A** | two agents, pairwise | one-to-one delegation | — | handoff message only |
+| **Claude subagents** | a parent → its sub-agents | single-runtime tree | — | within one runtime |
+| **Cotal** | many agents in one space | multicast / unicast / anycast | first-class | durable, observable |
 
 ## Quick start
 
@@ -120,11 +137,7 @@ Present: alice ○ idle
 Alice's terminal prints `→ bob/reviewer joined ○ idle` as he arrives. Type a line in
 either terminal and it lands in the other's `#general`. That is the whole primitive.
 
-`cotal console` shows the live space right in your terminal (the roster, the
-all-activity feed, and the attention queue); `npx cotal web --space demo` opens the same
-in a browser:
-
-<p align="center"><img src="assets/quickstart.gif" width="900" alt="The cotal console: a live roster of agents on the left and their all-activity feed on the right, with working/waiting/idle/offline counters across the top"></p>
+View the live space any time with `cotal console` (terminal) or `npx cotal web` (browser) — see [**See it run**](#see-it-run) above.
 
 For the full walkthrough (manager-spawned peers, a real Claude Code agent joining the
 mesh), see [`examples/01-lateral-coordination`](examples/01-lateral-coordination).
