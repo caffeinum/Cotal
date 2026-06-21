@@ -120,22 +120,22 @@ export async function spawn(argv: string[]): Promise<void> {
   // (`--no-transcript` is accepted too, to be explicit about the default).
   const transcript = values.transcript ? true : values["no-transcript"] ? false : false;
 
-  // Where the config lives: --config, else the positional <name-or-path>, else
-  // discover by --name (.cotal/agents/<name>.md). Same flags as `cotal start`.
-  const ref = values.config ?? positionals[0] ?? values.name;
-  if (!ref) {
-    console.error(
-      "usage: cotal spawn <name-or-path> | --config <path> | --name <n>  [--agent <a>] [--role <r>] [--space <s>] [--server <url>] [--prompt <text>] [--transcript] [--share-tools <names|none>]",
-    );
-    process.exit(1);
-  }
+  // Where the config lives: --config, else the positional <name-or-path>, else --name
+  // (.cotal/agents/<name>.md). With none of those, fall back to the seeded `default` persona:
+  // `cotal spawn` with no args launches `.cotal/agents/default.md` (same flags as `cotal start`).
+  const ref = values.config ?? positionals[0] ?? values.name ?? "default";
 
   const path = agentFilePath(cotalRoot(), ref);
   let def: AgentDef;
   try {
     def = loadAgentFile(path);
   } catch (e) {
-    console.error(`✗ ${(e as Error).message}`);
+    const noDefault = ref === "default" && (e as NodeJS.ErrnoException).code === "ENOENT";
+    console.error(
+      noDefault
+        ? "✗ no default persona yet — run `cotal setup` to seed one, or name a persona: `cotal spawn <name>`"
+        : `✗ ${(e as Error).message}`,
+    );
     process.exit(1);
   }
 

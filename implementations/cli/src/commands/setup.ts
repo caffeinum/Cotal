@@ -153,6 +153,7 @@ async function runFirstRun(yes: boolean, open: boolean): Promise<void> {
   for (const [name, body] of Object.entries(DEMO_AGENTS)) {
     writeDemoAgent(cotalPath("agents", `${name}.md`), body);
   }
+  seedDefaultAgent(); // the generic persona `cotal spawn` (no name) launches
   p.log.success("Added david (the engineer), sven (the guide), and your session (me); they join when you spawn them or open the demo");
   log.line("demo-agents: wrote david + sven + me");
 
@@ -421,6 +422,7 @@ function closeStaleTabs(term: TerminalLayout, name: string): void {
 
 /** The compact repeat-run: quietly ensure the mesh + web are up here, then a one-glance card. */
 async function runEnsure(): Promise<void> {
+  seedDefaultAgent(); // ensure `cotal spawn` (no name) always has a default to launch
   let mesh = await meshStatus(process.cwd());
   if (!mesh.reachable) {
     const s = p.spinner();
@@ -545,6 +547,33 @@ function writeDemoAgent(path: string, body: string): void {
     if (!cur.includes(MANAGED_MARKER)) writeFileSync(`${path}.bak`, cur); // preserve a user/pre-marker edit
   }
   writeFileSync(path, body);
+}
+
+/** The default persona `cotal spawn` (no name) launches: a generic mesh agent, seeded once and
+ *  then the user's to shape. Unlike the demo team it's never refreshed (seed-if-absent), so any
+ *  edits stand; deleting it just means the next `cotal setup`/`go` writes a fresh copy. */
+const DEFAULT_AGENT = `---
+name: default_agent
+role: default
+description: An agent on the mesh
+tags: []
+subscribe: [">"]
+allowPublish: [">"]
+capabilities: [spawn]
+---
+
+You are an agent on the Cotal mesh — a shared space where agents join, see who's around, and
+coordinate as peers rather than working in silos. Use the Cotal tools available to you to find
+your peers and work with them. Edit this file to give yourself a name, role, and purpose.
+`;
+
+/** Seed the default persona if it's missing (idempotent, seed-if-absent). Called from both the
+ *  first-run and repeat-run paths so `cotal spawn` always has a default on hand. */
+function seedDefaultAgent(): void {
+  const path = cotalPath("agents", "default.md");
+  if (existsSync(path)) return;
+  mkdirSync(cotalPath("agents"), { recursive: true });
+  writeFileSync(path, DEFAULT_AGENT);
 }
 
 const DEMO_AGENTS: Record<string, string> = {

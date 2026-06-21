@@ -120,8 +120,9 @@ Full scenario and run steps:
   (an appended system prompt). `role` is the addressable **service** (anycast). The
   connector resolves it from `COTAL_AGENT_FILE`; a peer can mint one on the fly with
   `cotal_persona` (the manager writes the file), and an operator manages the local catalog
-  with `cotal personas` (list/show/edit/new/rm). Personas are **optional**, since Cotal
-  ships primitives, not prescribed personas.
+  with `cotal personas` (list/show/edit/new/rm). `cotal setup` seeds a generic `default.md`,
+  the persona `cotal spawn` launches when you don't name one. Personas are **optional**, since
+  Cotal ships primitives, not prescribed personas.
 - **Identity & authorization (on by default; `cotal up --open` to disable).** The mesh is
   a real boundary against untrusted peers in a shared space. The **sender is encoded in
   the subject** (server-policed, not self-asserted), so an agent can only emit **as

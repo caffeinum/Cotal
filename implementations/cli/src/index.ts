@@ -116,7 +116,7 @@ const baseCommands: Command[] = [
     name: "spawn",
     group: "Agents",
     summary:
-      "launch an agent in this terminal from a file — spawn <name-or-path> | --name <n> --config <path> [--agent <a>] [--role <r>]",
+      "launch an agent in this terminal from a file — spawn [<name-or-path>] (defaults to the `default` persona) | --name <n> --config <path> [--agent <a>] [--role <r>]",
     run: spawn,
     complete: spawnComplete,
   },
