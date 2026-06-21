@@ -25,6 +25,15 @@ const PORT = 14224;
 const servers = `nats://127.0.0.1:${PORT}`;
 const space = "chansmoke";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** Poll a condition until it holds or the timeout elapses — for "the expected messages have arrived"
+ *  waits. Replaces fixed `sleep()` before positive assertions: backfill (Direct-Get) and live delivery
+ *  complete in variable time under load, so a tight fixed wait flakes. Absence checks still settle via a
+ *  plain sleep (you cannot poll for non-arrival). Returns the final condition value for the assertion. */
+const until = async (cond: () => boolean, timeoutMs = 8000, stepMs = 50): Promise<boolean> => {
+  const deadline = Date.now() + timeoutMs;
+  while (!cond() && Date.now() < deadline) await sleep(stepMs);
+  return cond();
+};
 const textOf = (m: CotalMessage) => m.parts.map((p) => (p.kind === "text" ? p.text : "")).join("");
 
 interface Rec { channel?: string; text: string; historical: boolean; kind?: MessageMeta["kind"] }
@@ -76,14 +85,13 @@ try {
 
   const B = recorder("B", "B_join", ["log", "chat"]);
   await B.ep.start();
-  await sleep(400);
-  check("replay channel backfills history (historical)", B.got.filter((g) => g.channel === "log" && g.historical).length === 2);
+  check("replay channel backfills history (historical)", await until(() => B.got.filter((g) => g.channel === "log" && g.historical).length === 2));
   check("no-replay channel does not backfill", has(B.got, "chat-hist-1").length === 0);
 
   B.got.length = 0;
   await A.multicast("log-live-1", { channel: "log" });
   await A.multicast("chat-live-1", { channel: "chat" });
-  await sleep(500);
+  await until(() => has(B.got, "log-live-1").length === 1 && has(B.got, "chat-live-1").length === 1);
   check("live delivery, no dup, not historical", has(B.got, "log-live-1").length === 1 && has(B.got, "log-live-1")[0].historical === false && has(B.got, "chat-live-1").length === 1);
   check("multicast is authenticated kind=channel", has(B.got, "log-live-1")[0].kind === "channel");
 
@@ -108,7 +116,7 @@ try {
     await js.publish(subject, JSON.stringify(forged), { msgID: forged.id });
     await nc.close();
   }
-  await sleep(500);
+  await until(() => has(B.got, "forged-dm-probe").length === 1);
   const probe = has(B.got, "forged-dm-probe");
   check("forged DM is delivered to the receiver", probe.length === 1);
   check("forged DM is authenticated as kind=channel, not dm", probe[0].kind === "channel" && !probe.some((r) => r.kind === "dm"));
@@ -116,7 +124,7 @@ try {
   // ---- dynamic join (replay) + idempotent ----
   B.got.length = 0;
   const jr = await B.ep.joinChannel("incident");
-  await sleep(300);
+  await until(() => B.got.filter((g) => g.channel === "incident" && g.historical).length === 1);
   check("dynamic join backfills replay channel", jr.joined === true && jr.backfilled === 1 && B.got.filter((g) => g.channel === "incident" && g.historical).length === 1);
   check("re-join is a no-op", JSON.stringify(await B.ep.joinChannel("incident")) === JSON.stringify({ joined: false, backfilled: 0, durable: true }));
 
@@ -128,7 +136,7 @@ try {
   await sleep(400);
   check("no-replay join: no backfill + pre-join history suppressed by the drop", jg.backfilled === 0 && has(B.got, "general-hist").length === 0);
   await A.multicast("general-live", { channel: "general" });
-  await sleep(400);
+  await until(() => has(B.got, "general-live").length === 1);
   check("live delivery works after no-replay join", has(B.got, "general-live").length === 1);
 
   // ---- dynamic leave ----
@@ -156,7 +164,7 @@ try {
   await sleep(300);
   const B3 = recorder("B", "B_join", ["log", "incident"]); // config gained #incident (has history)
   await B3.ep.start();
-  await sleep(500);
+  await until(() => B3.got.filter((g) => g.channel === "incident" && g.historical).length === 1);
   check("restart reconciles to config: gained channel is backfilled", B3.got.filter((g) => g.channel === "incident" && g.historical).length === 1);
   check("restart does not re-backfill the unchanged channel", B3.got.filter((g) => g.channel === "log" && g.historical).length === 0);
 
@@ -167,7 +175,7 @@ try {
   await sleep(1500); // age both past the 1s window
   const W = recorder("W", "W_join", ["recent", "archive"]);
   await W.ep.start();
-  await sleep(500);
+  await until(() => W.got.filter((g) => g.channel === "archive" && g.historical).length === 1);
   check("time window EXCLUDES messages older than it", has(W.got, "recent-old").length === 0);
   check("wider window INCLUDES them", W.got.filter((g) => g.channel === "archive" && g.historical).length === 1);
 
@@ -183,7 +191,7 @@ try {
   await A.multicast("rev-flat", { channel: "review" });
   await A.multicast("rev-sec", { channel: "review.security" });
   await A.multicast("rev-deep", { channel: "review.a.b" });
-  await sleep(400);
+  await until(() => has(RW.got, "rev-flat").length === 1 && has(RW.got, "rev-sec").length === 1 && has(RW.got, "rev-deep").length === 1 && has(RF.got, "rev-flat").length === 1);
   check("wildcard sub keeps the flat parent (collapse didn't drop it)", has(RW.got, "rev-flat").length === 1);
   check("wildcard sub receives the subtree (review.>)", has(RW.got, "rev-sec").length === 1 && has(RW.got, "rev-deep").length === 1);
   check("flat sub gets the parent but never the subtree", has(RF.got, "rev-flat").length === 1 && RF.got.every((g) => g.channel === "review"));
