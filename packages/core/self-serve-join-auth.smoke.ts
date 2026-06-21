@@ -51,6 +51,7 @@ const auth = await createSpaceAuth(space);
 const dir = mkdtempSync(join(tmpdir(), "cotal-selfjoin-"));
 writeFileSync(join(dir, "server.conf"), serverConfig(auth, { port: PORT, storeDir: join(dir, "js") }));
 const srv = spawn("nats-server", ["-c", join(dir, "server.conf")], { stdio: "ignore" });
+let server = srv; // mutable: the reconnect test restarts the broker and tracks the live process
 
 try {
   let up = false;
@@ -127,6 +128,30 @@ try {
     got,
   );
 
+  // Reconnect resilience: a manager-free core-sub join must SURVIVE a broker restart — the rebind has
+  // to reopen the core subscription (reconcile off the durable's real filter), not leave it inert.
+  server.kill("SIGKILL");
+  await wait(600);
+  server = spawn("nats-server", ["-c", join(dir, "server.conf")], { stdio: "ignore" });
+  let back = false;
+  for (let i = 0; i < 50; i++) {
+    if (await isReachable(SERVERS)) {
+      back = true;
+      break;
+    }
+    await wait(200);
+  }
+  if (!back) throw new Error("broker did not restart");
+  await wait(3000); // reconnect + startConsumers rebind + core-sub reconciliation
+  got.length = 0;
+  await pub.multicast("after reconnect", { channel: "review.api" });
+  await wait(800);
+  check(
+    "manager-free core-sub join SURVIVES a broker reconnect",
+    got.some((g) => g === "#review.api:after reconnect"),
+    got,
+  );
+
   let joinDenied = false;
   try {
     await a.joinChannel("secret");
@@ -192,7 +217,7 @@ try {
   fail++;
   console.error("  ✗ scenario threw:", (e as Error).message);
 } finally {
-  srv.kill("SIGKILL");
+  server.kill("SIGKILL");
   await wait(200);
   rmSync(dir, { recursive: true, force: true });
 }

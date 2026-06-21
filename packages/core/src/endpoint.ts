@@ -1221,9 +1221,22 @@ export class CotalEndpoint extends EventEmitter {
         if (armed) await this.backfillArmed(armed);
       }
     }
-    // Overlay: the boot subscribe set is what the legacy chat_<id> durable filter covers, so the
-    // core-sub drops those (the durable owns them). Runtime joins add core-subs on top.
-    this.durableChannels = [...this.channels];
+    // Overlay reconciliation (also runs on reconnect/rebind): set durableChannels to what the legacy
+    // durable's filter ACTUALLY covers — NOT all of this.channels, which also holds manager-free
+    // core-sub joins the durable never received — and (re)open a core subscription for every joined
+    // channel the durable does NOT cover. Without this a manager-free runtime join goes silently inert
+    // after a reconnect (it survives in this.channels but has no core sub and isn't in the durable).
+    this.durableChannels = await this.durableCoveredChannels();
+    const reopened: string[] = [];
+    for (const ch of this.channels)
+      if (!this.durableChannels.some((d) => subjectMatches(d, ch))) {
+        this.subscribeChat(ch);
+        reopened.push(ch);
+      }
+    if (reopened.length) {
+      await this.confirmChatSub();
+      for (const ch of reopened) this.confirmingChatSubs.delete(chatSubject(this.space, "*", ch));
+    }
 
     // Anycast: a shared work-queue consumer for our role — one instance grabs each task.
     // Open mode self-creates; auth mode BINDS the provisioner-pre-created svc_<role>
@@ -1316,6 +1329,23 @@ export class CotalEndpoint extends EventEmitter {
       this.chatSeen = new Set();
     }
     return true;
+  }
+
+  /** The channels the legacy `chat_<id>` durable's filter ACTUALLY covers right now (parsed from its
+   *  `filter_subjects`) — the truth for the overlay coverage-partition, vs `this.channels` which also
+   *  holds manager-free core-sub joins the durable never received. Empty if there is no chat durable. */
+  private async durableCoveredChannels(): Promise<string[]> {
+    if (!this.jsm || !this.channels.length) return [];
+    const info = await this.consumerInfo(chatStream(this.space), chatDurable(this.card.id));
+    if (!info) return [];
+    const filters =
+      info.config.filter_subjects ?? (info.config.filter_subject ? [info.config.filter_subject] : []);
+    const out: string[] = [];
+    for (const f of filters) {
+      const p = parseSubject(f);
+      if (p && p.kind === "chat") out.push(p.rest);
+    }
+    return out;
   }
 
   /** Open a native core subscription to a channel's live feed (overlay: the manager-free read path,
