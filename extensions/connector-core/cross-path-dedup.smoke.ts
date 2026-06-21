@@ -123,6 +123,43 @@ try {
     check("durable-first/drain/live-second: durable committed once, live no-op added nothing", dc.n === 1 && lc.n === 0, { dc, lc });
   }
 
+  // ── Case 7 (Item 8A) — handledIds 4096-WINDOW ROTATION: a prev-window id is still deduped/committed ──
+  // markHandled rotates when handledIds.size >= 4096 (handledIdsPrev = handledIds; handledIds = new Set()),
+  // so the lookup horizon is TWO windows. Surface+drain >4096 distinct ids to force at least one rotation,
+  // leaving an early id X (m-0) ONLY in handledIdsPrev. A durable copy of X must still be recognized as
+  // already-handled: NOT re-buffered, and acked so JetStream stops redelivering. Regression caught: if
+  // rotation dropped the previous window (single window, or cleared without keeping prev), X would no
+  // longer be found → its durable duplicate would re-buffer and double-surface, and would NOT be acked.
+  {
+    const X = "m-0"; // an early id, drained long before the rotation
+    const total = 5000; // comfortably past the 4096 cap → guaranteed ≥1 rotation, X lands in handledIdsPrev
+    const batch = 100; // MUST be ≤ MAX_INBOX (200): a larger batch would overflow the inbox, and overflow is
+    // acked-and-dropped WITHOUT markHandled — those ids would never enter a window, so no rotation ever fires.
+    // Surface + drain distinct ids in batches (keeps the inbox small/fast); each drain fills handledIds.
+    for (let base = 0; base < total; base += batch) {
+      for (let i = base; i < base + batch && i < total; i++) {
+        agent.ep.emit("message", msg(`m-${i}`), mkDelivery(true, { n: 0 }), meta);
+      }
+      agent.drainInbox(); // marks this batch's ids as handled, advancing toward (and past) rotation
+    }
+    check("rotation: inbox fully drained before the dedup probe", agent.inboxCount() === 0); // catches a leak that would mask the re-buffer check below
+
+    // Durable copy of the prev-window id X.
+    const dc = { n: 0 };
+    agent.ep.emit("message", msg(X), mkDelivery(true, dc), meta);
+    // Re-buffer would mean rotation lost the prev window and X is now unknown (single-window regression).
+    check("rotation: prev-window id X (durable) does NOT re-buffer", agent.inboxCount() === 0);
+    check("rotation: prev-window id X surfaces nothing on drain", agent.drainInbox().length === 0);
+    // No ack ⇒ JetStream keeps redelivering a long-ago-handled message forever (the prev-window must stay ackable).
+    check("rotation: prev-window id X (durable) IS committed (acked, not lost)", dc.n === 1, { dc });
+
+    // Strengthening: a LIVE copy of X is dropped with NO ack and no re-buffer (live duplicate is never acked).
+    const lc = { n: 0 };
+    agent.ep.emit("message", msg(X), mkDelivery(false, lc), meta);
+    check("rotation: prev-window id X (live) does NOT re-buffer", agent.inboxCount() === 0); // catches X falling out of the lookup horizon (would re-surface)
+    check("rotation: prev-window id X (live) is dropped without an ack", lc.n === 0, { lc }); // catches a spurious ack on the no-op live path
+  }
+
   console.log(`\nCROSS-PATH DEDUP SMOKE OK ✅  (${pass} passed, 0 failed)`);
   process.exit(0);
 } catch (e) {

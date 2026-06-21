@@ -126,6 +126,7 @@ export class MeshAgent extends EventEmitter {
       pass: config.pass,
       creds: config.creds,
       tls: config.tls,
+      ackWaitMs: config.ackWaitMs, // undefined → endpoint default (60s); shortened in tests to observe redelivery
       channels: config.subscribe, // the endpoint's live filter = the active read set
       channelModes: Object.fromEntries(this.channelModes), // seed presence so file defaults are visible at boot
       card: {

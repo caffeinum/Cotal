@@ -68,6 +68,11 @@ export interface AgentConfig {
   feedbackKey?: string;
   /** Optional intake URL override (`COTAL_FEEDBACK_URL`) for self-hosted intakes. */
   feedbackUrl?: string;
+  /** Durable-consumer `ack_wait` in ms (how long an un-acked chat message waits before JetStream
+   *  redelivers). Threaded straight to the endpoint; defaults to its 60s when unset. INTERNAL/TEST-ONLY:
+   *  deliberately NOT parsed from env by `configFromEnv` — a test shortens it to observe redelivery /
+   *  ack-commit in seconds; normal launches should not tune durability from connector config. */
+  ackWaitMs?: number;
 }
 
 function splitList(v: string | undefined): string[] {
