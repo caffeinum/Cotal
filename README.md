@@ -231,6 +231,9 @@ More to explore, each self-contained in [`examples/`](examples/) (full index in
 - [Personas](examples/05-personas): ten personalities share one space and talk in real
   time over the same primitives (presence, channels, DMs).
 
+<p align="center"><img src="assets/example-04.gif" width="900" alt="examples/04, the self-improving console: the live cotal console on the left (a roster of orchestrator, backend, tui-designer, and manager) and Claude Code agents in cmux tabs on the right, coordinating as lateral peers on the Cotal mesh"></p>
+<p align="center"><sub><a href="examples/04-self-improving-console"><b>examples/04</b></a> — four Claude Code agents coordinate as lateral peers on the mesh to rebuild Cotal's own console.</sub></p>
+
 ## Documentation
 
 - [docs/OVERVIEW.md](docs/OVERVIEW.md): what Cotal does and the core primitives.
