@@ -190,6 +190,11 @@ export class CotalEndpoint extends EventEmitter {
    *  EXPECTED async permission violation that joinChannel turns into a clean throw, so watchStatus
    *  suppresses it rather than surfacing a spurious connection error. */
   private readonly confirmingChatSubs = new Set<string>();
+  /** Receive-side `id` dedup for chat (overlay backstop): the core-sub and the legacy durable can
+   *  briefly both deliver the same channel during the durable-filter transition window. Two rotating
+   *  windows bound memory to ~2× the cap while keeping a wide-enough horizon. */
+  private chatSeen = new Set<string>();
+  private chatSeenPrev = new Set<string>();
   private heartbeatTimer?: ReturnType<typeof setInterval>;
   private sweepTimer?: ReturnType<typeof setInterval>;
   private readonly roster = new Map<string, Presence>();
@@ -360,6 +365,8 @@ export class CotalEndpoint extends EventEmitter {
     this.chatSubDenied.clear();
     this.confirmingChatSubs.clear();
     this.durableChannels = [];
+    this.chatSeen.clear();
+    this.chatSeenPrev.clear();
     this.roster.clear();
     this.joinSeq.clear();
     this.channelConfigs.clear();
@@ -757,15 +764,17 @@ export class CotalEndpoint extends EventEmitter {
    * Idempotent: re-joining a channel already in our filter is a no-op (no re-backfill). Returns
    * the number of historical messages backfilled (emitted as `historical` "message" events).
    */
-  async joinChannel(channel: string): Promise<{ joined: boolean; backfilled: number }> {
+  async joinChannel(channel: string): Promise<{ joined: boolean; backfilled: number; durable: boolean }> {
     if (!this.jsm) throw new Error(this.notLiveMsg());
-    if (this.channels.includes(channel)) return { joined: false, backfilled: 0 };
+    if (this.channels.includes(channel))
+      return { joined: false, backfilled: 0, durable: this.durableChannels.includes(channel) };
     // Arm the watermark BEFORE going live: the backfill reads ≤ frontier and the core-sub only ever
     // delivers post-subscribe live messages (> frontier), so the two never overlap.
     const armed = await this.armJoin([channel]);
     // Live read (SPEC v0.3): open the native core subscription — MANAGER-FREE, broker-enforced by
     // sub.allow. This is what lets an agent join a channel's live feed on its own. The sub.allow
-    // refusal is async, so broker-confirm before committing local join state (conformance #13).
+    // refusal is async — broker-confirm before committing local join state; the subscribe handler
+    // ALSO drops a channel on ANY refusal (incl. a late one), so this is not a timing gamble (#13).
     this.subscribeChat(channel);
     await this.confirmChatSub();
     this.confirmingChatSubs.delete(chatSubject(this.space, "*", channel));
@@ -775,13 +784,17 @@ export class CotalEndpoint extends EventEmitter {
       throw new Error(`cannot join "${channel}": not within this agent's read ACL (allowSubscribe)`);
     }
     this.channels.push(channel);
-    // Durable backstop (best-effort, overlay): also move the legacy chat_<id> filter so the channel
+    // Durable backstop (best-effort, overlay): move the legacy chat_<id> filter so the channel ALSO
     // gets durable delivery WHEN a privileged provisioner is present. A manager-less auth session
-    // can't move it — fine now, the core-sub already delivers live; swallow ONLY the no-provisioner
-    // case. A real rejection (e.g. the manager refused the set) undoes the whole join.
+    // can't move it — fine, the core-sub already delivers live (the result is `joined live` with the
+    // durable backstop unestablished, NOT `joined durable`; see `durable` below). A real rejection
+    // undoes the join. Receive-side `id` dedup (firstSeenChat) covers the brief window between the
+    // filter update taking effect and `durableChannels` updating, so no message double-delivers.
+    let durable = false;
     try {
       await this.setChatFilter([...this.durableChannels, channel]);
       this.durableChannels.push(channel);
+      durable = true;
     } catch (e) {
       if (!isNoProvisioner(e)) {
         this.unsubscribeChat(channel);
@@ -792,30 +805,42 @@ export class CotalEndpoint extends EventEmitter {
       }
     }
     const backfilled = await this.backfillArmed(armed);
-    return { joined: true, backfilled };
+    return { joined: true, backfilled, durable };
   }
 
-  /** Leave a channel mid-session (MANAGER-FREE): close its core subscription, and best-effort drop
-   *  it from the legacy durable filter if that path covered it. Leaving the last channel is now
-   *  permitted (an empty core-sub set subscribes to nothing) — but the legacy durable filter is never
-   *  emptied (that would match every chat subject), so a still-durable-covered last channel keeps its
-   *  durable delivery until the legacy tail is removed (overlay limitation). Returns whether changed. */
+  /** Leave a channel mid-session. A core-sub (runtime-joined) channel leaves MANAGER-FREE — just close
+   *  the subscription. A channel covered by the legacy durable can only stop delivery by moving that
+   *  filter, which needs the privileged provisioner: so a durable-covered leave is REFUSED with a clear
+   *  error when no provisioner is present (rather than reporting a leave that does not stop delivery),
+   *  and the only-durable-covered channel cannot be left until the legacy tail is removed (an empty
+   *  durable filter would match every chat subject). Returns whether anything changed. */
   async leaveChannel(channel: string): Promise<{ left: boolean }> {
     if (!this.jsm) throw new Error(this.notLiveMsg());
-    const i = this.channels.indexOf(channel);
-    if (i < 0) return { left: false };
-    this.unsubscribeChat(channel);
-    this.channels.splice(i, 1);
-    this.joinSeq.delete(channel);
-    const remaining = this.durableChannels.filter((c) => c !== channel);
-    if (remaining.length && remaining.length !== this.durableChannels.length) {
+    if (!this.channels.includes(channel)) return { left: false };
+    if (this.durableChannels.includes(channel)) {
+      const remaining = this.durableChannels.filter((c) => c !== channel);
+      if (!remaining.length)
+        throw new Error(
+          `cannot leave "${channel}": it is your only durable-covered channel and the legacy durable ` +
+            `filter cannot be emptied (it would subscribe to every chat subject) — until the legacy tail is removed`,
+        );
       try {
         await this.setChatFilter(remaining);
-        this.durableChannels = remaining;
       } catch (e) {
-        if (!isNoProvisioner(e)) throw e;
+        if (isNoProvisioner(e))
+          throw new Error(
+            `cannot leave "${channel}": it is delivered by the legacy durable, which needs a privileged ` +
+              `provisioner (manager) to update — this session is fixed to its durable channels until reconnect/migration`,
+          );
+        throw e;
       }
+      this.durableChannels = remaining;
     }
+    // Delivery actually stopped (durable filter moved, or it was a core-sub-only channel): drop state.
+    this.unsubscribeChat(channel);
+    const i = this.channels.indexOf(channel);
+    if (i >= 0) this.channels.splice(i, 1);
+    this.joinSeq.delete(channel);
     return { left: true };
   }
 
@@ -1261,6 +1286,13 @@ export class CotalEndpoint extends EventEmitter {
             m.ack();
             continue;
           }
+          // Cross-path dedup backstop (overlay): if the core-sub already surfaced this id (the brief
+          // durable-filter-update→coverage-flag window), ack the durable copy so JS stops redelivering,
+          // but do not re-surface it.
+          if (!this.firstSeenChat(msg.id)) {
+            m.ack();
+            continue;
+          }
         }
         const delivery: Delivery = { ack: () => m.ack(), nak: () => m.nak() };
         this.emit("message", msg, delivery, {
@@ -1271,6 +1303,19 @@ export class CotalEndpoint extends EventEmitter {
     })().catch((e) => {
       if (!this.stopped) this.emit("error", e as Error);
     });
+  }
+
+  /** True the FIRST time a chat `msg.id` is seen (caller surfaces it); false on a duplicate (caller
+   *  drops, acking any durable copy so JetStream stops redelivering). Bounded via two rotating windows
+   *  so a long-lived endpoint never grows the set unboundedly. */
+  private firstSeenChat(id: string): boolean {
+    if (this.chatSeen.has(id) || this.chatSeenPrev.has(id)) return false;
+    this.chatSeen.add(id);
+    if (this.chatSeen.size >= 4096) {
+      this.chatSeenPrev = this.chatSeen;
+      this.chatSeen = new Set();
+    }
+    return true;
   }
 
   /** Open a native core subscription to a channel's live feed (overlay: the manager-free read path,
@@ -1284,9 +1329,27 @@ export class CotalEndpoint extends EventEmitter {
     const sub = this.nc.subscribe(subject, {
       callback: (err, m) => {
         if (err) {
-          // async sub.allow refusal (or sub error): the live feed for this channel is dead. Never a
-          // leak — the broker refused it. The broker-confirmed join reads this flag.
+          // async sub.allow refusal (or sub error): the live feed for this channel is dead — never a
+          // leak (the broker refused it). Drop the channel from local joined state even if it was
+          // already treated as joined — a LATE refusal beyond the confirm window: conformance #13
+          // "drop on late refusal". (During the join's own confirm the channel isn't pushed yet, so
+          // this fires nothing then; joinChannel reads `chatSubDenied` and throws cleanly.)
           this.chatSubDenied.add(channel);
+          this.chatSubs.delete(channel);
+          // NOTE: do NOT remove `subject` from confirmingChatSubs here — that set gates watchStatus's
+          // suppression of this expected violation, and is cleared by joinChannel after confirm (or by
+          // unsubscribeChat). Removing it in the callback races the watcher and leaks a spurious error.
+          const i = this.channels.indexOf(channel);
+          if (i >= 0) {
+            this.channels.splice(i, 1);
+            this.joinSeq.delete(channel);
+            const di = this.durableChannels.indexOf(channel);
+            if (di >= 0) this.durableChannels.splice(di, 1);
+            this.emit(
+              "error",
+              new Error(`left channel "${channel}": its live subscription was refused by the broker`),
+            );
+          }
           return;
         }
         const parsed = parseSubject(m.subject);
@@ -1303,6 +1366,7 @@ export class CotalEndpoint extends EventEmitter {
         }
         if (!msg.from || msg.from.id !== parsed.sender) return; // spoof/malformed — drop (at-most-once)
         if (msg.from.id === this.card.id) return; // our own echo
+        if (!this.firstSeenChat(msg.id)) return; // cross-path dedup: the durable already surfaced it
         const delivery: Delivery = { ack: () => {}, nak: () => {} }; // live = at-most-once, not acked
         this.emit("message", msg, delivery, {
           historical: false,

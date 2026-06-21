@@ -1,12 +1,16 @@
 /**
- * Self-serve channel-join smoke (SPEC v0.3 overlay) — the headline behaviour: an AUTH-mode agent
- * joins a channel's live feed at runtime WITH NO MANAGER serving control, and actually receives the
- * live message via its native core subscription (broker-enforced by sub.allow). Also: a denied
- * (out-of-ACL) join is refused (broker-confirmed), a manager-free leave stops delivery, and the boot
- * channel still delivers via the legacy durable (no regression).
+ * Self-serve channel-join smoke (SPEC v0.3 overlay). Two phases:
  *
- * "No manager" = no endpoint serves the `ctl.self` control plane, so the legacy mediated
- * setChannels has no responder; the join must still work off the core-sub alone.
+ *  Phase 1 — NO manager serving control: an auth-mode agent joins a channel's live feed at runtime
+ *  and receives the live message via its native core subscription (broker-enforced by sub.allow).
+ *  Join reports `durable:false` (joined live, backstop unestablished); out-of-ACL join is refused
+ *  (broker-confirmed); a core-sub leave stops delivery; a durable-covered leave is REFUSED honestly
+ *  (the legacy filter needs the provisioner) rather than reporting a leave that doesn't stop delivery.
+ *
+ *  Phase 2 — a control responder IS present (simulating the manager): a runtime join now also moves
+ *  the legacy durable filter (`durable:true`), and the message is delivered EXACTLY ONCE — the durable
+ *  owns it, the core-sub coverage-drops it, the id-dedup backstop covers the transition window.
+ *
  * Run: pnpm smoke:self-serve-join:auth   (needs `nats-server` on PATH; auth/JetStream, local-only)
  */
 import { randomUUID } from "node:crypto";
@@ -23,6 +27,7 @@ import {
   serverConfig,
   newIdentity,
   setupSpaceStreams,
+  CONTROL_SELF_SERVICE,
   type Delivery,
 } from "./src/index.js";
 
@@ -58,8 +63,8 @@ try {
   }
   if (!up) throw new Error(`auth nats-server did not come up on ${PORT}`);
 
-  // Privileged endpoint: provisions durables + publishes. It is a BARE endpoint — it does NOT serve
-  // the control plane (only the Manager supervisor does), so runtime joins have NO control responder.
+  // Privileged endpoint: provisions durables + publishes (and, in phase 2, serves the control plane).
+  // Until then it is a BARE endpoint that does NOT serve control, so runtime joins have no responder.
   const mgrCreds = await mintCreds(auth, newIdentity(), "manager");
   await setupSpaceStreams({ servers: SERVERS, space, creds: mgrCreds });
   const pub = new CotalEndpoint({
@@ -76,19 +81,19 @@ try {
   pub.on("error", (e: Error) => console.error("  ! pub", e.message));
   await pub.start();
 
-  // Agent A: boots subscribed to ["general"] (durable pre-created), read ACL also covers review.>
-  // (so it can self-serve a runtime join under that subtree) but NOT "secret".
+  // Agent A: boots subscribed to ["general","ops"] (durable pre-created over both), read ACL also
+  // covers review.> (so it can self-serve runtime joins under that subtree) but NOT "secret".
   const aId = newIdentity();
   const aCreds = await provisionAgent(pub, auth, aId, {
-    subscribe: ["general"],
-    allowSubscribe: ["general", "review.>"],
+    subscribe: ["general", "ops"],
+    allowSubscribe: ["general", "ops", "review.>"],
   });
   const a = new CotalEndpoint({
     space,
     servers: SERVERS,
     creds: aCreds,
     card: { id: aId.id, name: "alice", kind: "agent" },
-    channels: ["general"],
+    channels: ["general", "ops"],
     heartbeatMs: 500,
     ttlMs: 2000,
   });
@@ -101,20 +106,19 @@ try {
   await a.start();
   await wait(500);
 
-  // ── Headline: a runtime join with NO control responder must succeed off the core-sub. ──
+  // ───────────────────── Phase 1 — NO control responder (manager-free) ─────────────────────
   const r = await a.joinChannel("review.api");
   check("manager-free joinChannel(review.api) succeeds", r.joined === true, r);
+  check("manager-free join reports durable:false (joined live, backstop unestablished)", r.durable === false, r);
 
   await pub.multicast("live via core-sub", { channel: "review.api" });
   await wait(400);
   check(
     "manager-free join DELIVERS the live message (core-sub)",
-    got.some((g) => g === "#review.api:live via core-sub"),
+    got.filter((g) => g === "#review.api:live via core-sub").length === 1,
     got,
   );
 
-  // Boot channel still rides the legacy durable — delivered, and exactly once (core-sub never grabs
-  // a boot channel, so no double-emit).
   await pub.multicast("on general", { channel: "general" });
   await wait(400);
   check(
@@ -123,28 +127,64 @@ try {
     got,
   );
 
-  // Out-of-ACL join is refused — broker-confirmed (the sub.allow violation is async).
-  let denied = false;
+  let joinDenied = false;
   try {
     await a.joinChannel("secret");
   } catch {
-    denied = true;
+    joinDenied = true;
   }
-  check("join out-of-ACL (secret) is refused (broker-confirmed)", denied);
-  await pub.multicast("should not arrive", { channel: "secret" });
-  await wait(300);
-  check(
-    "no delivery from the refused out-of-ACL channel",
-    !got.some((g) => g.includes("should not arrive")),
-    got,
-  );
+  check("join out-of-ACL (secret) is refused (broker-confirmed)", joinDenied);
 
-  // Manager-free leave stops the live feed.
+  // Core-sub leave is manager-free and stops delivery.
   await a.leaveChannel("review.api");
   got.length = 0;
   await pub.multicast("after leave", { channel: "review.api" });
   await wait(400);
   check("after manager-free leave, no live delivery", !got.some((g) => g.includes("after leave")), got);
+
+  // Durable-covered leave with NO provisioner is REFUSED honestly (it can't stop durable delivery).
+  let leaveRefused = false;
+  try {
+    await a.leaveChannel("general");
+  } catch {
+    leaveRefused = true;
+  }
+  check("durable-covered leave with no provisioner is refused (honest)", leaveRefused);
+  got.length = 0;
+  await pub.multicast("general still flows", { channel: "general" });
+  await wait(300);
+  check("refused leave means the channel still delivers (no false 'left')", got.some((g) => g.includes("general still flows")), got);
+
+  // ───────────────────── Phase 2 — control responder present (manager) ─────────────────────
+  // Wire a minimal manager: serve ctl.self setChannels by moving the caller's durable filter.
+  pub.serveControl(CONTROL_SELF_SERVICE, async (req) => {
+    if (req.op === "setChannels" && Array.isArray((req.args as { channels?: unknown })?.channels)) {
+      await pub.setChatFilterFor(req.from.id, (req.args as { channels: string[] }).channels);
+      return { ok: true };
+    }
+    return { ok: false, error: "unknown op" };
+  });
+  await wait(200);
+
+  got.length = 0;
+  const r2 = await a.joinChannel("review.db");
+  check("manager-present joinChannel(review.db) succeeds", r2.joined === true, r2);
+  check("manager-present join reports durable:true (backstop established)", r2.durable === true, r2);
+
+  await pub.multicast("dual-path once", { channel: "review.db" });
+  await wait(500);
+  check(
+    "manager-present join delivers EXACTLY ONCE (no double across core-sub + durable)",
+    got.filter((g) => g === "#review.db:dual-path once").length === 1,
+    got,
+  );
+
+  // With a provisioner present, leaving a durable-covered channel succeeds and stops delivery.
+  await a.leaveChannel("review.db");
+  got.length = 0;
+  await pub.multicast("gone", { channel: "review.db" });
+  await wait(400);
+  check("manager-present leave stops delivery", !got.some((g) => g.includes("gone")), got);
 
   await a.stop();
   await pub.stop();

@@ -73,7 +73,7 @@ assert.equal(got.filter((g) => g.channel === "log" && g.historical).length, 1, "
 
 const jr = await agent.joinChannel("incident");
 await sleep(400);
-assert.deepEqual(jr, { joined: true, backfilled: 1 }, "mediated join (incident ∈ allowSubscribe) moves the filter + backfills under scoped creds");
+assert.deepEqual(jr, { joined: true, backfilled: 1, durable: true }, "join (incident ∈ allowSubscribe): core-sub live + provisioner moves the durable filter (durable:true) + backfills under scoped creds");
 const lr = await agent.leaveChannel("incident");
 assert.deepEqual(lr, { left: true }, "mediated leave under scoped creds");
 
