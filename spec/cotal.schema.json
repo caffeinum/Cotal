@@ -23,7 +23,7 @@
               "type": "string"
             },
             "mentions": {
-              "description": "Lowercased peer names called out within a `channel` message — a priority/wake hint, not a routing target: the message still multicasts to the whole channel. Omitted when empty.",
+              "description": "Lowercased peer names called out within a `channel` message — a wake hint that also, on a `live` channel, routes a durable copy to each mentioned target **authorized to read that channel** (SPEC §4/§5). It never carries content outside the target's read ACL and is not a routing substitute for `channel`/`to`; the message still multicasts to the whole channel. Omitted when empty.",
               "items": {
                 "type": "string"
               },
@@ -85,7 +85,7 @@
               "type": "string"
             },
             "mentions": {
-              "description": "Lowercased peer names called out within a `channel` message — a priority/wake hint, not a routing target: the message still multicasts to the whole channel. Omitted when empty.",
+              "description": "Lowercased peer names called out within a `channel` message — a wake hint that also, on a `live` channel, routes a durable copy to each mentioned target **authorized to read that channel** (SPEC §4/§5). It never carries content outside the target's read ACL and is not a routing substitute for `channel`/`to`; the message still multicasts to the whole channel. Omitted when empty.",
               "items": {
                 "type": "string"
               },
@@ -151,7 +151,7 @@
               "type": "string"
             },
             "mentions": {
-              "description": "Lowercased peer names called out within a `channel` message — a priority/wake hint, not a routing target: the message still multicasts to the whole channel. Omitted when empty.",
+              "description": "Lowercased peer names called out within a `channel` message — a wake hint that also, on a `live` channel, routes a durable copy to each mentioned target **authorized to read that channel** (SPEC §4/§5). It never carries content outside the target's read ACL and is not a routing substitute for `channel`/`to`; the message still multicasts to the whole channel. Omitted when empty.",
               "items": {
                 "type": "string"
               },

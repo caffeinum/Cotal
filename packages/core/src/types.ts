@@ -78,6 +78,19 @@ export interface Presence {
 }
 
 /**
+ * A channel's delivery class (SPEC §4). Fixed per channel, wire-observable.
+ * - `live` — native broker-subscription delivery; **at-most-once** (only instances subscribed at
+ *   publish time receive it; a disconnected/busy/not-yet-joined instance has no claim to it later).
+ * - `durable` — `live` plus a per-subscriber durable backstop; **at-least-once for current members**
+ *   (also retained per member and redelivered on the member's next connection/turn until acked).
+ *
+ * Effective class is {@link effectiveDeliveryClass}: `channel ?? space default ?? "durable"`. The
+ * space default is set at space creation from the deployment profile (local/self-hosted ⇒ `durable`,
+ * public/web-scale ⇒ `live`) so it is always discoverable on the wire, never inferred per-component.
+ */
+export type DeliveryClass = "live" | "durable";
+
+/**
  * Channel registry entry — channel-global config, stored in the per-space channels KV
  * (one entry per channel; the space-wide default lives under {@link CHANNEL_DEFAULTS_KEY}).
  * Shared across every peer, not a per-subscriber choice. `description`/`instructions` reach
@@ -91,6 +104,8 @@ export interface ChannelConfig {
    *  Maps to a native Direct-Get `start_time` (now − window). Unset + `replay` ⇒ the full
    *  retained window; ignored when replay is off. */
   replayWindow?: string;
+  /** Override the space default delivery class (SPEC §4, §7). See {@link DeliveryClass}. */
+  deliveryClass?: DeliveryClass;
   /** One-line "what this channel is for". */
   description?: string;
   /** Longer "how to use it" — surfaced to joiners as advisory, attributed data. */
@@ -101,6 +116,9 @@ export interface ChannelConfig {
 export interface ChannelDefaults {
   replay?: boolean;
   replayWindow?: string;
+  /** Default delivery class for channels without an explicit one. Written at space creation from
+   *  the deployment profile (local ⇒ `durable`, web ⇒ `live`); see {@link DeliveryClass}. */
+  deliveryClass?: DeliveryClass;
 }
 
 /** Reverse-DNS extension part kind, e.g. `com.acme.snapshot`.
@@ -125,9 +143,11 @@ interface CotalMessageBase {
   ts: number;
   space: string;
   from: EndpointRef;
-  /** Lowercased peer names called out within a `channel` message — a priority/wake hint,
-   *  not a routing target: the message still multicasts to the whole channel. Omitted when
-   *  empty. */
+  /** Lowercased peer names called out within a `channel` message — a wake hint that also, on a
+   *  `live` channel, routes a durable copy to each mentioned target **authorized to read that
+   *  channel** (SPEC §4/§5). It never carries content outside the target's read ACL and is not a
+   *  routing substitute for `channel`/`to`; the message still multicasts to the whole channel.
+   *  Omitted when empty. */
   mentions?: string[];
   parts: Part[];
   /** Id of the message being replied to. */
