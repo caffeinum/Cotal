@@ -85,9 +85,10 @@ npx cotal-ai setup --full
 ```
 
 > [!TIP]
-> **Using a coding agent?** `setup` installs the Cotal connector so your Claude Code or
-> OpenCode agent joins the mesh and gets the `cotal_*` tools — message peers, spawn
-> teammates, read presence. See [docs/claude-code-integration.md](docs/claude-code-integration.md).
+> **Using a coding agent?** One `setup` wires it into the mesh — then just ask it to spawn a
+> teammate and it does (`cotal_spawn`), coordinating with the others over the shared space.
+> In a cmux pane each teammate opens in its own tab. See
+> [docs/claude-code-integration.md](docs/claude-code-integration.md).
 
 Want the bare primitive? Two peers in one space (needs the `cotal` CLI from `setup`, or
 `npm i -g cotal-ai`):
@@ -178,8 +179,8 @@ for an agent that isn't here yet?
 <td width="50%" valign="middle"><b><a href="examples/01-lateral-coordination">Lateral coordination</a></b><br><br>Role-specialized peers in one space: presence, all three addressing modes, live state, graceful leave, and late join — each in its own terminal.</td>
 </tr>
 <tr>
-<td width="50%" valign="middle"><b><a href="examples/04-self-improving-console">A swarm rebuilds Cotal's console</a></b><br><br>Four real Claude Code agents join one mesh and coordinate as lateral peers — an orchestrator spawns the workers in cmux tabs and they ship a polished Ink/React TUI for the live console.</td>
-<td width="50%"><img src="assets/example-04.gif" alt="Four Claude Code agents (orchestrator, backend, tui-designer, manager) coordinating on the Cotal mesh, with the live cotal console on the left and the agents in cmux tabs on the right"></td>
+<td width="50%" valign="middle"><b><a href="examples/02-self-improving-console">A swarm rebuilds Cotal's console</a></b><br><br>Four real Claude Code agents join one mesh and coordinate as lateral peers — an orchestrator spawns the workers in cmux tabs and they ship a polished Ink/React TUI for the live console.</td>
+<td width="50%"><img src="assets/example-02.gif" alt="Four Claude Code agents (orchestrator, backend, tui-designer, manager) coordinating on the Cotal mesh, with the live cotal console on the left and the agents in cmux tabs on the right"></td>
 </tr>
 </table>
 
