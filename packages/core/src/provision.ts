@@ -378,7 +378,14 @@ function permissionsFor(
     `$JS.API.CONSUMER.CREATE.${TASK}.>`,
     `$JS.API.CONSUMER.DURABLE.CREATE.${TASK}.>`,
   ];
-  return { pub: { allow: pubAllow, deny: pubDeny }, sub: { allow: [inbox] } };
+  // CHAT live read boundary (SPEC v0.3 §9 / Appendix B): mint the read ACL as a native `sub.allow`
+  // over cotal.<space>.chat.*.<channel> — one per allowSubscribe channel, wildcards passed through
+  // (e.g. chat.*.review.>, chat.*.>). This is what lets an agent self-serve a live channel subscribe
+  // with NO manager: join = nc.subscribe, broker-enforced per-subscribe, no consumer name to confine,
+  // so an open ACL needs no enumeration. ADDITIVE (overlay phase): the legacy chat_<id> bind-tail
+  // grants above stay until the durable live-tail is removed; both paths dedup by msg.id downstream.
+  const subChat = allowSubscribe.map((ch) => chatSubject(space, "*", ch));
+  return { pub: { allow: pubAllow, deny: pubDeny }, sub: { allow: [inbox, ...subChat] } };
 }
 
 /** Render the `nats-server` config that trusts this space's operator and serves its
