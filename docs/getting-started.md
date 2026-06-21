@@ -81,6 +81,7 @@ Prefer commands?
 
 ```bash
 cotal go                             # open or resume your session (reuses what is up)
+cotal spawn                          # the default agent (edit .cotal/agents/default.md)
 cotal spawn me                       # the session you drive (consults david/sven)
 cotal spawn david                    # ask the engineer (or sven, the guide)
 cotal console --space main           # live mesh view in the terminal (TUI)
