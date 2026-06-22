@@ -25,12 +25,14 @@ import {
   presenceBucket,
   channelBucket,
   membersBucket,
+  aclBucket,
+  deliveryBucket,
   inboxStream,
   dlvStream,
   dlvSubject,
   dlvDurable,
-  FANOUT_DURABLE,
-  INBOX_READER_DURABLE,
+  fanoutDurable,
+  readerDurable,
 } from "./subjects.js";
 
 /** Default presence-bucket entry TTL (ms) — matches the endpoint's default liveness window. */
@@ -56,6 +58,14 @@ export const PLANE3_DEDUP_WINDOW_MS = 2 * 60 * 60 * 1000;
 /** Bound on the trusted reader's in-flight (un-acked) entries per owner — an offline owner with a large
  *  backlog can't stall the reader's own redelivery by pinning unbounded pending. */
 export const DINBOX_MAX_ACK_PENDING = 1000;
+
+/** Delivery-daemon single-flight lease TTL (ms) — the bucket-level `max_age` on `cotal_delivery_<space>`.
+ *  A live holder renews at ~half this; a crashed holder stops renewing and the bucket TTL expires its
+ *  lease key, freeing it for a fresh daemon's CAS create. Sized well above the renew interval so a brief
+ *  GC/scheduling pause never self-evicts a healthy holder, yet short enough that a crash frees the shard
+ *  promptly. (The bucket holds ONLY lease keys, so a bucket TTL is exact here; per-key TTL is also
+ *  available on this stack — a deliberate simplicity choice, not a capability gap. See {@link deliveryBucket}.) */
+export const LEASE_TTL_MS = 30_000;
 
 export interface ClearSpaceHistoryResult {
   chat: number;
@@ -185,10 +195,10 @@ export function taskDurableConfig(
  *  recovered from the subject (`parseDinboxOwner`). */
 export function inboxReaderConfig(
   space: string,
-  opts: { ackWaitMs?: number } = {},
+  opts: { ackWaitMs?: number; shard?: number; shards?: number } = {},
 ): Partial<ConsumerConfig> {
   return {
-    durable_name: INBOX_READER_DURABLE,
+    durable_name: readerDurable(opts.shard, opts.shards),
     filter_subject: `${spacePrefix(space)}.dinbox.>`,
     ack_policy: AckPolicy.Explicit,
     ack_wait: nanos(opts.ackWaitMs ?? 60_000),
@@ -223,10 +233,10 @@ export function dlvDurableConfig(
  *  manager restart it resumes from its ack cursor and fans out the gap, idempotent via `Nats-Msg-Id`. */
 export function fanoutDurableConfig(
   space: string,
-  opts: { ackWaitMs?: number } = {},
+  opts: { ackWaitMs?: number; shard?: number; shards?: number } = {},
 ): Partial<ConsumerConfig> {
   return {
-    durable_name: FANOUT_DURABLE,
+    durable_name: fanoutDurable(opts.shard, opts.shards),
     filter_subject: chatWildcard(space),
     ack_policy: AckPolicy.Explicit,
     ack_wait: nanos(opts.ackWaitMs ?? 60_000),
@@ -255,9 +265,16 @@ export async function setupSpaceStreams(opts: {
     await kvm.create(presenceBucket(opts.space), { ttl: PRESENCE_TTL_MS });
     await kvm.create(channelBucket(opts.space));
     // Durable-membership registry (Plane-3): privileged-write, no TTL (durable config, like the
-    // channel registry). Pre-created so the manager (and open-mode self) can OPEN it; agents hold no
-    // grant. Idempotent.
+    // channel registry). Pre-created so the delivery daemon (and open-mode self) can OPEN it; agents
+    // hold no grant. Idempotent.
     await kvm.create(membersBucket(opts.space));
+    // Durable read-ACL registry (Plane-3 keystone): privileged-write, no TTL. The manager records an
+    // agent's read ACL here at mint; the delivery daemon re-auths every durable entry against it.
+    await kvm.create(aclBucket(opts.space));
+    // Delivery-daemon single-flight lease + readiness bucket: bucket-level TTL (`max_age`) so a crashed
+    // holder's lease auto-expires and a fresh daemon can re-acquire. Holds ONLY lease keys, writable
+    // only by the `delivery` cred, world-readable (the non-gating delivery-health surface). Idempotent.
+    await kvm.create(deliveryBucket(opts.space), { ttl: LEASE_TTL_MS });
   } finally {
     await nc.drain();
   }

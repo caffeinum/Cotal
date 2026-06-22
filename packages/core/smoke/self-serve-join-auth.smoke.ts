@@ -1,18 +1,18 @@
 /**
  * Self-serve channel-join smoke (SPEC v0.3 overlay). Two phases:
  *
- *  Phase 1 — NO manager serving control: an auth-mode agent joins a channel's live feed at runtime
- *  and receives the live message via its native core subscription (broker-enforced by sub.allow).
- *  Join reports `durable:false` (joined live, backstop unestablished — no Plane-3 host); out-of-ACL
- *  join is refused (broker-confirmed); a core-sub leave stops delivery; the live read survives a broker
- *  reconnect. Manager-free, so there is no durable backstop to establish or tombstone.
+ *  Phase 1 — NO delivery daemon serving Plane-3: an auth-mode agent joins a channel's live feed at
+ *  runtime and receives the live message via its native core subscription (broker-enforced by sub.allow).
+ *  Join reports `durable:false` (joined live, backstop unestablished — no daemon); out-of-ACL join is
+ *  refused (broker-confirmed); a core-sub leave stops delivery; the live read survives a broker
+ *  reconnect. Daemon-free, so there is no durable backstop to establish or tombstone.
  *
- *  Phase 2 — a real Plane-3 manager is present (fan-out + trusted reader + the durableJoin/durableLeave/
- *  listMemberships control ops the agent uses). A runtime join now also arms a Plane-3 backstop
- *  (`durable:true`), delivered alongside the live core-sub copy (the connector's id-dedup coalesces to
- *  exactly once — proven in cross-path-dedup). A runtime leave tombstones the §7 boundary. And a BOOT
- *  durable membership — written server-side at provision, never runtime-joined — is hydrated into the
- *  agent's leave mirror on connect, so leaving the boot channel tombstones it too (panel blocker).
+ *  Phase 2 — a real Plane-3 host is present (the server-side delivery daemon: fan-out + trusted reader +
+ *  the durableJoin/durableLeave/listMemberships ops it serves on `ctl.delivery`). A runtime join now also
+ *  arms a Plane-3 backstop (`durable:true`), delivered alongside the live core-sub copy (the connector's
+ *  id-dedup coalesces to exactly once — proven in cross-path-dedup). A runtime leave tombstones the §7
+ *  boundary. And a BOOT durable membership — established by the agent's SELF-JOIN at connect (v3, not
+ *  written at provision) — seeds the agent's leave mirror, so leaving the boot channel tombstones it too.
  *
  * Run: pnpm smoke:self-serve-join:auth   (needs `nats-server` on PATH; auth/JetStream, local-only)
  */
@@ -202,7 +202,7 @@ try {
   await wait(300);
   check("after leaving the boot channel, no delivery", !got.some((g) => g.includes("after general leave")), got);
 
-  // ───────────── Phase 2 — a real Plane-3 manager (fan-out + trusted reader + durableJoin/Leave) ─────────────
+  // ───────────── Phase 2 — a real Plane-3 host: the delivery daemon (fan-out + trusted reader + ctl.delivery join/leave) ─────────────
   // Host Plane-3 on `pub` and serve the durableJoin/Leave ctl ops that joinChannel/leaveChannel now use
   // for a `durable`-class channel (the legacy filter-move is no longer the runtime durable path). The
   // trusted reader re-authorizes against the caller's current ACL (its allowSubscribe), supplied here.
@@ -256,12 +256,12 @@ try {
   await wait(900);
   check("manager-present leave stops delivery (core-sub closed + backstop tombstoned)", !got.some((g) => g.includes("gone")), got);
 
-  // ── BOOT durable LEAVE via ON-DEMAND re-resolution: alice connected in Phase 1 (NO responder), so her
-  //    boot memberships were never hydrated into the mirror. Leaving "ops" must STILL tombstone —
-  //    leaveChannel re-resolves the generation from the manager on demand (fail-closed), so a missed
-  //    hydration is not a silent §7 fail-open (the red-team hole: hydrateMemberships swallowed errors).
+  // ── BOOT durable LEAVE via ON-DEMAND re-resolution (v3): alice's boot "ops" membership is established
+  //    by her self-join via the daemon. Below we force its mirror entry to a pending/missing state, so
+  //    leaving "ops" must STILL tombstone — leaveChannel re-resolves the generation from the delivery
+  //    service on demand (fail-closed), so a missing mirror entry is not a silent §7 fail-open.
   const aliceOpsBefore = await pub.channelMembers("ops");
-  check("alice's boot 'ops' membership is present (provisioned, but NOT hydrated into alice's mirror)", aliceOpsBefore.some((m) => m.id === aId.id), aliceOpsBefore);
+  check("alice's boot 'ops' membership is present (self-joined at connect)", aliceOpsBefore.some((m) => m.id === aId.id), aliceOpsBefore);
 
   // Force alice's "ops" record to a crash-stuck PENDING activation (activated:false). It still routes
   // (pure-interval durableEligible) but is hidden from channelMembers + the hydration mirror — so
@@ -286,10 +286,10 @@ try {
   await wait(900); // settle: prove ABSENCE — both planes closed
   check("after the un-hydrated boot leave, no delivery (live sub closed + backstop tombstoned)", !got.some((g) => g.includes("after ops leave")), got);
 
-  // ── BOOT durable LEAVE via HYDRATION: a boot durable channel is provisioned server-side and never
-  //    runtime-joined, so its generation lives only in the registry until hydrateMemberships seeds it on
-  //    connect. bob boots on "ops" (durable) WITH the manager present, so leaving "ops" tombstones the
-  //    §7 boundary from the hydrated mirror — without hydration, leaveChannel could not (the prior leak).
+  // ── BOOT durable LEAVE via the self-join mirror (v3): bob boots on "ops" (durable) WITH the delivery
+  //    daemon present, so his boot self-join establishes the membership and seeds its generation in the
+  //    mirror (plane3Channels). Leaving "ops" then tombstones the §7 boundary from that mirror — and if
+  //    the mirror entry were missing, leaveChannel re-resolves the generation on demand (fail-closed).
   const bId = newIdentity();
   acls[bId.id] = ["ops"];
   const bCreds = await provisionAgent(pub, auth, bId, { subscribe: ["ops"], allowSubscribe: ["ops"] });

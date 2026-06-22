@@ -50,7 +50,15 @@
     "smoke:attach": "tsx implementations/manager/smoke/attach.smoke.ts",
     "smoke:env-isolate": "tsx implementations/manager/smoke/env-isolate.smoke.ts",
     "smoke:install": "tsx implementations/cli/smoke/install.smoke.ts",
-    "smoke:send": "tsx implementations/cli/smoke/send.smoke.ts"
+    "smoke:send": "tsx implementations/cli/smoke/send.smoke.ts",
+    "smoke:delivery-cred:auth": "tsx packages/core/smoke/delivery-cred-confinement.smoke.ts",
+    "smoke:delivery-reply-injection:auth": "tsx packages/core/smoke/delivery-reply-injection.smoke.ts",
+    "smoke:delivery-shards-reject": "tsx implementations/delivery/smoke/delivery-shards-reject.smoke.ts",
+    "smoke:delivery-leave-tombstone:auth": "tsx packages/core/smoke/delivery-leave-tombstone.smoke.ts",
+    "smoke:delivery-lease:auth": "tsx packages/core/smoke/delivery-lease.smoke.ts",
+    "smoke:delivery-boot-retry:auth": "tsx packages/core/smoke/delivery-boot-retry.smoke.ts",
+    "smoke:delivery-old-manager": "tsx implementations/cli/smoke/delivery-old-manager-preflight.smoke.ts",
+    "smoke:delivery-reconnect:auth": "tsx packages/core/smoke/delivery-reconnect.smoke.ts"
   },
   "dependencies": {
     "@cotal-ai/cli": "workspace:*",

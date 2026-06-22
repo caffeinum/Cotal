@@ -12,9 +12,10 @@
  *      Mutation: re-add `if (!rec.activated) return false` to durableEligible and this goes red.
  *  (2) channelMembers HONESTY — the observability surface lists only ACTIVATED, non-tombstoned members.
  *      An activation-pending (or failed) join reported durable:false must not surface as a member.
- *  (3) PROVISION WRITES RECORDS — provisionMembership writes boot records with privileged creds without
- *      requiring the provisioner to host the fan-out/reader loops. Proven by channelMembers('general')
- *      listing the boot member even though startPlane3() ran AFTER provisionAgent().
+ *  (3) BOOT MEMBERSHIP via SELF-JOIN (v3) — the manager records only the read-ACL at provision; the
+ *      AGENT self-joins its durable boot channels via the daemon's `ctl.delivery` op at connect (no
+ *      manager-written provision-time membership). Proven by channelMembers('general') listing the boot
+ *      member AFTER alice connects + self-joins.
  *
  * Run: pnpm smoke:plane3-activation:auth   (needs `nats-server` on PATH; auth/JetStream, local-only)
  */
@@ -81,9 +82,10 @@ try {
   mgr.on("error", (e: Error) => console.error("  ! mgr", e.message));
   await mgr.start();
 
-  // Agent boots subscribed to "general" (durable by default), read ACL also covers "review". Note the
-  // ORDER: provisionAgent runs BEFORE startPlane3 — so a passing channelMembers('general') below proves
-  // provisionMembership wrote the boot record WITHOUT the provisioner hosting the loops (blocker #4).
+  // Agent boots subscribed to "general" (durable by default), read ACL also covers "review". (v3) The
+  // manager records the read-ACL at provision but writes NO boot membership; the agent SELF-JOINS its
+  // durable boot channels via the daemon's ctl.delivery op at connect — so channelMembers('general')
+  // below lists alice only AFTER she connects (+ self-joins), which startPlane3 here serves.
   const aId = newIdentity();
   const aCreds = await provisionAgent(mgr, auth, aId, { subscribe: ["general"], allowSubscribe: ["general", "review"] });
   await mgr.startPlane3((id) => (id === aId.id ? ["general", "review"] : undefined));
@@ -99,20 +101,21 @@ try {
   await a.start();
   await wait(400); // connect + boot-membership hydration round-trip
 
-  // ───────────── (4) PROVISION WRITES RECORDS (no loop-host required) ─────────────
+  // ───────────── (3) BOOT MEMBERSHIP via SELF-JOIN at connect (v3) ─────────────
   const genMembers = await mgr.channelMembers("general");
   check(
-    "boot durable membership is written at provision even though startPlane3() ran after provisionAgent (no silent no-op)",
+    "boot durable membership is established by the agent's self-join at connect (v3 — no provision-time write)",
     genMembers.some((m) => m.id === aId.id),
     genMembers,
   );
-  // ...but a LIVE-ONLY launcher (durableMembership:false — direct `cotal spawn`) writes NO durable record,
-  // so the agent never appears as a durable member (no manager could authorize/deliver/leave it).
+  // ...a launcher that opts out of durable (durableMembership:false — direct `cotal spawn`) gets NO ACL
+  // row, so even if it connected the daemon would refuse its self-join — and here it never connects, so
+  // it never appears as a durable member (live-only).
   const ghostId = newIdentity();
   await provisionAgent(mgr, auth, ghostId, { subscribe: ["general"], allowSubscribe: ["general"], durableMembership: false });
   const ghostMembers = await mgr.channelMembers("general");
   check(
-    "a live-only launcher (durableMembership:false) writes NO boot durable record (direct cotal spawn is live-only)",
+    "a live-only launcher (durableMembership:false, never self-joined) is NOT a durable member",
     !ghostMembers.some((m) => m.id === ghostId.id),
     ghostMembers,
   );

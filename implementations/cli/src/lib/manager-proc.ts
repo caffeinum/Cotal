@@ -6,6 +6,12 @@ import { resolveSpace } from "./status.js";
 import { cotalPath } from "./paths.js";
 
 const PID_PATH = () => cotalPath("manager.pid");
+/** Sibling marker of `manager.pid`: written by THIS build's manager (which no longer hosts Plane-3 —
+ *  the server-side delivery daemon does). Its presence beside a live `manager.pid` proves the manager is
+ *  "delivery-aware" / non-hosting. A live `manager.pid` WITHOUT this marker is an OLD (pre-delivery-daemon)
+ *  manager that still calls `startPlane3` — the delivery preflight stops it before the daemon binds, so an
+ *  old hosting manager never double-binds `fanout`/`reader` against the new daemon. */
+const DELIVERY_AWARE_MARKER = () => cotalPath("manager.delivery-aware");
 
 function alive(pid: number): boolean {
   try {
@@ -22,6 +28,20 @@ export function managerUp(): boolean {
   if (!existsSync(p)) return false;
   const pid = Number(readFileSync(p, "utf8").trim());
   return Number.isFinite(pid) && alive(pid);
+}
+
+/** True if the live manager carries a delivery-aware marker BOUND to its current pid (i.e. it's THIS
+ *  build, non-hosting). Fail-closed: the marker stores the pid it was written for, and this requires it
+ *  to equal the live `manager.pid` — a stale marker left by a crash, a mismatch, or an unparseable file
+ *  all read as NOT delivery-aware, so a live old hosting `manager.pid` can't be mistaken for non-hosting
+ *  and the delivery preflight stops it. */
+export function managerHasDeliveryMarker(): boolean {
+  const markerPath = DELIVERY_AWARE_MARKER();
+  const pidPath = PID_PATH();
+  if (!existsSync(markerPath) || !existsSync(pidPath)) return false;
+  const markerPid = Number(readFileSync(markerPath, "utf8").trim());
+  const livePid = Number(readFileSync(pidPath, "utf8").trim());
+  return Number.isFinite(markerPid) && Number.isFinite(livePid) && markerPid === livePid;
 }
 
 /** True if any process's full command line matches `pattern` (`pgrep -f`). Detects processes that
@@ -73,6 +93,9 @@ export function startManagerDetached(o: { space?: string; server?: string; spawn
   closeSync(fd);
   child.unref();
   writeFileSync(PID_PATH(), String(child.pid));
+  // Mark this manager as delivery-aware (non-hosting) so the delivery preflight can tell it apart from
+  // an old Plane-3-hosting manager. Written next to the pid, removed together in stopManager / down.
+  writeFileSync(DELIVERY_AWARE_MARKER(), String(child.pid));
   return child.pid ?? 0;
 }
 
@@ -88,6 +111,7 @@ export function ensureManager(o: { space?: string; server?: string; spawn?: stri
  *  so the two don't both answer the control plane (queue-grouped requests would split between them). */
 export function stopManager(): void {
   const p = PID_PATH();
+  rmSync(DELIVERY_AWARE_MARKER(), { force: true }); // drop the marker with the pid (gone either way)
   if (!existsSync(p)) return;
   const pid = Number(readFileSync(p, "utf8").trim());
   if (Number.isFinite(pid)) {

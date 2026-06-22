@@ -614,6 +614,7 @@ export class MeshAgent extends EventEmitter {
       replay: boolean;
       joined: boolean;
       durableUnclosed: boolean;
+      deliveryHealth?: "active" | "degraded";
       messages: number;
       mode: ChannelMode | "normal";
     }[]
@@ -621,20 +622,44 @@ export class MeshAgent extends EventEmitter {
     const mine = this.ep.joinedChannels();
     const pending = this.ep.pendingDurableLeaves();
     const unclosed = new Set(pending);
+    // Non-gating delivery-health signal: read the server-side daemon's lease ONCE (a durable-joined
+    // channel must not render as ordinary "subscribed, replay on" when the daemon is down). A read that
+    // throws = open mode / no delivery bucket / no grant → no health surface (left undefined).
+    let leaseLive = false;
+    let daemonKnown = false;
+    try {
+      // "ready" (responder bound), not mere lease existence (single-flight slot claimed mid-startup).
+      leaseLive = (await this.ep.readDeliveryLease(0))?.ready === true;
+      daemonKnown = true;
+    } catch {
+      /* open dev mode or no delivery plane here — health surface does not apply */
+    }
+    // Membership-aware: "active" requires BOTH a live daemon lease AND an established owner membership.
+    // A joined durable channel whose boot self-join hasn't landed yet (daemon was down at connect, now
+    // reconciling) has no backstop for this owner even if the lease is live — render it degraded, never
+    // a false "active" off the lease alone (ux honesty blocker).
+    const health = (channel: string, joined: boolean): "active" | "degraded" | undefined =>
+      daemonKnown && joined && this.ep.channelDeliveryClass(channel) === "durable"
+        ? (leaseLive && this.ep.hasDurableMembership(channel) ? "active" : "degraded")
+        : undefined;
     const rows: {
       channel: string; description?: string; replay: boolean; joined: boolean;
-      durableUnclosed: boolean; messages: number; mode: ChannelMode | "normal";
-    }[] = (await this.ep.listChannels()).map((c) => ({
-      channel: c.channel,
-      description: c.config?.description,
-      replay: this.ep.channelReplay(c.channel),
-      joined: mine.some((p) => subjectMatches(p, c.channel)),
-      // A live sub was refused while a Plane-3 durable membership stayed open; its §7 tombstone is still
-      // retrying. Surface it so the channel is never shown as ordinary "not subscribed" (ux requirement).
-      durableUnclosed: unclosed.has(c.channel),
-      messages: c.messages,
-      mode: this.channelMode(c.channel) ?? "normal",
-    }));
+      durableUnclosed: boolean; deliveryHealth?: "active" | "degraded"; messages: number; mode: ChannelMode | "normal";
+    }[] = (await this.ep.listChannels()).map((c) => {
+      const joined = mine.some((p) => subjectMatches(p, c.channel));
+      return {
+        channel: c.channel,
+        description: c.config?.description,
+        replay: this.ep.channelReplay(c.channel),
+        joined,
+        // A live sub was refused while a Plane-3 durable membership stayed open; its §7 tombstone is
+        // still retrying. Surface it so the channel is never shown as ordinary "not subscribed" (ux).
+        durableUnclosed: unclosed.has(c.channel),
+        deliveryHealth: health(c.channel, joined),
+        messages: c.messages,
+        mode: this.channelMode(c.channel) ?? "normal",
+      };
+    });
     // A channel in refused-sub durable cleanup can have NO traffic AND no registry entry, so listChannels()
     // omits it — UNION it in so the durable-unclosed state can never disappear by omission (ux/security).
     const present = new Set(rows.map((r) => r.channel));
@@ -646,6 +671,7 @@ export class MeshAgent extends EventEmitter {
         replay: this.ep.channelReplay(ch),
         joined: false,
         durableUnclosed: true,
+        deliveryHealth: undefined,
         messages: 0,
         mode: this.channelMode(ch) ?? "normal",
       });

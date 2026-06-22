@@ -3,10 +3,11 @@ import { c } from "../ui.js";
 import { cotalPath } from "../lib/paths.js";
 
 /** Stop the background processes started by `cotal up --detach` / `cotal setup`:
- *  the manager, the web dashboard, and the mesh. */
+ *  the manager, the delivery daemon, the web dashboard, and the mesh. */
 export async function down(): Promise<void> {
   const targets: Array<[string, string]> = [
     ["manager.pid", "manager"],
+    ["delivery.pid", "delivery daemon"],
     ["web.pid", "web dashboard"],
     ["nats.pid", "nats-server"],
   ];
@@ -17,6 +18,9 @@ export async function down(): Promise<void> {
     any = true;
     stop(pidPath, label);
   }
+  // Non-pid control-plane artifacts: the delivery daemon's scoped creds + the manager's delivery-aware
+  // marker. Drop them with the processes so a stale creds file / marker never lingers.
+  for (const f of ["delivery.creds", "manager.delivery-aware"]) rmSync(cotalPath(f), { force: true });
   if (!any) {
     console.error(c.red("Nothing running here (no .cotal/*.pid). Was it started with `cotal up` / `cotal setup`?"));
     process.exit(1);

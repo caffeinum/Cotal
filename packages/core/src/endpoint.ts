@@ -58,6 +58,8 @@ import {
   durableEligible,
   StaleMembershipWrite,
 } from "./members.js";
+import { openAclRegistry, readAcl, commitAcl as writeAclRecord } from "./acls.js";
+import { openDeliveryRegistry, type DeliveryLeaseInfo } from "./lease.js";
 import {
   openChannelRegistry,
   effectiveReplay,
@@ -74,6 +76,7 @@ import {
   chatSubject,
   controlServiceSubject,
   CONTROL_SELF_SERVICE,
+  CONTROL_DELIVERY,
   dmStream,
   dmDurable,
   dlvStream,
@@ -84,7 +87,9 @@ import {
   parseDinboxOwner,
   FANOUT_DURABLE,
   INBOX_READER_DURABLE,
+  leaseKey,
   chatWildcard,
+  assertValidChannel,
   channelInAllow,
   isConcreteChannel,
   normalizeMentions,
@@ -170,6 +175,10 @@ export interface ChannelMember {
  *  stuck/poison entry can't head-of-line the single shared reader forever. */
 const READER_MAX_REDELIVERIES = 10;
 
+/** A value or a promise of it — the Plane-3 `aclFor` reads the durable ACL registry FRESH per entry
+ *  (async), so the reader/fan-out call sites await it. */
+type MaybePromise<T> = T | Promise<T>;
+
 export class CotalEndpoint extends EventEmitter {
   readonly card: AgentCard;
   readonly space: string;
@@ -194,11 +203,18 @@ export class CotalEndpoint extends EventEmitter {
   private jsm?: JetStreamManager;
   private kv?: KV;
   private channelKv?: KV;
-  /** Plane-3 durable-membership registry KV — lazily opened by the privileged (manager) endpoint. */
+  /** Plane-3 durable-membership registry KV — lazily opened by the privileged delivery daemon (or a
+   *  short-lived provisioner). */
   private membersKv?: KV;
-  /** When set, this endpoint hosts the Plane-3 fan-out writer + trusted reader (the manager). `aclFor`
-   *  maps an owner id to its current read ACL (`allowSubscribe`) for the reader's re-authorization. */
-  private plane3?: { aclFor: (owner: string) => string[] | undefined };
+  private aclKv?: KV;
+  private deliveryKv?: KV;
+  /** The live `ctl.delivery` serve subscription (delivery daemon) — re-created on every (re)connect by
+   *  {@link armDeliveryControl}; tracked so the stale one is dropped on reconnect. */
+  private deliveryServeSub?: import("@nats-io/transport-node").Subscription;
+  /** When set, this endpoint hosts the Plane-3 fan-out writer + trusted reader (the server-side delivery
+   *  daemon). `aclFor` maps an owner id to its current read ACL (`allowSubscribe`) for the reader's
+   *  re-authorization — read FRESH per entry from the durable ACL registry KV, hence async. */
+  private plane3?: { aclFor: (owner: string) => MaybePromise<string[] | undefined> };
   /** Live local cache of the channel registry (key = channel token), kept by a KV watch. */
   private readonly channelConfigs = new Map<string, ChannelConfig>();
   private channelDefaults: ChannelDefaults = {};
@@ -233,6 +249,12 @@ export class CotalEndpoint extends EventEmitter {
    *  {@link pendingDurableLeaves} (the connector shows it in `cotal_channels`, never as ordinary
    *  absence). Persists across reconnect; cleared on tombstone success or full stop. */
   private readonly pendingDurableLeave = new Map<string, number>();
+  /** Boot durable channels whose self-join hasn't yet established a membership (daemon down/absent at
+   *  first connect, or a transient `durable:false`). {@link reconcileBootJoin} retries with capped
+   *  backoff until the membership exists or the channel is left — so a first-connect daemon outage
+   *  self-heals on recovery instead of leaving the channel silently live-only. Surfaced to the connector
+   *  via {@link hasDurableMembership} (a joined durable channel NOT yet a member renders degraded). */
+  private readonly pendingBootJoins = new Set<string>();
   /** Chat-join subjects currently being broker-confirmed. An out-of-ACL subscribe among these trips an
    *  EXPECTED async permission violation that joinChannel turns into a clean throw, so watchStatus
    *  suppresses it rather than surfacing a spurious connection error. */
@@ -376,7 +398,7 @@ export class CotalEndpoint extends EventEmitter {
       await this.startConsumers();
     }
 
-    // Re-arm Plane-3 (manager-hosted fan-out + trusted reader) on every (re)connect — no-op unless this
+    // Re-arm Plane-3 (delivery-daemon-hosted fan-out + trusted reader + ctl.delivery) on every (re)connect — no-op unless this
     // endpoint hosts it. The first arm comes from startPlane3 (after start()); this re-binds the loops
     // a reconnect's clearConnectionScoped() tore down, so a broker blip doesn't silently kill the backstop.
     await this.armPlane3();
@@ -488,6 +510,12 @@ export class CotalEndpoint extends EventEmitter {
       this.jsm = undefined;
       this.kv = undefined;
       this.channelKv = undefined;
+      // Plane-3 KV handles are bound to the old connection too — drop them so the daemon re-opens them on
+      // the fresh nc (else durableJoin/leave/list, the reader's ACL re-auth, and lease renew use a dead
+      // handle after a reconnect).
+      this.membersKv = undefined;
+      this.aclKv = undefined;
+      this.deliveryKv = undefined;
       this.emit("connection", { connected: false }); // null window opened — not live until the rebind below
       try {
         await oldNc?.drain();
@@ -682,11 +710,20 @@ export class CotalEndpoint extends EventEmitter {
 
   // ---- control plane (request/reply) --------------------------------------
 
-  /** Serve control requests for a service (manager side). */
+  /** Serve control requests for a service. Returns the subscription so a caller that re-registers on
+   *  reconnect (the delivery daemon) can drop the stale one. `boundReply` is REQUIRED for any service
+   *  whose responder holds a wildcard publish grant over the service subtree (the delivery daemon's
+   *  `ctl.delivery.*.reply.>`): without it, an authenticated caller could set its reply target to a
+   *  PEER's reply lane (`ctl.delivery.<victim>.reply.<n>`) and turn the responder into a confused
+   *  deputy — the broker does NOT permission-check the requester's embedded reply subject. With it, a
+   *  reply is published only when `m.reply` is under the AUTHENTICATED request subject
+   *  (`${m.subject}.reply.…`), binding the reply to the broker-policed sender token. (The manager's
+   *  tiers reply into the per-id `_INBOX` and leave it off.) */
   serveControl(
     service: string,
     handler: (req: ControlRequest) => Promise<ControlReply> | ControlReply,
-  ): void {
+    opts: { boundReply?: boolean } = {},
+  ): import("@nats-io/transport-node").Subscription {
     if (!this.nc) throw new Error("endpoint not started");
     const sub = this.nc.subscribe(controlServiceSubject(this.space, service, "*"), {
       queue: service,
@@ -694,6 +731,12 @@ export class CotalEndpoint extends EventEmitter {
     this.subs.push(sub);
     void (async () => {
       for await (const m of sub) {
+        // Sender-bound reply guard (confused-deputy fix): never respond to a reply target outside the
+        // authenticated request subject's own `.reply.` subtree. Drop silently (don't inject elsewhere).
+        if (opts.boundReply && (!m.reply || !m.reply.startsWith(`${m.subject}.reply.`))) {
+          this.emit("error", new Error(`rejected ${service} request on ${m.subject}: reply target "${m.reply ?? "(none)"}" is not under the sender's own reply subtree`));
+          continue;
+        }
         let reply: ControlReply;
         try {
           const req = m.json<ControlRequest>();
@@ -724,6 +767,7 @@ export class CotalEndpoint extends EventEmitter {
         }
       }
     })().catch((e) => this.emit("error", e as Error));
+    return sub;
   }
 
   /** Send a control request to a service and await its reply (client side). */
@@ -739,6 +783,26 @@ export class CotalEndpoint extends EventEmitter {
       JSON.stringify(body),
       { timeout: timeoutMs },
     );
+    return m.json<ControlReply>();
+  }
+
+  /** Send a durable-membership request to the SERVER-SIDE delivery daemon (`ctl.delivery`) and await its
+   *  reply. Unlike {@link requestControl}, the reply rides a subject UNDER `ctl.delivery.<id>.>` (not the
+   *  per-id `_INBOX`), so the scoped delivery cred can answer without broad inbox-publish — see
+   *  CONTROL_DELIVERY. `noMux` lets us name the reply subject while keeping NoResponders detection (so a
+   *  caller can fail-closed vs. degrade to live-only when no daemon is present). */
+  private async requestDelivery(op: string, args: Record<string, unknown>, timeoutMs = 5000): Promise<ControlReply> {
+    if (!this.nc) throw new Error(this.notLiveMsg());
+    const reqSubject = controlServiceSubject(this.space, CONTROL_DELIVERY, this.card.id); // ctl.delivery.<id>
+    // Reply rides the sender's OWN subtree so the daemon's serveControl boundReply guard accepts it
+    // (`${reqSubject}.reply.…`). The sender-bound guard is the COMPLETE confused-deputy closure. The
+    // random suffix is genuine defense-in-depth (NOT cosmetic): `noMux` subscribes this SPECIFIC named
+    // reply subject (not a standing `.reply.>` wildcard), so a predictable suffix would let a peer target
+    // an in-flight reply subscription — randomUUID brings it to parity with the nuid-protected `_INBOX`
+    // model. Keep both; don't regress to a counter. (Confirmed by the review panel's fact-check.)
+    const reply = `${reqSubject}.reply.${randomUUID()}`;
+    const body: ControlRequest = { op, args, from: this.ref() };
+    const m = await this.nc.request(reqSubject, JSON.stringify(body), { timeout: timeoutMs, noMux: true, reply });
     return m.json<ControlReply>();
   }
 
@@ -799,6 +863,13 @@ export class CotalEndpoint extends EventEmitter {
     return effectiveReplay(this.channelConfigs.get(channel), this.channelDefaults);
   }
 
+  /** Effective delivery class for a channel (per-channel override ?? space default ?? "durable"),
+   *  from the live watch cache — drives the non-gating delivery-health surface (only durable-class
+   *  channels have a Plane-3 backstop to report on). */
+  channelDeliveryClass(channel: string): DeliveryClass {
+    return effectiveDeliveryClass(this.channelConfigs.get(channel), this.channelDefaults);
+  }
+
   // ---- dynamic subscription (join / leave mid-session) ---------------------
 
   /** The channels this endpoint is currently subscribed to (live — reflects join/leave). */
@@ -809,9 +880,10 @@ export class CotalEndpoint extends EventEmitter {
   /**
    * Join a channel mid-session: open a native core subscription (manager-free live read, broker-
    * confirmed against `sub.allow`), capture the stream frontier as the join watermark, backfill its
-   * history if replay is on, and — for a `durable`-class channel under a manager — request a Plane-3
-   * durable backstop. Idempotent: re-joining is a no-op (no re-backfill). Returns the backfill count +
-   * whether the durable backstop is active (+ a `reason` when a durable channel couldn't get one).
+   * history if replay is on, and — for a `durable`-class channel when a delivery daemon is present —
+   * request a Plane-3 durable backstop (via `ctl.delivery`). Idempotent: re-joining is a no-op (no
+   * re-backfill). Returns the backfill count + whether the durable backstop is active (+ a `reason`
+   * when a durable channel couldn't get one).
    */
   async joinChannel(
     channel: string,
@@ -846,7 +918,7 @@ export class CotalEndpoint extends EventEmitter {
     }
     this.channels.push(channel);
     // Durable backstop. The live core-sub above already delivers (manager-free). For a `durable`-class
-    // channel, request a Plane-3 per-member backstop from the manager (durableJoin) so a post reaches a
+    // channel, request a Plane-3 per-member backstop from the server-side delivery daemon (durableJoin via ctl.delivery) so a post reaches a
     // busy/offline turn — the core-sub stays as the live wake-hint, dedup-coalesced with the Plane-3
     // copy by id-dedup. No manager (open dev / manager-less) ⇒ joined LIVE only, surfaced via `reason`
     // (never silent). A `live`-class channel takes no backstop (joined live is the contract).
@@ -862,7 +934,7 @@ export class CotalEndpoint extends EventEmitter {
           reason = r.reason ?? "durable backstop unavailable";
         }
       } catch (e) {
-        // No privileged writer (manager-less) or the write was rejected — joined live, backstop
+        // No privileged writer (no delivery daemon) or the write was rejected — joined live, backstop
         // unavailable. NOT a join failure: the live subscription is up and authorized.
         reason = `durable backstop unavailable (${(e as Error).message})`;
       }
@@ -882,11 +954,11 @@ export class CotalEndpoint extends EventEmitter {
     if (!this.channels.includes(channel)) return { left: false };
     // Auth + durable-class ⇒ a Plane-3 membership may exist; tombstone it BEFORE touching local state.
     // The join generation comes from the local mirror, but a BOOT membership whose hydration was missed
-    // (transient manager error at connect) is NOT in the mirror — so re-resolve it from the manager on
+    // (daemon down at connect) is NOT in the mirror — so re-resolve it from the delivery service on
     // demand. FAIL-CLOSED: fetchMemberships throws on a responder-present error, so a leave whose
     // tombstone can't be confirmed propagates (live sub stays up, mirror intact) for the caller to retry
     // — reporting `left` while the trusted reader keeps transferring to DLV is the fail-open leak. A
-    // genuine no-responder (open / manager-less, no Plane-3) means there is no membership to tombstone.
+    // genuine no-responder (open / no delivery daemon, no Plane-3) means there is no membership to tombstone.
     if (this.creds && effectiveDeliveryClass(this.channelConfigs.get(channel), this.channelDefaults) === "durable") {
       let generation = this.plane3Channels.get(channel);
       if (generation === undefined)
@@ -1086,26 +1158,10 @@ export class CotalEndpoint extends EventEmitter {
     await createSpaceStreams(this.jsm, this.space);
   }
 
-  /**
-   * Privileged: write an agent's BOOT durable membership — each `durable`-class channel in its boot
-   * subscribe set gets a Plane-3 durable-active record (via {@link durableJoinFor}: cursor capture +
-   * activation catch-up), so it receives durable backstop copies from boot exactly like a runtime
-   * `durableJoin`. `live`-class (and non-concrete) channels are skipped. Idempotent.
-   *
-   * Writes the durable RECORDS with the caller's privileged creds — it does NOT require this endpoint
-   * to host the runtime fan-out/reader loops (a space-level manager service), so EVERY auth launcher
-   * provisions identically: the manager AND the short-lived `cotal spawn` provisioner both write boot
-   * records, which the space's manager then delivers (no silent no-op — that would hide a boot
-   * membership; AGENTS.md "no fallbacks"). A space running no manager is live-only for everyone (the
-   * records exist; nothing delivers them until a manager hosts the loops).
-   */
-  async provisionMembership(targetId: string, channels: string[]): Promise<void> {
-    for (const ch of channels) {
-      if (!isConcreteChannel(ch)) continue; // durable membership is per-concrete-channel
-      if ((await this.deliveryClassFresh(ch)) !== "durable") continue;
-      await this.durableJoinFor(targetId, ch);
-    }
-  }
+  // (v3) The old `provisionMembership` — manager/provisioner-written boot membership at spawn — is GONE.
+  // Boot durable membership is now the AGENT self-joining its durable boot channels via the daemon's
+  // `ctl.delivery` op at connect ({@link armBootDurableMemberships}), reconciled on outage. The
+  // primitive it wrapped, {@link durableJoinFor}, is now driven by the daemon's `ctl.delivery` handler.
 
   /**
    * Privileged: pre-create an agent's DM inbox durable (auth mode), so the agent can BIND
@@ -1142,27 +1198,102 @@ export class CotalEndpoint extends EventEmitter {
     await jsm.consumers.add(taskStream(this.space), taskDurableConfig(this.space, role));
   }
 
-  // ---- Plane-3: durable backstop (SPEC §8) — privileged, manager-hosted ----------------------------
+  // ---- Plane-3: durable backstop (SPEC §8) — privileged, hosted by the server-side DELIVERY DAEMON ----
   //
-  // Two manager loops + two privileged membership ops. The FAN-OUT writer (routing, not auth) reads
-  // every chat message and copies it into each eligible owner's MIXED inbox (`dinbox.<owner>`); the
-  // TRUSTED READER (the auth gate) re-authorizes each entry against the CURRENT ACL + membership
-  // interval and TRANSFERS the authorized copy to the owner's per-member DELIVER store
-  // (`dlv.<owner>`), which the agent binds + acks via native JetStream. The agent holds no read on the
-  // mixed store. See `.internal/research/stage4-impl-design.md`.
+  // Two daemon loops + two privileged membership ops (served to agents on `ctl.delivery`). The FAN-OUT
+  // writer (routing, not auth) reads every chat message and copies it into each eligible owner's MIXED
+  // inbox (`dinbox.<owner>`); the TRUSTED READER (the auth gate) re-authorizes each entry against the
+  // CURRENT ACL + membership interval and TRANSFERS the authorized copy to the owner's per-member
+  // DELIVER store (`dlv.<owner>`), which the agent binds + acks via native JetStream. The agent holds no
+  // read on the mixed store. (v3: this all moved off the manager — the manager is lifecycle-only; it
+  // records the read-ACL at mint via commitAcl.) See `.internal/research/stage4-impl-design.md`.
 
-  /** Lazily open the privileged members registry KV (manager / open-mode self). */
+  /** Lazily open the privileged members registry KV (delivery daemon / open-mode self). */
   private async membersRegistry(): Promise<KV> {
     if (!this.nc) throw new Error("endpoint not started");
     this.membersKv ??= await openMembersRegistry(this.nc, this.space);
     return this.membersKv;
   }
 
+  /** Lazily open the durable read-ACL registry KV. Privileged write (the manager records an agent's
+   *  ACL at mint); the delivery daemon reads it fresh per durable entry to re-authorize. */
+  private async aclRegistry(): Promise<KV> {
+    if (!this.nc) throw new Error("endpoint not started");
+    this.aclKv ??= await openAclRegistry(this.nc, this.space);
+    return this.aclKv;
+  }
+
+  /** Privileged ({@link DurableProvisioner}): record an agent's read ACL in the durable registry at
+   *  provision/mint time — the same act as baking it into the JWT, persisted so the server-side
+   *  delivery daemon can re-authorize the agent's durable entries and validate its runtime
+   *  durable-joins without holding any in-memory ledger. Written ATOMICALLY ({@link writeAclRecord}),
+   *  so a present record is always complete (`[]` = known no-read, never a half-write). */
+  async commitAcl(targetId: string, allowSubscribe: string[]): Promise<void> {
+    await writeAclRecord(await this.aclRegistry(), targetId, allowSubscribe);
+  }
+
+  /** The server-side delivery daemon's fresh-per-entry ACL read: an owner's CURRENT read ACL
+   *  (`allowSubscribe`) from the durable registry, or `undefined` if no record (an unknown owner — the
+   *  reader DEFERS, never drops). A present `[]` (known no-read) returns `[]` (the reader DROPS). */
+  async aclForOwner(owner: string): Promise<string[] | undefined> {
+    return (await readAcl(await this.aclRegistry(), owner))?.record.allowSubscribe;
+  }
+
+  /** Lazily open the delivery lease/readiness KV (pre-created at `cotal up`; bind, never create). */
+  private async deliveryRegistry(): Promise<KV> {
+    if (!this.nc) throw new Error("endpoint not started");
+    this.deliveryKv ??= await openDeliveryRegistry(this.nc, this.space);
+    return this.deliveryKv;
+  }
+
+  private encodeLease(ready: boolean): Uint8Array {
+    return new TextEncoder().encode(JSON.stringify({ holder: this.card.id, since: Date.now(), ready } satisfies DeliveryLeaseInfo));
+  }
+
+  /** Acquire the single-flight delivery lease for a shard via an ATOMIC CAS create, marked NOT-ready.
+   *  THROWS if a live lease exists — a loud refusal-to-bind (the daemon exits), never a retry, so two
+   *  daemons can't split a durable's delivery. A crashed holder's lease auto-expires (bucket TTL),
+   *  freeing a re-acquire. Acquired BEFORE binding (single-flight gate); {@link markDeliveryLeaseReady}
+   *  flips it ready AFTER the loops + `ctl.delivery` are bound. Returns the lease revision. */
+  async acquireDeliveryLease(shardIndex: number): Promise<number> {
+    return (await this.deliveryRegistry()).create(leaseKey(shardIndex), this.encodeLease(false));
+  }
+
+  /** Flip the held lease to READY (CAS `kv.update`) AFTER `startPlane3` has bound the loops + the
+   *  `ctl.delivery` responder — so "lease ready" proves the responder is up, not just that the slot was
+   *  claimed. Returns the new revision. */
+  async markDeliveryLeaseReady(shardIndex: number, revision: number): Promise<number> {
+    return (await this.deliveryRegistry()).update(leaseKey(shardIndex), this.encodeLease(true), revision);
+  }
+
+  /** Renew the held lease (CAS `kv.update` against `revision`, keeping `ready:true`) to refresh it before
+   *  the bucket TTL expires it. Returns the new revision. Throws if the revision moved (lost the lease —
+   *  the daemon should exit). */
+  async renewDeliveryLease(shardIndex: number, revision: number): Promise<number> {
+    return (await this.deliveryRegistry()).update(leaseKey(shardIndex), this.encodeLease(true), revision);
+  }
+
+  /** Release the held lease on clean shutdown so a replacement daemon re-acquires immediately (best
+   *  effort — a crash just lets the bucket TTL expire it). */
+  async releaseDeliveryLease(shardIndex: number): Promise<void> {
+    try { await (await this.deliveryRegistry()).delete(leaseKey(shardIndex)); } catch { /* already gone */ }
+  }
+
+  /** Read a shard's delivery lease (the daemon-availability signal), or `undefined` if none is live.
+   *  READ-ONLY surface — drives Component 6's `cotal_channels` delivery-health field (an agent reads it
+   *  under its own cred, which holds lease-bucket read but no write). */
+  async readDeliveryLease(shardIndex: number): Promise<DeliveryLeaseInfo | undefined> {
+    const e = await (await this.deliveryRegistry()).get(leaseKey(shardIndex));
+    if (!e || e.operation === "DEL" || e.operation === "PURGE") return undefined;
+    try { return e.json<DeliveryLeaseInfo>(); } catch { return undefined; }
+  }
+
   /** Privileged: one owner's NON-TOMBSTONED durable memberships as `{channel, generation, activated}` —
-   *  the manager serves this to a connecting agent (via the `listMemberships` self-service op). The agent
-   *  hydrates its leave mirror from the ACTIVATED ones (the confirmed backstops), but the non-activated
-   *  ones are returned too so `leaveChannel` can discover + close a record that still routes under the
-   *  pure-interval predicate (a crash-stuck pending activation) — without reading the privileged KV. */
+   *  the server-side delivery daemon serves this to a connecting agent (the `listMemberships` op on
+   *  `ctl.delivery`). The agent seeds its leave mirror from the ACTIVATED ones (the confirmed backstops),
+   *  but the non-activated ones are returned too so `leaveChannel` can discover + close a record that
+   *  still routes under the pure-interval predicate (a crash-stuck pending activation) — without reading
+   *  the privileged KV itself. */
   async ownerMemberships(owner: string): Promise<{ channel: string; generation: number; activated: boolean }[]> {
     const recs = await listMembers(await this.membersRegistry(), { owner });
     return recs
@@ -1206,16 +1337,15 @@ export class CotalEndpoint extends EventEmitter {
   }
 
   /**
-   * Privileged durable-JOIN write (the manager calls this after validating channel ⊆ allowSubscribe;
-   * {@link provisionMembership} calls it at provision time for boot channels): capture `joinCursor`,
-   * commit a `durable-active` record (CAS + generation bump), then ACTIVATION CATCH-UP idempotently
-   * copies `(joinCursor, fence]` into the owner inbox where `fence = max(frontier, fanoutDelivered)` —
-   * fan-out owns `seq > fence`. Idempotent against a timeout-retry (an already-activated membership
-   * no-ops). Returns `{durable:false}` (honest degrade) only if the catch-up window was evicted.
+   * Privileged durable-JOIN write (v3: the delivery daemon calls this from its `ctl.delivery` handler
+   * after validating channel ⊆ the caller's read ACL): capture `joinCursor`, commit a `durable-active`
+   * record (CAS + generation bump), then ACTIVATION CATCH-UP idempotently copies `(joinCursor, fence]`
+   * into the owner inbox where `fence = max(frontier, fanoutDelivered)` — fan-out owns `seq > fence`.
+   * Idempotent against a timeout-retry (an already-activated membership no-ops). Returns `{durable:false}`
+   * (honest degrade) only if the catch-up window was evicted.
    *
-   * This writes durable KV + dinbox state with the caller's privileged creds; it does NOT require THIS
-   * endpoint to host the fan-out/reader loops (those are a space-level manager service). So a
-   * short-lived provisioner can write a boot membership a separate long-lived manager then delivers.
+   * Runs on the daemon (which hosts the fan-out/reader loops + the members KV), so catch-up + the
+   * activation fence read are in-process — no cross-process cursor read.
    */
   async durableJoinFor(
     owner: string,
@@ -1327,25 +1457,102 @@ export class CotalEndpoint extends EventEmitter {
     return { copied, evicted };
   }
 
-  /** Start the Plane-3 fan-out writer + trusted reader on THIS (privileged) endpoint. `aclFor` maps an
-   *  owner id to its current read ACL for the reader's re-authorization (the manager passes its managed
-   *  set). Call once after connect; idempotent durable creation lets it resume on a manager restart. */
-  async startPlane3(aclFor: (owner: string) => string[] | undefined): Promise<void> {
+  /** Start the Plane-3 fan-out writer + trusted reader on THIS (privileged, server-side delivery-daemon)
+   *  endpoint, AND serve the `ctl.delivery` control service (runtime durable join/leave/list). `aclFor`
+   *  maps an owner id to its current read ACL for the reader's re-authorization — read FRESH per entry
+   *  from the durable ACL registry (async). Call once after connect; idempotent durable creation lets it
+   *  resume on a daemon restart. Both the JS loops AND the `ctl.delivery` subscription are (re)bound by
+   *  {@link armPlane3} on EVERY (re)connect — a reconnect drains the old connection, so re-binding both
+   *  is required, not optional (the responder would otherwise be lost on a broker blip). */
+  async startPlane3(aclFor: (owner: string) => MaybePromise<string[] | undefined>): Promise<void> {
     if (!this.js) throw new Error("endpoint not started");
     this.plane3 = { aclFor };
     await this.armPlane3();
   }
 
+  /** Serve one runtime durable-membership control request (the server-side delivery daemon). The caller
+   *  id is the authenticated subject sender ({@link serveControl} fail-closes on a mismatch). Validation
+   *  is against the durable ACL registry — the SAME KV the reader re-auths against (single source of
+   *  truth, no in-memory ledger to drift). */
+  private async handleDeliveryControl(req: ControlRequest): Promise<ControlReply> {
+    const caller = req.from.id;
+    const args = req.args ?? {};
+    if (req.op === "durableJoin") return this.deliveryJoin(caller, args);
+    if (req.op === "durableLeave") return this.deliveryLeave(caller, args);
+    if (req.op === "listMemberships")
+      return { ok: true, data: { memberships: await this.ownerMemberships(caller) } };
+    return { ok: false, error: `op "${req.op}" not supported on the delivery control service` };
+  }
+
+  /** Validate the channel ARG shape only — non-blank, valid, concrete (NO ACL check, that is op-specific).
+   *  Returns the channel on success or a ControlReply error to short-circuit. */
+  private checkDurableChannelArg(args: Record<string, unknown>, op: string): string | ControlReply {
+    const channel = typeof args.channel === "string" ? args.channel.trim() : "";
+    if (!channel) return { ok: false, error: `${op}: channel must be a non-blank string` };
+    try { assertValidChannel(channel); } catch (e) { return { ok: false, error: (e as Error).message }; }
+    if (!isConcreteChannel(channel))
+      return { ok: false, error: `${op}: "${channel}" must be a concrete channel (durable membership is per-concrete-channel, not wildcard)` };
+    return channel;
+  }
+
+  /** JOIN requires the channel be within the caller's CURRENT read ACL (you can't durable-subscribe a
+   *  channel you may not read). */
+  private async deliveryJoin(caller: string, args: Record<string, unknown>): Promise<ControlReply> {
+    const channel = this.checkDurableChannelArg(args, "durableJoin");
+    if (typeof channel !== "string") return channel; // a ControlReply error
+    const acl = await readAcl(await this.aclRegistry(), caller);
+    if (acl === undefined)
+      return { ok: false, error: `durableJoin: no read ACL on record for ${caller} (not provisioned for durable delivery)` };
+    if (!channelInAllow(acl.record.allowSubscribe, channel))
+      return { ok: false, error: `channel "${channel}" is not within your read ACL [${acl.record.allowSubscribe.join(", ")}]` };
+    try { return { ok: true, data: await this.durableJoinFor(caller, channel) }; }
+    catch (e) { return { ok: false, error: (e as Error).message }; }
+  }
+
+  /** LEAVE must NOT require current-ACL coverage. Leave fires precisely when the ACL was narrowed/revoked
+   *  (a refused live sub → {@link closeRefusedMembership}); gating the tombstone on the current ACL would
+   *  loop forever and leave the SPEC §7 boundary open (the membership could resume if the ACL is later
+   *  restored). The guards are: authenticated caller (serveControl), concrete channel, a finite generation
+   *  (the join epoch — without it a stale/replayed leave could tombstone a newer rejoin), and an EXISTING
+   *  own membership; `durableLeaveFor` → `tombstoneMember` then enforces the generation match. */
+  private async deliveryLeave(caller: string, args: Record<string, unknown>): Promise<ControlReply> {
+    const channel = this.checkDurableChannelArg(args, "durableLeave");
+    if (typeof channel !== "string") return channel; // a ControlReply error
+    if (typeof args.generation !== "number" || !Number.isFinite(args.generation))
+      return { ok: false, error: "durableLeave: a finite generation is required (fail-closed stale-leave guard)" };
+    const existing = await readMember(await this.membersRegistry(), channel, caller);
+    if (!existing) return { ok: true, data: { channel, alreadyLeft: true } }; // nothing to tombstone — idempotent
+    try { await this.durableLeaveFor(caller, channel, args.generation); }
+    catch (e) { return { ok: false, error: (e as Error).message }; }
+    return { ok: true, data: { channel } };
+  }
+
   /** (Re)bind the Plane-3 fan-out writer + trusted reader. Idempotent — the durables resume from their
    *  cursor. Called by {@link startPlane3} once AND by {@link connectAndBind} on every (re)connect, so
-   *  a manager-endpoint reconnect RE-ARMS the backstop. Without this, a broker blip would silently kill
+   *  the delivery daemon's reconnect RE-ARMS the backstop + the ctl.delivery responder. Without this, a broker blip would silently kill
    *  the loops while `durableJoinFor` kept reporting `durable:true` (the impl-review's BLOCKER-1). No-op
    *  unless this endpoint hosts Plane-3 (`this.plane3` set). */
   private async armPlane3(): Promise<void> {
     if (!this.plane3 || !this.js) return;
     await this.manager(); // the manager runs consume:false, so this.jsm is lazy — ensure it
+    this.armDeliveryControl();
     await this.runFanout();
     await this.runReader();
+  }
+
+  /** (Re)register the `ctl.delivery` control responder on the CURRENT connection. A reconnect drains the
+   *  old connection (the old sub is dead and `clearConnectionScoped` leaves caller-owned subs alone), so
+   *  this MUST run on every arm — otherwise durable join/leave/list silently lose their responder after a
+   *  broker blip. The stale sub is dropped (unsubscribed + removed from `this.subs`) before re-creating.
+   *  `boundReply` is essential here: the daemon holds a wildcard reply-publish grant, so the serve path
+   *  must reject any reply target outside the authenticated sender's own subtree (confused-deputy fix). */
+  private armDeliveryControl(): void {
+    if (this.deliveryServeSub) {
+      try { this.deliveryServeSub.unsubscribe(); } catch { /* dead with the old connection */ }
+      const i = this.subs.indexOf(this.deliveryServeSub);
+      if (i >= 0) this.subs.splice(i, 1);
+    }
+    this.deliveryServeSub = this.serveControl(CONTROL_DELIVERY, (req) => this.handleDeliveryControl(req), { boundReply: true });
   }
 
   /** Fan-out loop: bind the privileged `fanout` durable on CHAT and route each message (routing only —
@@ -1385,7 +1592,7 @@ export class CotalEndpoint extends EventEmitter {
       for (const name of msg.mentions ?? []) {
         const owner = this.resolveOwnerByName(name);
         if (!owner || owner === msg.from.id) continue;
-        const acl = this.plane3?.aclFor(owner);
+        const acl = await this.plane3?.aclFor(owner);
         if (!acl || !channelInAllow(acl, channel)) continue; // @mention can't bypass the read ACL
         await this.publishDinbox(owner, { msg, channel, seq, reason: "live-mention", generation: 0 });
       }
@@ -1418,7 +1625,7 @@ export class CotalEndpoint extends EventEmitter {
     let entry: Plane3Entry;
     try { entry = m.json<Plane3Entry>(); } catch { m.ack(); return; } // undecodable — drop
     const redeliveries = m.info?.deliveryCount ?? 1; // JsMsg delivery attempts (1 on first delivery)
-    const acl = this.plane3?.aclFor(owner);
+    const acl = await this.plane3?.aclFor(owner);
     if (acl === undefined) {
       // UNKNOWN owner — the manager has not (re)hydrated this owner's ACL yet (e.g. right after a
       // manager PROCESS restart). This is NOT a revocation: DEFER (redeliver), never drop — an ack here
@@ -1462,7 +1669,7 @@ export class CotalEndpoint extends EventEmitter {
   }
 
   /** Agent-side: bind + pump our pre-created Plane-3 DELIVER durable (`dlv_<id>`). Every message here is
-   *  manager-written (DLV is manager-write-only, broker-enforced) and is a CHANNEL message by contract
+   *  delivery-daemon-written (DLV is delivery-write-only, broker-enforced) and is a CHANNEL message by contract
    *  (the backstop never carries DMs), so `kind=channel` is path-derived (SPEC §4) and the body is
    *  trusted (no spoof-guard). `durable:true` — real JetStream ack, coalesced with the core-sub live
    *  copy by `MeshAgent.ingest`. No-op when the durable isn't present (open mode / not provisioned). */
@@ -1484,19 +1691,19 @@ export class CotalEndpoint extends EventEmitter {
     })().catch((e) => { if (!this.stopped) this.emit("error", e as Error); });
   }
 
-  /** Agent-side: request a Plane-3 durable backstop for a channel via the manager (ctl.self). Throws
-   *  when no privileged writer is present (open / manager-less). 30s timeout — activation catch-up may
+  /** Agent-side: request a Plane-3 durable backstop for a channel via the server-side delivery daemon (ctl.delivery). Throws
+   *  when no privileged writer is present (open / no delivery daemon). 30s timeout — activation catch-up may
    *  run before the reply (the window is small, but a busy channel can take more than the 5s default). */
   async durableJoinChannel(channel: string): Promise<{ durable: boolean; reason?: string; generation?: number }> {
-    const reply = await this.requestControl(CONTROL_SELF_SERVICE, { op: "durableJoin", args: { channel } }, 30_000);
+    const reply = await this.requestDelivery("durableJoin", { channel }, 30_000);
     if (!reply.ok) throw new Error(reply.error ?? "durable join rejected");
     return (reply.data as { durable: boolean; reason?: string; generation?: number }) ?? { durable: false };
   }
 
   /** Agent-side: release a Plane-3 durable backstop (tombstone membership at the leave cursor). Passes
-   *  the join generation so a stale leave can't tombstone a newer rejoin (the manager validates it). */
+   *  the join generation so a stale leave can't tombstone a newer rejoin (the delivery daemon validates it). */
   async durableLeaveChannel(channel: string, generation?: number): Promise<void> {
-    const reply = await this.requestControl(CONTROL_SELF_SERVICE, { op: "durableLeave", args: { channel, generation } });
+    const reply = await this.requestDelivery("durableLeave", { channel, generation });
     if (!reply.ok) throw new Error(reply.error ?? "durable leave rejected");
   }
 
@@ -1506,7 +1713,7 @@ export class CotalEndpoint extends EventEmitter {
    *  is reachable, never a silent give-up. While pending, the channel is tracked in
    *  {@link pendingDurableLeave} and surfaced via {@link pendingDurableLeaves} (the connector shows it in
    *  `cotal_channels` as `durable-unclosed`, never ordinary absence). The generation is kept the whole
-   *  time. Authoritative closure of a revoked membership is also the manager's job (revocation). */
+   *  time. Authoritative closure of a revoked membership is also handled by revocation (rotate creds + tear down). */
   private async closeRefusedMembership(channel: string, generation: number): Promise<void> {
     this.pendingDurableLeave.set(channel, generation);
     for (let attempt = 0; ; attempt++) {
@@ -1543,37 +1750,81 @@ export class CotalEndpoint extends EventEmitter {
 
   /** Agent-side: this session's CURRENT durable memberships (channel + join generation) from the
    *  manager — the agent holds no read on the privileged members KV. `undefined` ⇒ NO control responder
-   *  (open / manager-less, so there is no Plane-3 and no memberships). THROWS on a responder-present RPC
+   *  (open / no delivery daemon, so there is no Plane-3 and no memberships). THROWS on a responder-present RPC
    *  failure, so a caller can FAIL-CLOSED rather than mistaking a transient error for "no membership". */
   private async fetchMemberships(): Promise<{ channel: string; generation: number; activated: boolean }[] | undefined> {
     let reply: ControlReply;
     try {
-      reply = await this.requestControl(CONTROL_SELF_SERVICE, { op: "listMemberships", args: {} }, 5_000);
+      reply = await this.requestDelivery("listMemberships", {}, 5_000);
     } catch (e) {
-      if (this.isNoResponders(e)) return undefined; // no manager — open / manager-less, no Plane-3
+      if (this.isNoResponders(e)) return undefined; // no delivery daemon — open / daemon-less, no Plane-3
       throw e; // responder present but errored — surface it (leaveChannel fails closed)
     }
     if (!reply.ok) throw new Error(reply.error ?? "listMemberships failed");
     return (reply.data as { memberships?: { channel: string; generation: number; activated: boolean }[] } | undefined)?.memberships ?? [];
   }
 
-  /** Agent-side: seed `plane3Channels` with this session's boot durable memberships + generations on
-   *  first connect (the agent holds no read on the privileged members KV). A best-effort OPTIMIZATION: it
-   *  pre-fills the leave-generation mirror + the durable-state surface. If it can't (a transient manager
-   *  error), {@link leaveChannel} re-resolves the generation on demand and fails closed there — so a
-   *  missed hydration never silently leaves a boot durable channel untombstonable. */
-  private async hydrateMemberships(): Promise<void> {
-    let memberships: { channel: string; generation: number; activated: boolean }[] | undefined;
-    try {
-      memberships = await this.fetchMemberships();
-    } catch {
-      return; // transient manager error at boot — leaveChannel re-resolves on demand (fail-closed there)
+  /** Agent-side, first connect (auth): SELF-JOIN this session's durable boot channels via the
+   *  server-side delivery daemon — replacing the old manager-written boot membership. Each concrete
+   *  `durable`-class boot channel gets a `durableJoin` whose returned generation seeds the leave mirror
+   *  + durable-state surface; an already-active membership (a relaunch) is idempotent (no re-catch-up).
+   *  If the daemon is down/absent at first connect (or reports a transient `durable:false`), the channel
+   *  is handed to {@link reconcileBootJoin} for capped-backoff retry — so the backstop is RESTORED once
+   *  the daemon recovers, not left silently live-only. Until a membership exists the channel renders
+   *  degraded in `cotal_channels` ({@link hasDurableMembership}). */
+  private async armBootDurableMemberships(): Promise<void> {
+    for (const channel of this.channels) {
+      if (!isConcreteChannel(channel) || this.plane3Channels.has(channel)) continue;
+      let cls: DeliveryClass;
+      try { cls = await this.deliveryClassFresh(channel); } catch { continue; }
+      if (cls !== "durable") continue;
+      try {
+        const r = await this.durableJoinChannel(channel);
+        if (r.durable) this.plane3Channels.set(channel, r.generation ?? 0);
+        else void this.reconcileBootJoin(channel); // present but not yet durable — reconcile to recovery
+      } catch (e) {
+        if (!this.isNoResponders(e)) this.emit("error", e as Error); // no daemon ⇒ retry until it recovers
+        void this.reconcileBootJoin(channel);
+      }
     }
-    if (!memberships) return; // no manager — live-only
-    // Seed the mirror (+ durable-state surface) with CONFIRMED backstops only; leaveChannel re-resolves a
-    // non-activated record on demand if it ever needs to close one.
-    for (const m of memberships)
-      if (m.activated && this.channels.includes(m.channel)) this.plane3Channels.set(m.channel, m.generation);
+  }
+
+  /** Retry a boot durable self-join with capped backoff until a membership EXISTS (success → seed
+   *  `plane3Channels`) or the channel is left / the endpoint stops. Mirrors {@link closeRefusedMembership}:
+   *  a one-shot first-connect attempt that swallowed a daemon outage would leave the boot channel live-only
+   *  forever after the daemon recovers (and the lease-based health could then read "active" with no owner
+   *  membership). This loop is the reconcile that closes that gap. Idempotent — a channel already pending
+   *  is not double-driven; survives reconnect (it re-issues `durableJoinChannel` on the current connection). */
+  private async reconcileBootJoin(channel: string): Promise<void> {
+    if (this.pendingBootJoins.has(channel)) return; // already reconciling
+    this.pendingBootJoins.add(channel);
+    for (let attempt = 0; ; attempt++) {
+      await new Promise((r) => setTimeout(r, Math.min(30_000, 1000 * 2 ** attempt)));
+      if (this.stopped || !this.channels.includes(channel) || this.plane3Channels.has(channel)) {
+        this.pendingBootJoins.delete(channel);
+        return; // stopped, left, or another path established it
+      }
+      try {
+        const r = await this.durableJoinChannel(channel);
+        if (r.durable) {
+          this.plane3Channels.set(channel, r.generation ?? 0);
+          this.pendingBootJoins.delete(channel);
+          return;
+        }
+        // present but durable:false (e.g. catch-up window evicted) — keep retrying; the channel stays
+        // honestly degraded meanwhile, never silently "active".
+      } catch (e) {
+        if (attempt === 0 && !this.isNoResponders(e))
+          this.emit("error", new Error(`channel "${channel}": boot durable self-join not yet established — retrying until the delivery daemon is reachable (${(e as Error).message})`));
+      }
+    }
+  }
+
+  /** True if this session holds an established Plane-3 durable membership for `channel` (in `plane3Channels`).
+   *  Drives the membership-aware delivery-health surface: a joined durable channel that is NOT yet a member
+   *  (boot self-join pending / daemon down) must render degraded, never "active" off a live lease alone. */
+  hasDurableMembership(channel: string): boolean {
+    return this.plane3Channels.has(channel);
   }
 
   /** Lazily obtain a JetStream manager — so a non-consuming endpoint (e.g. the supervisor,
@@ -1610,9 +1861,10 @@ export class CotalEndpoint extends EventEmitter {
 
     // Multicast: open a native CORE subscription for each channel (live, manager-free, broker-enforced
     // by sub.allow) — boot + runtime joins use the SAME path; there is no per-instance chat durable.
-    // The durable backstop (a busy/offline turn) is Plane-3 (auth: membership written at provision, the
-    // manager's fan-out writer + trusted reader deliver via the `dlv_<id>` pump above; open dev mode is
-    // live-only — the durable plane needs the manager's trusted reader, the security boundary). Per-
+    // The durable backstop (a busy/offline turn) is Plane-3 (auth: membership established by the agent's
+    // self-join, the delivery daemon's fan-out writer + trusted reader deliver via the `dlv_<id>` pump
+    // above; open dev mode is live-only — the durable plane needs the daemon's trusted reader, the
+    // security boundary). Per-
     // channel history is the explicit replay-gated backfill, on FIRST connect only; a reconnect reopens
     // the subs without re-backfilling (the durable backstop redelivers any missed window via dlv).
     if (this.channels.length) {
@@ -1625,10 +1877,10 @@ export class CotalEndpoint extends EventEmitter {
       for (const ch of this.channels) this.confirmingChatSubs.delete(chatSubject(this.space, "*", ch));
       if (armed) await this.backfillArmed(armed);
     }
-    // First connect, auth mode: hydrate the local generation mirror for BOOT durable memberships (the
-    // manager provisioned them server-side, so they are not in plane3Channels yet) — without it,
-    // leaving a boot durable channel could not tombstone its §7 boundary. Open mode has no Plane-3.
-    if (this.firstConnect && this.creds && this.channels.length) await this.hydrateMemberships();
+    // First connect, auth mode: self-join BOOT durable channels via the server-side delivery daemon
+    // (it owns membership now — there is no manager-written boot membership). Seeds plane3Channels so a
+    // later leave can tombstone the §7 boundary; idempotent on relaunch. Open mode has no Plane-3.
+    if (this.firstConnect && this.creds && this.channels.length) await this.armBootDurableMemberships();
     this.firstConnect = false;
 
     // Anycast: a shared work-queue consumer for our role — one instance grabs each task.
