@@ -167,6 +167,24 @@ export interface MembershipRecord {
 }
 
 /**
+ * A durable read-ACL record (privileged write only — the manager records it at mint; agent-authored
+ * ACLs are forbidden, they would self-authorize reads). One per OWNER in the `cotal_acl_<space>` KV.
+ * The delivery daemon's trusted reader re-authorizes each durable entry against `allowSubscribe`, and
+ * validates a runtime durable-join against it (channel ∈ `allowSubscribe`). Written ATOMICALLY (a
+ * single CAS put of the whole value) so a present record is always complete: a present
+ * `allowSubscribe: []` is a known "reads nothing" decision (DROP), distinct from an ABSENT record
+ * (unknown owner — DEFER, never drop).
+ */
+export interface AclRecord {
+  /** The owner's current read ACL — the channels/patterns it may read (its `allowSubscribe`). */
+  allowSubscribe: string[];
+  /** Bumped each write; stale-write guard companion to the KV revision CAS. */
+  revision: number;
+  /** Epoch ms of the last write (diagnostics only). */
+  updatedAt: number;
+}
+
+/**
  * A fan-out entry in an owner's mixed pre-auth inbox (`dinbox.<owner>`, Plane-3). The fan-out writer
  * copies one of these per eligible owner; the trusted reader re-authorizes it (`channel`+`seq` against
  * the membership interval for `durable-channel`, ACL-only for `live-mention`) before transferring the

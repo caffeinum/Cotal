@@ -24,7 +24,8 @@ import { isOnboarded, markOnboarded } from "../lib/onboard.js";
 import { machineStatus, meshStatus, onPath, resolveSpace } from "../lib/status.js";
 import { startMeshDetached, up } from "./up.js";
 import { ensureWeb, webUp, WEB_URL } from "./web.js";
-import { cmuxManagerRunning, ensureManager, managerUp, pgrepMatches, stopManager } from "../lib/manager-proc.js";
+import { cmuxManagerRunning, managerUp, pgrepMatches, stopManager } from "../lib/manager-proc.js";
+import { ensureControlPlane } from "../lib/delivery-proc.js";
 import { cotalOnPath, displayCmd, isNpx, selfArgv } from "../lib/self-exec.js";
 import { cotalPath, cotalRoot } from "../lib/paths.js";
 import { spawn } from "./spawn.js";
@@ -180,9 +181,10 @@ async function runFirstRun(yes: boolean, open: boolean): Promise<void> {
 
   if (!yes) await offerDemo(found.claude);
   else {
-    // Agents/CI: bring up the control plane so cotal_spawn / despawn / purge work right away.
+    // Agents/CI: bring up the control plane (delivery daemon, auth only → manager) so cotal_spawn /
+    // despawn / purge work right away.
     try {
-      ensureManager({ space: resolveSpace(process.cwd()), server: DEFAULT_SERVER });
+      await ensureControlPlane({ space: resolveSpace(process.cwd()), server: DEFAULT_SERVER });
     } catch {
       /* non-fatal */
     }
@@ -312,8 +314,8 @@ async function offerDemo(haveClaude: boolean): Promise<void> {
         return;
       }
       // Non-cmux: a background pty manager pre-spawns david/sven (managed, despawnable), then we
-      // hand this terminal to the driving session.
-      ensureManager({ space: resolveSpace(process.cwd()), server: DEFAULT_SERVER, spawn: [...DEMO_TEAM] });
+      // hand this terminal to the driving session. (auth → delivery daemon first, then the manager.)
+      await ensureControlPlane({ space: resolveSpace(process.cwd()), server: DEFAULT_SERVER, spawn: [...DEMO_TEAM] });
       p.outro(brand("Launching your session... david and sven are warming up in the background."));
       await spawn(["me", "--prompt", ME_GREETING]);
       process.exit(0);
@@ -322,10 +324,10 @@ async function offerDemo(haveClaude: boolean): Promise<void> {
     p.log.info(`The demo needs Claude Code. Install it (https://claude.com/claude-code), then run \`${displayCmd()} go\`.`);
   }
 
-  // Declined, or no Claude: start the background (pty) control plane so cotal_spawn / despawn /
-  // purge still work, then leave them the quick-reference card.
+  // Declined, or no Claude: start the background control plane (delivery daemon, auth only → pty
+  // manager) so cotal_spawn / despawn / purge still work, then leave them the quick-reference card.
   try {
-    ensureManager({ space: resolveSpace(process.cwd()), server: DEFAULT_SERVER });
+    await ensureControlPlane({ space: resolveSpace(process.cwd()), server: DEFAULT_SERVER });
   } catch {
     /* non-fatal: the card still shows how to start it */
   }
@@ -445,7 +447,7 @@ async function runEnsure(): Promise<void> {
   // david/sven, open only missing tabs). Otherwise bring up the background pty control plane.
   try {
     if (inCmuxSurface()) ensureCmuxSession(cotalRoot());
-    else ensureManager({ space: mesh.space, server: mesh.server });
+    else await ensureControlPlane({ space: mesh.space, server: mesh.server });
   } catch {
     /* non-fatal */
   }

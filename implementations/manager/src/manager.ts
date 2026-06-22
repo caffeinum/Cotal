@@ -4,14 +4,11 @@ import {
   CotalEndpoint,
   DEFAULT_SERVER,
   agentFilePath,
-  assertValidChannel,
   authDir,
-  channelInAllow,
   clearSpaceHistory,
   connectorServers,
   findCotalRoot,
   firstFreeName,
-  isConcreteChannel,
   loadAgentFile,
   loadCotalConfig,
   loadSpaceAuth,
@@ -81,9 +78,6 @@ interface ManagedAgent {
   spawner: string;
   startedAt: number;
   handle: AgentHandle;
-  /** The agent's read ACL (its `allowSubscribe`, defaulted), retained so the mediated join/leave
-   *  control op can validate `channel ∈ allowSubscribe` before moving its bind-only chat filter. */
-  allowSubscribe: string[];
 }
 
 /**
@@ -175,11 +169,11 @@ export class Manager {
     this.ep.serveControl(CONTROL_PRIVILEGED, (req) => this.handle(req, CONTROL_PRIVILEGED));
     this.ep.serveControl(CONTROL_SELF_SERVICE, (req) => this.handle(req, CONTROL_SELF_SERVICE));
     this.ep.serveControl(CONTROL_ADMIN, (req) => this.handle(req, CONTROL_ADMIN));
-    // Plane-3 (SPEC §8): host the fan-out writer + trusted reader. The reader re-authorizes each
-    // durable-backstop entry against the owner's CURRENT read ACL — supplied from the managed set
-    // (the same `allowSubscribe` opDurableJoin/opDurableLeave validate against). Auth mode only.
-    if (this.auth)
-      await this.ep.startPlane3((id) => [...this.agents.values()].find((a) => a.id === id)?.allowSubscribe);
+    // Plane-3 (durable backstop) is NOT the manager's job — the manager only manages agent lifecycle.
+    // The server-side delivery daemon hosts the fan-out writer + trusted reader, owns the durable
+    // membership registry, and serves the runtime durable join/leave/list ops (on `ctl.delivery`). The
+    // manager records each agent's read ACL at spawn (`commitAcl`, in provisionAgent) so the daemon can
+    // re-authorize it; that is the only Plane-3 state the manager touches, and it rides minting.
   }
 
   async stop(): Promise<void> {
@@ -200,12 +194,9 @@ export class Manager {
     // subject; this gates WHAT each subject will honor, fail-closed. A privileged op arriving on
     // the self-service subject (publishable by all) must be rejected or the split does nothing.
     if (tier === CONTROL_SELF_SERVICE) {
-      // Self-service honors self-ops only: a no-name stop (self-despawn) and Plane-3 durableJoin/
-      // durableLeave (the caller adding/removing its OWN durable backstop, within its allowSubscribe).
-      // Anything else — including a named stop (belongs on privileged/admin) — is a misroute, rejected.
-      if (req.op === "durableJoin") return this.opDurableJoin(caller, args);
-      if (req.op === "durableLeave") return this.opDurableLeave(caller, args);
-      if (req.op === "listMemberships") return this.opListMemberships(caller);
+      // Self-service honors self-ops only: a no-name stop (self-despawn). Durable join/leave/list moved
+      // OFF the manager onto the server-side delivery daemon's `ctl.delivery` service (the manager is
+      // lifecycle-only). A named stop (belongs on privileged/admin) or anything else is a misroute.
       if (req.op !== "stop") return { ok: false, error: `op "${req.op}" not allowed on self-service control subject` };
       if (name) return { ok: false, error: "named stop not allowed on self-service subject; send it on the privileged subject" };
       return this.opStopSelf(caller, args);
@@ -265,70 +256,10 @@ export class Manager {
     return { ok: true, data: { name: target.name, stopped: true, graceful } };
   }
 
-  /** Plane-3 durable JOIN (SPEC §8): privileged-write the caller's `durable-active` membership for ONE
-   *  concrete channel + run activation catch-up. The caller is the authenticated id (non-forgeable in
-   *  auth), so this only ever resolves to its own managed entry; an unmanaged caller gets a loud error.
-   *  Validation: valid + concrete channel, ⊆ allowSubscribe. Durable membership is per-concrete-channel
-   *  (a wildcard ACL grants live breadth + concrete-durable-opt-in, never wildcard-durable). The KV
-   *  write + cursors + catch-up run with the manager's privileged creds. */
-  private async opDurableJoin(callerId: string, args: Record<string, unknown>): Promise<ControlReply> {
-    const target = [...this.agents.values()].find((a) => a.id === callerId);
-    if (!target) return { ok: false, error: `durableJoin: caller ${callerId} is not an agent this manager spawned` };
-    const channel = typeof args.channel === "string" ? args.channel.trim() : "";
-    if (!channel) return { ok: false, error: "durableJoin: channel must be a non-blank string" };
-    try {
-      assertValidChannel(channel);
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
-    if (!isConcreteChannel(channel))
-      return { ok: false, error: `durableJoin: "${channel}" must be a concrete channel (durable membership is per-concrete-channel, not wildcard)` };
-    if (!channelInAllow(target.allowSubscribe, channel))
-      return { ok: false, error: `channel "${channel}" is not within allowSubscribe [${target.allowSubscribe.join(", ")}]` };
-    try {
-      return { ok: true, data: await this.ep.durableJoinFor(callerId, channel) };
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
-  }
-
-  /** Plane-3 durable LEAVE (SPEC §7 leave = hard read boundary for the backstop): tombstone the
-   *  caller's membership at the leave cursor. A pre-leave entry stays deliverable; `seq > leaveCursor`
-   *  is denied at the trusted reader. Fail-closed: same validation as join, and a finite `generation`
-   *  (the caller's join epoch) is REQUIRED — a leave omitting it could otherwise tombstone a newer
-   *  rejoin via the exposed self-service op (the stale-leave primitive). */
-  private async opDurableLeave(callerId: string, args: Record<string, unknown>): Promise<ControlReply> {
-    const target = [...this.agents.values()].find((a) => a.id === callerId);
-    if (!target) return { ok: false, error: `durableLeave: caller ${callerId} is not an agent this manager spawned` };
-    const channel = typeof args.channel === "string" ? args.channel.trim() : "";
-    if (!channel) return { ok: false, error: "durableLeave: channel must be a non-blank string" };
-    try {
-      assertValidChannel(channel);
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
-    if (!isConcreteChannel(channel))
-      return { ok: false, error: `durableLeave: "${channel}" must be a concrete channel` };
-    if (!channelInAllow(target.allowSubscribe, channel))
-      return { ok: false, error: `channel "${channel}" is not within allowSubscribe [${target.allowSubscribe.join(", ")}]` };
-    if (typeof args.generation !== "number" || !Number.isFinite(args.generation))
-      return { ok: false, error: "durableLeave: a finite generation is required (fail-closed stale-leave guard)" };
-    try {
-      await this.ep.durableLeaveFor(callerId, channel, args.generation);
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
-    return { ok: true, data: { channel } };
-  }
-
-  /** Plane-3 self-service: the caller's CURRENT (activated, non-tombstoned) durable memberships as
-   *  `{channel, generation}`, so a freshly connected agent can hydrate its leave-generation mirror for
-   *  BOOT durable channels — the agent holds no read on the privileged members KV. Strictly own-scoped:
-   *  the op takes no owner arg and reads `callerId` (authenticated, non-forgeable), so it can only ever
-   *  return the caller's own records. Read-only. */
-  private async opListMemberships(callerId: string): Promise<ControlReply> {
-    return { ok: true, data: { memberships: await this.ep.ownerMemberships(callerId) } };
-  }
+  // Plane-3 durable join/leave/list ops moved OFF the manager onto the server-side delivery daemon's
+  // `ctl.delivery` control service (endpoint.startPlane3 → handleDeliveryControl). The manager is
+  // lifecycle-only; it records each agent's read ACL at spawn (commitAcl) so the daemon can validate
+  // those ops against the durable ACL registry — the single source of truth, no in-memory ledger.
 
   /** Drop a live agent's slot. When `floor` is set and the agent died young (lived less than
    *  MIN_LIFETIME), push a cooling stamp so the freed slot still counts toward the ceiling until it
@@ -510,7 +441,6 @@ export class Manager {
         spawner: spawner ?? this.ep.ref().id,
         startedAt: Date.now(),
         handle,
-        allowSubscribe,
       };
       this.agents.set(name, managed);
       // Wire the runtime exit signal so a natural exit (crash / /exit / finished) frees the slot

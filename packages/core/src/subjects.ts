@@ -166,6 +166,15 @@ export function controlServiceSubject(space: string, service: string, sender: st
 export const CONTROL_PRIVILEGED = "manager" as const;
 export const CONTROL_SELF_SERVICE = "self" as const;
 export const CONTROL_ADMIN = "admin" as const;
+/** The delivery service — a control service served by the server-side **delivery daemon** (NOT the
+ *  manager), carrying the runtime durable `join` / `leave` / `listMemberships` ops agents call. Agents
+ *  publish a request to `ctl.delivery.<agentId>` and receive the reply on `ctl.delivery.<agentId>.…`,
+ *  a subtree both sides scope tightly: the agent gets pub on `ctl.delivery.<id>` + sub on
+ *  `ctl.delivery.<id>.>`, and the daemon gets sub on `ctl.delivery.*` (queue) + pub on `ctl.delivery.>`
+ *  (replies). This keeps the daemon least-privilege — it never needs broad inbox-publish to answer an
+ *  agent (only the allow-all manager could reply into the per-id `_INBOX_<id>` prefix). Lifecycle ops
+ *  (spawn/stop/despawn) stay on the manager's tiers; durable membership is the daemon's. */
+export const CONTROL_DELIVERY = "delivery" as const;
 /** The three control-plane tiers the manager serves — values tie to the `CONTROL_*` service
  *  names so handler routing can't drift from the subject names. */
 export type ControlTier = typeof CONTROL_PRIVILEGED | typeof CONTROL_SELF_SERVICE | typeof CONTROL_ADMIN;
@@ -277,6 +286,53 @@ export function parseMemberKey(key: string): { channel: string; owner: string } 
   return { channel: key.slice(0, i), owner: key.slice(i + 1) };
 }
 
+/** Name of the KV bucket holding the durable read-ACL registry (Plane-3) for a space — a
+ *  privileged-write sibling of the members/channels buckets. One record per OWNER (key = owner id),
+ *  holding that owner's current read ACL (`allowSubscribe`). The delivery daemon's trusted reader
+ *  re-authorizes every durable entry against this — moved off the manager's in-memory ledger so a
+ *  stateless, server-side daemon re-reads it on boot (fixes the restart-fragility nak-loop). It is
+ *  ALSO what the daemon validates a runtime durable-join against (channel ∈ the owner's ACL). */
+export function aclBucket(space: string): string {
+  return `cotal_acl_${token(space)}`;
+}
+
+/** KV key for one owner's read-ACL record: the owner id (an nkey — `[A-Z0-9]`, `/`-free, a `token()`
+ *  no-op; keyed like presence, which uses the bare id). */
+export function aclKey(owner: string): string {
+  return token(owner);
+}
+
+/** Name of the KV bucket holding the delivery daemon's single-flight lease + readiness signal for a
+ *  space. One key per shard ({@link leaseKey}); writable only by the `delivery` cred, world-readable
+ *  (an agent reads it for the non-gating delivery-health surface). The bucket holds ONLY lease keys,
+ *  so a bucket-level TTL (`max_age`) cleanly expires a crashed holder's lease. (Per-key KV TTL via
+ *  `Nats-TTL`/marker TTL is also available on this stack — `@nats-io/kv` 3.4 + server 2.14 — so the
+ *  bucket-level TTL is a deliberate simplicity choice for a one-purpose bucket, not a capability gap.) */
+export function deliveryBucket(space: string): string {
+  return `cotal_delivery_${token(space)}`;
+}
+
+/** KV key for one shard's delivery lease/readiness (N=1 → `lease.0`). */
+export function leaseKey(shardIndex: number): string {
+  return `lease.${shardIndex}`;
+}
+
+/** Deterministic FNV-1a (32-bit) hash of `key` into `[0, n)` — stable across processes/restarts, so a
+ *  shard assignment never moves under a running daemon. The Plane-3 partition seam (sharding):
+ *  **N=1 is the only operating mode shipped** (`shards > 1` is hard-rejected at the daemon entrypoint)
+ *  because a hash partition is not expressible as a NATS `sub.allow`/durable filter under the flat chat
+ *  grammar — see core-sub-fabric.md. Present so the N>1 follow-up (with a channel-prefix grammar) is a
+ *  small diff. */
+export function partition(n: number, key: string): number {
+  if (n <= 1) return 0;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0) % n;
+}
+
 // ---- JetStream streams (the durable backing for the three delivery modes) ----
 
 /** Stream capturing `chat.>` — multicast backlog + history. */
@@ -297,7 +353,7 @@ export function taskStream(space: string): string {
 // ---- Plane-3 (durable backstop, SPEC §8) — two per-space streams ----
 //
 // `dinbox.<owner>` is the MIXED pre-auth store (fan-out target): the agent holds NO grant on
-// {@link inboxStream} and the trusted reader (manager) is its only consumer. `dlv.<owner>` is the
+// {@link inboxStream} and the trusted reader (the delivery daemon) is its only consumer. `dlv.<owner>` is the
 // per-member POST-auth handoff: the reader transfers each re-authorized copy here and the agent binds
 // {@link dlvDurable} bind-only and acks it via native JetStream (§8 "an equivalent per-member
 // at-least-once mechanism with the same ack semantics"). `dlv` carries channel messages only, so the
@@ -337,12 +393,26 @@ export function dlvDurable(owner: string): string {
   return `dlv_${token(owner)}`;
 }
 
-/** The single privileged fan-out consumer on the CHAT stream (manager-pumped; routing, not auth). */
+/** The single privileged fan-out consumer on the CHAT stream (delivery-daemon-pumped; routing, not
+ *  auth). N=1 keeps this exact name (see {@link fanoutDurable}). */
 export const FANOUT_DURABLE = "fanout" as const;
 
 /** The single privileged trusted-reader consumer on {@link inboxStream} (filter `dinbox.>`,
- *  manager-pumped). It re-authorizes each entry and transfers the authorized copy to `dlv.<owner>`. */
+ *  delivery-daemon-pumped). It re-authorizes each entry and transfers the authorized copy to
+ *  `dlv.<owner>`. N=1 keeps this exact name (see {@link readerDurable}). */
 export const INBOX_READER_DURABLE = "reader" as const;
+
+/** Per-shard fan-out durable name (the sharding seam). N=1 (`shards <= 1`) keeps the exact legacy
+ *  name `fanout` so a running space's existing durable + ack cursor carry over; N>1 (deferred until
+ *  the channel-prefix grammar) → `fanout_<i>`. */
+export function fanoutDurable(shard = 0, shards = 1): string {
+  return shards <= 1 ? FANOUT_DURABLE : `${FANOUT_DURABLE}_${shard}`;
+}
+
+/** Per-shard trusted-reader durable name (the sharding seam). N=1 keeps `reader`; N>1 → `reader_<i>`. */
+export function readerDurable(shard = 0, shards = 1): string {
+  return shards <= 1 ? INBOX_READER_DURABLE : `${INBOX_READER_DURABLE}_${shard}`;
+}
 
 /** Name of the REMOVED per-instance chat live-tail durable. Retained only as the canonical name the
  *  read-ACL conformance test asserts an agent can NOT create — it has no live callers, the live read is

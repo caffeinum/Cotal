@@ -7,6 +7,8 @@ export * from "./provision.js";
 export * from "./streams.js";
 export * from "./channels.js";
 export * from "./members.js";
+export * from "./acls.js";
+export * from "./lease.js";
 export * from "./agent-file.js";
 export * from "./connector-config.js";
 export * from "./endpoint.js";
