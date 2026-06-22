@@ -85,7 +85,7 @@ npx cotal-ai setup --full
 ```
 
 > [!NOTE]
-> **Want each teammate in its own tab?** Run `setup` from inside a **cmux** pane and Cotal
+> **Want each teammate in its own tab?** Run `setup` from inside a **[cmux](https://cmux.com)** pane and Cotal
 > opens a tab per agent. In a plain terminal they run in the background instead, on the same
 > mesh; watch them with `cotal console` or the web dashboard.
 
