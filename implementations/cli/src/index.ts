@@ -13,7 +13,7 @@ import { mint } from "./commands/mint.js";
 import { channels } from "./commands/channels.js";
 import { history } from "./commands/history.js";
 import { feedback } from "./commands/feedback.js";
-import { dm, msg, ask, msgComplete, askComplete } from "./commands/send.js";
+import { send, sendComplete } from "./commands/send.js";
 
 /** The minimal mesh CLI: thin NATS clients (up/join/console), plus `spawn` — a
  *  foreground agent launch that reuses the connector's launch recipe. Self-registers
@@ -57,29 +57,12 @@ const baseCommands: Command[] = [
   },
   {
     kind: "command",
-    name: "dm",
+    name: "send",
     group: "Mesh",
-    summary: "direct-message a peer by name",
-    usage: 'dm <agent> "<text>"  [--space <s>] [--server <url>] [--creds <path>]',
-    run: dm,
-  },
-  {
-    kind: "command",
-    name: "msg",
-    group: "Mesh",
-    summary: "broadcast a message to a channel",
-    usage: 'msg <channel> "<text>"  [--space <s>] [--server <url>] [--creds <path>]',
-    run: msg,
-    complete: msgComplete,
-  },
-  {
-    kind: "command",
-    name: "ask",
-    group: "Mesh",
-    summary: "anycast a message to a role (one instance answers)",
-    usage: 'ask <role> "<text>"  [--space <s>] [--server <url>] [--creds <path>]',
-    run: ask,
-    complete: askComplete,
+    summary: "send one message, then exit — send <dm <agent> | msg <channel> | ask <role>> \"<text>\"",
+    usage: 'send <dm <agent> | msg <channel> | ask <role>> "<text>"  [--space <s>] [--server <url>] [--creds <path>]',
+    run: send,
+    complete: sendComplete,
   },
   {
     kind: "command",

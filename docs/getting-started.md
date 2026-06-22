@@ -50,8 +50,7 @@ quit cmux.
 **To reopen the session later,** run **`cotal go`** from inside cmux (or just `cotal setup`
 again). It reuses the live manager plus david and sven, and opens only what is missing, so
 there are no duplicate managers. `cotal go` is the friendly "open/resume" name; `cotal
-setup` is the same flow under its install/update name. (`cotal cmux go` is a dev-clone-only
-shortcut.)
+setup` is the same flow under its install/update name.
 
 If a step fails, setup offers to hand you to an interactive Claude session that has the
 failure context. Type `/exit` to return, and it retries.

@@ -1,6 +1,5 @@
 import { parseArgs } from "node:util";
-import { readFileSync, existsSync, rmSync } from "node:fs";
-import { execFileSync, spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   CotalEndpoint,
@@ -21,7 +20,7 @@ import {
 } from "@cotal-ai/core";
 import { Manager } from "./manager.js";
 import { loadRoster } from "./roster.js";
-import { findWorkspaceRoot, type RuntimeMode } from "./runtime/index.js";
+import { type RuntimeMode } from "./runtime/index.js";
 import { attachClient } from "./attach-client.js";
 import { c } from "./ui.js";
 
@@ -46,7 +45,7 @@ function parse(argv: string[]): Values {
       config: { type: "string" },
       roster: { type: "string" },
       creds: { type: "string" },
-      runtime: { type: "string" }, // supervise: force pty | tmux (default auto-detects)
+      runtime: { type: "string" }, // supervise: force pty | tmux | cmux (default auto-detects)
       "console-port": { type: "string" },
       drive: { type: "boolean" },
       transcript: { type: "boolean" },
@@ -54,12 +53,11 @@ function parse(argv: string[]): Values {
       spawn: { type: "string" }, // comma-separated agent names to pre-spawn at startup
     },
   });
-  // These commands are flags-only — reject stray positionals instead of silently ignoring
-  // them (e.g. `cotal cmux up`, which used to start a default-space manager). (`cotal cmux go`
-  // is now a real sub-verb, intercepted before this runs.)
+  // These commands are flags-only — reject stray positionals instead of silently ignoring them
+  // (e.g. `cotal supervise up`, fat-fingering `cotal up`).
   if (positionals.length) {
     const x = positionals[0];
-    const hint = x === "up" ? " — did you mean `cotal up`?" : x === "go" ? " — did you mean `cotal cmux go`?" : "";
+    const hint = x === "up" ? " — did you mean `cotal up`?" : x === "go" ? " — did you mean `cotal go`?" : "";
     console.error(c.red(`✗ unexpected argument: ${x}${hint}`));
     process.exit(1);
   }
@@ -220,12 +218,11 @@ async function attach(argv: string[]): Promise<void> {
 /** Run a manager daemon in this process (the long-lived supervisor), then block.
  *  `pty`/`tmux` ship with the manager; `cmux` needs its integration imported by the
  *  composition root (the `cotal` binary does). Stays alive until SIGINT/SIGTERM. */
-// `--runtime` overrides accepted only on the `supervise` path (whose default is auto-detect).
-// `cmux` is intentionally excluded: a cmux-tab manager is launched via `cotal cmux` only, so its
-// process-detection (cmuxManagerRunning / runDrive's pgrep) keeps recognizing it. Allowing
-// `supervise --runtime cmux` would introduce a second cmux-manager argv shape that detection
-// misses — fold it in here once that detection is migrated (the cmux-retirement follow-up).
-const RUNTIME_OVERRIDES: readonly RuntimeMode[] = ["pty", "tmux"];
+// `--runtime` forces the manager runtime; honored only on the `supervise` path (default
+// auto-detect). `cmux` gives each teammate its own cmux tab — `cotal supervise --runtime cmux` is
+// the cmux-tab manager. The session machinery launches it with `--runtime cmux --space <space>`
+// contiguous, which is what `cmuxManagerRunning` pgreps for.
+const RUNTIME_OVERRIDES: readonly RuntimeMode[] = ["pty", "tmux", "cmux"];
 
 async function runManager(argv: string[], defaultRuntime: RuntimeMode): Promise<void> {
   const v = parse(argv);
@@ -290,163 +287,17 @@ async function runManager(argv: string[], defaultRuntime: RuntimeMode): Promise<
   await new Promise<void>(() => {});
 }
 
-/** One-command cmux onboarding (the built-in, generalized `launch.sh --drive`): from a
- *  cmux pane, install the plugin, bring up the mesh, open the manager in its own tab, and
- *  open a workspace with the console + a ready driving session. Orchestrates, then exits. */
-async function runDrive(argv: string[]): Promise<void> {
-  const v = parse(argv);
-  const space = spaceFor(v);
-  const name = v.name ?? "me";
-  const server = v.server ?? DEFAULT_SERVER;
-  // name/space get interpolated into the cmux pane's `bash -lc '…'` command; keep them bare
-  // tokens so they can't break out of the quoting.
-  for (const [label, val] of [["name", name], ["space", space]] as const)
-    if (!/^[A-Za-z0-9_.-]+$/.test(val))
-      throw new Error(`cotal cmux go: unsafe ${label} ${JSON.stringify(val)} (allowed: letters, digits, _ . -)`);
-  const root = findWorkspaceRoot();
-  const tsx = join(root, "node_modules", ".bin", "tsx");
-  const cmuxCli = join(root, "extensions", "cmux", "src", "cli.ts");
-  const cotalBin = join(root, "bin", "cotal.ts");
-  // `cotal cmux go` drives a dev clone directly (tsx + repo source paths). A packaged install
-  // has none of those, so fail clearly instead of crashing on a missing path — the packaged
-  // onboarding is `cotal setup` (what bare `cotal` / `npx cotal-ai` runs; inside a cmux pane it
-  // opens the same session).
-  if (![tsx, cmuxCli, cotalBin].every(existsSync)) {
-    console.error(
-      c.red("✗ `cotal cmux go` needs a cotal dev clone — it runs the repo source directly.") +
-        c.dim("\n  In a packaged install, run `cotal setup` instead (from a cmux pane it opens the same session)."),
-    );
-    process.exit(1);
-  }
-  // A cmux terminal leaf running a cotal subcommand (panes open in the login shell, which
-  // may be nushell — wrap in `bash -lc` like launch.sh; `exec` so pgrep sees the real cmd).
-  const leaf = (sub: string) => ({
-    pane: {
-      surfaces: [{ type: "terminal", command: `bash -lc 'cd ${root} && exec ${tsx} ${cotalBin} ${sub}'` }],
-    },
-  });
-  // A driving pane that auto-accepts Claude's one-time dev-channels prompt by pressing Enter on
-  // its own cmux surface a few times — so the session joins the mesh with no manual keypress.
-  const enterLoop =
-    '( [ -n "$CMUX_SURFACE_ID" ] && [ -n "$CMUX_BUNDLED_CLI_PATH" ] && ' +
-    'for _ in 1 2 3 4 5; do sleep 1; "$CMUX_BUNDLED_CLI_PATH" send-key --surface "$CMUX_SURFACE_ID" enter >/dev/null 2>&1; done ) &';
-  const leafConfirm = (sub: string) => ({
-    pane: {
-      surfaces: [
-        { type: "terminal", command: `bash -lc 'cd ${root} || exit 1; ${enterLoop} exec ${tsx} ${cotalBin} ${sub}'` },
-      ],
-    },
-  });
-  const openWs = (wsName: string, layout: unknown) =>
-    execFileSync(tsx, [cmuxCli, "open", wsName, JSON.stringify(layout)], { stdio: "ignore" });
-  const cmuxBin = process.env.CMUX_BUNDLED_CLI_PATH;
-  const workspaceExists = (wsName: string): boolean => {
-    if (!cmuxBin) return false;
-    try {
-      return execFileSync(cmuxBin, ["list-workspaces"], { encoding: "utf8" })
-        .split("\n")
-        .some((l) => l.includes(wsName));
-    } catch {
-      return false;
-    }
-  };
-
-  // Must run inside a live cmux surface (cmux authorizes its socket only from a real pane).
-  try {
-    execFileSync(tsx, [cmuxCli, "check"], { stdio: "ignore" });
-  } catch {
-    console.error(c.red("✗ can't reach cmux — run `cotal cmux go` from inside a cmux terminal."));
-    process.exit(1);
-  }
-
-  // Plugin (idempotent) so the spawned Claude sessions have the cotal_* tools.
-  // `--yes` runs the guided setup non-interactively (cmux go is one-shot onboarding).
-  execFileSync(tsx, [cotalBin, "setup", "--yes"], { cwd: root, stdio: "inherit" });
-
-  // Mesh: start it in the background if it isn't already up (cotal up blocks in the foreground).
-  if (!(await isReachable(server))) {
-    console.log(c.dim("Starting the mesh (cotal up --open)…"));
-    spawn(tsx, [cotalBin, "up", "--open"], { cwd: root, detached: true, stdio: "ignore" }).unref();
-    for (let i = 0; i < 40 && !(await isReachable(server)); i++)
-      await new Promise((r) => setTimeout(r, 250));
-    if (!(await isReachable(server))) {
-      console.error(c.red("✗ mesh did not come up — try `cotal up --open` manually."));
-      process.exit(1);
-    }
-  }
-  console.log(c.green(`✓ mesh up at ${server}`));
-
-  // A prior interactive `cotal setup` may have left a detached (pty) manager; cmux go wants its
-  // own cmux-runtime manager, so stop that one first — queue-grouped control would otherwise split
-  // spawns between the two.
-  const pidFile = join(root, ".cotal", "manager.pid");
-  if (existsSync(pidFile)) {
-    const pid = Number(readFileSync(pidFile, "utf8").trim());
-    try {
-      process.kill(pid, "SIGTERM");
-      console.log(c.dim(`stopped a background manager (pid ${pid}) to use cmux tabs`));
-    } catch {
-      /* already gone */
-    }
-    rmSync(pidFile);
-  }
-
-  // Manager in its own tab (skip if one is already running for this space).
-  let mgrRunning = false;
-  try {
-    execFileSync("pgrep", ["-f", `cotal.ts cmux --space ${space}`], { stdio: "ignore" });
-    mgrRunning = true;
-  } catch {
-    /* none running */
-  }
-  if (mgrRunning) {
-    console.log(
-      c.dim(
-        `✓ manager already running for space "${space}" — to pick up code changes, restart it: ` +
-          `Ctrl-C its tab or \`pkill -f "cotal.ts cmux --space ${space}"\`, then re-run.`,
-      ),
-    );
-  } else {
-    openWs("cotal-manager", leaf(`cmux --space ${space}`));
-    console.log(c.green("✓ opened the manager tab (cotal-manager)"));
-  }
-
-  // Work workspace: console on top, a ready driving session below (skip if already open).
-  if (workspaceExists(`cotal-${space}`)) {
-    console.log(c.dim(`✓ workspace cotal-${space} already open`));
-  } else {
-    openWs(`cotal-${space}`, {
-      direction: "vertical",
-      split: 0.4,
-      children: [leaf(`console --space ${space}`), leafConfirm(`spawn ${name} --space ${space}`)],
-    });
-    console.log(c.green(`✓ opened the cotal-${space} workspace (console + ${name})`));
-  }
-  console.log(
-    c.dim(`\nSwitch to the "${name}" pane, then drive: cotal_persona · cotal_spawn · cotal_despawn.`),
-  );
-}
-
-/** The manager's control-plane commands — the daemon runners (`supervise`/`cmux`)
- *  plus thin NATS request/reply clients that drive a running manager. Self-registered
- *  on import; the `cotal` binary resolves them from the registry. */
+/** The manager's control-plane commands — the `supervise` daemon runner plus thin NATS
+ *  request/reply clients that drive a running manager. Self-registered on import; the `cotal`
+ *  binary resolves them from the registry. */
 const managerCommands: Command[] = [
   {
     kind: "command",
     name: "supervise",
     group: "Manager",
     summary:
-      "run a manager — [--runtime <pty|tmux>] (default auto-detect) [--space <s>] [--server <url>] [--console-port <n>] [--roster <file>]",
+      "run a manager — [--runtime <pty|tmux|cmux>] (default auto-detect; cmux gives each teammate its own cmux tab) [--space <s>] [--server <url>] [--console-port <n>] [--roster <file>]",
     run: (argv) => runManager(argv, "auto"),
-  },
-  {
-    kind: "command",
-    name: "cmux",
-    group: "Manager",
-    summary:
-      "run a manager that spawns each teammate into its own cmux tab — [--space <s>] [--server <url>]; " +
-      "`cotal cmux go` = one-command onboarding (plugin + mesh + manager + console/driving session)",
-    run: (argv) => (argv[0] === "go" ? runDrive(argv.slice(1)) : runManager(argv, "cmux")),
   },
   {
     kind: "command",

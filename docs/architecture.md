@@ -343,12 +343,12 @@ dependency on them). Selectable backends:
 - **`host` (upgrade).** Headless via the Agent SDK for structured control plus true mid-turn
   interrupt; no native TUI (rendered from the event stream), observed via `cotal console --plain`.
 
-**Running one.** `cotal supervise` starts a manager on the default terminal runtime (pty, or
-tmux inside tmux); `cotal cmux` starts one that spawns each teammate into its own cmux tab (run
-it from a cmux pane). The `cotal` binary aliases the Claude-Code connector as the default agent,
-so `cotal_spawn` / `cotal_persona` / `cotal_despawn` work out of the box. For one-command
-onboarding, `cotal cmux go` installs the plugin (`cotal setup`), brings up the mesh, and opens
-the manager plus console plus a driving session in cmux.
+**Running one.** `cotal supervise` starts a manager; its runtime auto-detects (pty, or tmux
+inside tmux), and `--runtime cmux` spawns each teammate into its own cmux tab (run it from a cmux
+pane). The `cotal` binary aliases the Claude-Code connector as the default agent, so `cotal_spawn`
+/ `cotal_persona` / `cotal_despawn` work out of the box. For one-command onboarding, `cotal setup`
+(friendly alias `cotal go`) installs the plugin, brings up the mesh, and — inside a cmux pane —
+opens the manager plus console plus a driving session.
 
 The PTY carries the agent's **terminal I/O only**. Its mesh traffic still flows agent↔NATS
 directly through the plugin, so owning the PTY does not put the manager on the message hot path.

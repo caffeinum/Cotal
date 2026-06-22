@@ -11,9 +11,9 @@ import { listDeclaredChannels, listDeclaredRoles } from "../lib/personas.js";
 import { mentionsIn } from "../lib/mentions.js";
 
 /**
- * One-shot send commands — `cotal dm` / `cotal msg` / `cotal ask` — the headless equivalents of the
- * console's `:dm` / `:msg` / `:ask`. Each connects, sends one message over the matching delivery
- * mode (`unicast` / `multicast` / `anycast`), and exits. Fire-and-forget: no reply waiting.
+ * One-shot send command — `cotal send <dm|msg|ask>` — the headless equivalent of the console's
+ * `:dm` / `:msg` / `:ask`. The sub-verb picks the delivery mode (`unicast` / `multicast` /
+ * `anycast`); each connects, sends one message, and exits. Fire-and-forget: no reply waiting.
  */
 
 const SEND_OPTS = {
@@ -29,12 +29,24 @@ function targetAndText(positionals: string[], strip: RegExp): { target?: string;
   return { target: positionals[0]?.replace(strip, ""), text: positionals.slice(1).join(" ").trim() };
 }
 
-/** `cotal dm <agent> "<text>"` — one unicast to a peer by name, then exit. */
-export async function dm(argv: string[]): Promise<void> {
+/** `cotal send <dm|msg|ask> …` — dispatch one-shot send by delivery mode, then exit. */
+export async function send(argv: string[]): Promise<void> {
+  const [mode, ...rest] = argv;
+  if (mode === "dm") return dm(rest);
+  if (mode === "msg") return msg(rest);
+  if (mode === "ask") return ask(rest);
+  console.error(
+    'usage: cotal send <dm <agent> | msg <channel> | ask <role>> "<text>"  [--space <s>] [--server <url>] [--creds <path>]',
+  );
+  process.exit(1);
+}
+
+/** `cotal send dm <agent> "<text>"` — one unicast to a peer by name, then exit. */
+async function dm(argv: string[]): Promise<void> {
   const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, options: SEND_OPTS });
   const { target, text } = targetAndText(positionals, /^@/);
   if (!target || !text) {
-    console.error('usage: cotal dm <agent> "<text>"  [--space <s>] [--server <url>] [--creds <path>]');
+    console.error('usage: cotal send dm <agent> "<text>"  [--space <s>] [--server <url>] [--creds <path>]');
     process.exit(1);
   }
   const { ep, space } = await openTransient(values, "send");
@@ -64,12 +76,12 @@ export async function dm(argv: string[]): Promise<void> {
   await ep.stop();
 }
 
-/** `cotal msg <channel> "<text>"` — one broadcast to a channel, then exit. */
-export async function msg(argv: string[]): Promise<void> {
+/** `cotal send msg <channel> "<text>"` — one broadcast to a channel, then exit. */
+async function msg(argv: string[]): Promise<void> {
   const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, options: SEND_OPTS });
   const { target: channel, text } = targetAndText(positionals, /^#/);
   if (!channel || !text) {
-    console.error('usage: cotal msg <channel> "<text>"  [--space <s>] [--server <url>] [--creds <path>]');
+    console.error('usage: cotal send msg <channel> "<text>"  [--space <s>] [--server <url>] [--creds <path>]');
     process.exit(1);
   }
   const { ep } = await openTransient(values, "send");
@@ -78,12 +90,12 @@ export async function msg(argv: string[]): Promise<void> {
   await ep.stop();
 }
 
-/** `cotal ask <role> "<text>"` — one anycast to a role/service (exactly one instance), then exit. */
-export async function ask(argv: string[]): Promise<void> {
+/** `cotal send ask <role> "<text>"` — one anycast to a role/service (exactly one instance), exit. */
+async function ask(argv: string[]): Promise<void> {
   const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, options: SEND_OPTS });
   const { target: role, text } = targetAndText(positionals, /^@/);
   if (!role || !text) {
-    console.error('usage: cotal ask <role> "<text>"  [--space <s>] [--server <url>] [--creds <path>]');
+    console.error('usage: cotal send ask <role> "<text>"  [--space <s>] [--server <url>] [--creds <path>]');
     process.exit(1);
   }
   const { ep } = await openTransient(values, "send");
@@ -92,24 +104,28 @@ export async function ask(argv: string[]): Promise<void> {
   await ep.stop();
 }
 
-/** Complete `cotal msg <channel>` from the channels the local persona files *declare* — never the
- *  live broker (a <TAB> stays offline by contract). The label says "declared" because these are
- *  workspace intent, not a claim about what exists on the mesh. Only the channel position
- *  completes; the message text offers nothing. Fail-closed: a malformed agent file throws, so the
- *  completer declines rather than offering a silently-partial set (see {@link listDeclaredChannels}). */
-export function msgComplete(argv: string[]): CompletionResult {
+/** Complete `cotal send <dm|msg|ask> …`. Word 0 offers the sub-verbs; `msg`/`ask` then complete
+ *  their target from the channels/roles the local persona files declare — never the live broker (a
+ *  <TAB> stays offline by contract), and fail-closed (a malformed agent file makes the completer
+ *  decline rather than offer a silently-partial set; see {@link listDeclaredChannels}). `dm` offers
+ *  nothing: peer presence is live, so it can't be completed offline. */
+export function sendComplete(argv: string[]): CompletionResult {
   if (argv.length <= 1)
+    return {
+      items: [
+        { value: "dm", description: "unicast to a peer" },
+        { value: "msg", description: "broadcast to a channel" },
+        { value: "ask", description: "anycast to a role" },
+      ],
+      directive: "nofiles",
+    };
+  const [mode, ...rest] = argv;
+  if (mode === "msg" && rest.length <= 1)
     return {
       items: listDeclaredChannels().map((value) => ({ value, description: "declared channel" })),
       directive: "nofiles",
     };
-  return { items: [], directive: "nofiles" };
-}
-
-/** Complete `cotal ask <role>` from the roles the local persona files declare — same local-only,
- *  fail-closed contract as {@link msgComplete}. */
-export function askComplete(argv: string[]): CompletionResult {
-  if (argv.length <= 1)
+  if (mode === "ask" && rest.length <= 1)
     return {
       items: listDeclaredRoles().map((value) => ({ value, description: "declared role" })),
       directive: "nofiles",

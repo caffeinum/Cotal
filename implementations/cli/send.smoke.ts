@@ -1,5 +1,5 @@
 /**
- * One-shot send commands (`cotal dm` / `msg` / `ask`) — live e2e (no test runner). Needs a local
+ * One-shot send commands (`cotal send dm|msg|ask`) — live e2e (no test runner). Needs a local
  * nats-server (`pnpm cotal up --open`). Starts a receiver peer, runs the real CLI as subprocesses
  * against it (so arg-parse, registration, exit codes, and the negative path are all covered — what
  * `packages/core/smoke.ts` can't reach), and asserts each delivery arrives. Run: pnpm smoke:send
@@ -69,22 +69,22 @@ const M = "m-" + randomUUID().slice(0, 6);
 const A = "a-" + randomUUID().slice(0, 6);
 
 try {
-  const rdm = await run(["dm", "bob", U, "--space", space]);
-  const rmsg = await run(["msg", "general", M, "--space", space]);
-  const rask = await run(["ask", "reviewer", A, "--space", space]);
+  const rdm = await run(["send", "dm", "bob", U, "--space", space]);
+  const rmsg = await run(["send", "msg", "general", M, "--space", space]);
+  const rask = await run(["send", "ask", "reviewer", A, "--space", space]);
   await wait(700);
 
-  check("`cotal dm` exits 0", rdm.code === 0, rdm.stderr);
-  check("`cotal msg` exits 0", rmsg.code === 0, rmsg.stderr);
-  check("`cotal ask` exits 0", rask.code === 0, rask.stderr);
+  check("`cotal send dm` exits 0", rdm.code === 0, rdm.stderr);
+  check("`cotal send msg` exits 0", rmsg.code === 0, rmsg.stderr);
+  check("`cotal send ask` exits 0", rask.code === 0, rask.stderr);
   check("bob received the DM", got.includes(`DM:${U}`), got);
   check("bob received the #general broadcast", got.includes(`#general:${M}`), got);
   check("bob received the anycast to reviewer", got.includes(`ANY:reviewer:${A}`), got);
 
   // Negative: a missing target is a non-zero exit with a clear message.
-  const rneg = await run(["dm", "nobody-here", "x", "--space", space]);
-  check("`cotal dm` to an absent agent exits non-zero", rneg.code !== 0, rneg.code);
-  check("`cotal dm` to an absent agent says 'no agent'", /no agent/i.test(rneg.stderr), rneg.stderr);
+  const rneg = await run(["send", "dm", "nobody-here", "x", "--space", space]);
+  check("`cotal send dm` to an absent agent exits non-zero", rneg.code !== 0, rneg.code);
+  check("`cotal send dm` to an absent agent says 'no agent'", /no agent/i.test(rneg.stderr), rneg.stderr);
 
   console.log(`\nsend smoke: ${pass} checks passed`);
 } finally {
