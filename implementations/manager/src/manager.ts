@@ -177,7 +177,7 @@ export class Manager {
     this.ep.serveControl(CONTROL_ADMIN, (req) => this.handle(req, CONTROL_ADMIN));
     // Plane-3 (SPEC §8): host the fan-out writer + trusted reader. The reader re-authorizes each
     // durable-backstop entry against the owner's CURRENT read ACL — supplied from the managed set
-    // (the same `allowSubscribe` opSetChannels/opDurableJoin validate against). Auth mode only.
+    // (the same `allowSubscribe` opDurableJoin/opDurableLeave validate against). Auth mode only.
     if (this.auth)
       await this.ep.startPlane3((id) => [...this.agents.values()].find((a) => a.id === id)?.allowSubscribe);
   }
@@ -200,10 +200,9 @@ export class Manager {
     // subject; this gates WHAT each subject will honor, fail-closed. A privileged op arriving on
     // the self-service subject (publishable by all) must be rejected or the split does nothing.
     if (tier === CONTROL_SELF_SERVICE) {
-      // Self-service honors self-ops only: a no-name stop (self-despawn) and setChannels (mediated
-      // join/leave — the caller moving its OWN chat read within its allowSubscribe). Anything else —
-      // including a named stop (belongs on privileged/admin) — is a misroute and rejected.
-      if (req.op === "setChannels") return this.opSetChannels(caller, args);
+      // Self-service honors self-ops only: a no-name stop (self-despawn) and Plane-3 durableJoin/
+      // durableLeave (the caller adding/removing its OWN durable backstop, within its allowSubscribe).
+      // Anything else — including a named stop (belongs on privileged/admin) — is a misroute, rejected.
       if (req.op === "durableJoin") return this.opDurableJoin(caller, args);
       if (req.op === "durableLeave") return this.opDurableLeave(caller, args);
       if (req.op !== "stop") return { ok: false, error: `op "${req.op}" not allowed on self-service control subject` };
@@ -265,46 +264,12 @@ export class Manager {
     return { ok: true, data: { name: target.name, stopped: true, graceful } };
   }
 
-  /** Mediated join/leave (P-read-ACL): move the caller's OWN bind-only chat durable to a new channel
-   *  set, validated against its `allowSubscribe`. The caller is the authenticated id (non-forgeable
-   *  in auth mode), so this can only ever resolve to its own managed entry — and the durable filter
-   *  is moved with the manager's privileged creds, the only path that can (the agent has no UPDATE
-   *  grant). An unmanaged caller (a `cotal spawn` standalone agent, or any peer this manager didn't
-   *  start) gets a loud error, not a silent no-op — its read stays at its boot subscribe set. */
-  private async opSetChannels(callerId: string, args: Record<string, unknown>): Promise<ControlReply> {
-    const target = [...this.agents.values()].find((a) => a.id === callerId);
-    if (!target) return { ok: false, error: `setChannels: caller ${callerId} is not an agent this manager spawned` };
-    // Normalize defensively — this is a security boundary: accept only real strings, trimmed and
-    // non-empty, reject anything coerced or blank, and cap the list so a request can't bloat the
-    // control plane or the durable filter.
-    const raw = Array.isArray(args.channels) ? args.channels : [];
-    const channels = raw.filter((c): c is string => typeof c === "string").map((c) => c.trim()).filter(Boolean);
-    if (!channels.length || channels.length !== raw.length)
-      return { ok: false, error: "setChannels: channels must be a non-empty list of non-blank strings" };
-    if (channels.length > 64)
-      return { ok: false, error: "setChannels: too many channels (max 64)" };
-    for (const ch of channels) {
-      try {
-        assertValidChannel(ch); // reject names the wire layer would rewrite, before any ACL check
-      } catch (e) {
-        return { ok: false, error: (e as Error).message };
-      }
-      if (!channelInAllow(target.allowSubscribe, ch))
-        return { ok: false, error: `channel "${ch}" is not within allowSubscribe [${target.allowSubscribe.join(", ")}]` };
-    }
-    try {
-      await this.ep.setChatFilterFor(callerId, channels);
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
-    return { ok: true, data: { channels } };
-  }
-
   /** Plane-3 durable JOIN (SPEC §8): privileged-write the caller's `durable-active` membership for ONE
-   *  concrete channel + run activation catch-up. Validation mirrors {@link opSetChannels}: managed
-   *  caller (non-forgeable id), valid + concrete channel, ⊆ allowSubscribe. Durable membership is
-   *  per-concrete-channel (a wildcard ACL grants live breadth + concrete-durable-opt-in, never
-   *  wildcard-durable). The KV write + cursors + catch-up run with the manager's privileged creds. */
+   *  concrete channel + run activation catch-up. The caller is the authenticated id (non-forgeable in
+   *  auth), so this only ever resolves to its own managed entry; an unmanaged caller gets a loud error.
+   *  Validation: valid + concrete channel, ⊆ allowSubscribe. Durable membership is per-concrete-channel
+   *  (a wildcard ACL grants live breadth + concrete-durable-opt-in, never wildcard-durable). The KV
+   *  write + cursors + catch-up run with the manager's privileged creds. */
   private async opDurableJoin(callerId: string, args: Record<string, unknown>): Promise<ControlReply> {
     const target = [...this.agents.values()].find((a) => a.id === callerId);
     if (!target) return { ok: false, error: `durableJoin: caller ${callerId} is not an agent this manager spawned` };
@@ -319,12 +284,6 @@ export class Manager {
       return { ok: false, error: `durableJoin: "${channel}" must be a concrete channel (durable membership is per-concrete-channel, not wildcard)` };
     if (!channelInAllow(target.allowSubscribe, channel))
       return { ok: false, error: `channel "${channel}" is not within allowSubscribe [${target.allowSubscribe.join(", ")}]` };
-    // Boot/runtime disjoint guard: refuse a Plane-3 durable membership for a channel the caller's
-    // legacy boot durable already delivers (would double-deliver during coexistence). A no-op once
-    // Stage 5 removes the legacy boot durable (legacyCoveredChannelsFor → []).
-    const legacyCovered = await this.ep.legacyCoveredChannelsFor(callerId);
-    if (legacyCovered.some((c) => subjectMatches(c, channel)))
-      return { ok: false, error: `durableJoin: "${channel}" is already covered by your legacy boot durable — refused to avoid double-delivery during migration` };
     try {
       return { ok: true, data: await this.ep.durableJoinFor(callerId, channel) };
     } catch (e) {

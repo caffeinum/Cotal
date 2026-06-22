@@ -254,30 +254,35 @@ try {
   await pub.multicast("c3-ondemand", { channel: "ops.c3" });
   check("the post-reconnect on-demand join delivers", await until(() => got.includes("#ops.c3:c3-ondemand")), got);
 
-  // (C) Dual-path (durable:true) join stays EXACTLY ONCE across a restart.
+  // (C) A Plane-3 durable join (durable:true) survives a broker restart — the manager re-arms its
+  // fan-out + trusted reader, so a post after the blip still reaches the member via the backstop.
+  const aclC = ["general", "rev.>", "team.>", "ops.>"];
+  await pub.startPlane3((id) => (id === aId.id ? aclC : undefined));
   pub.serveControl(CONTROL_SELF_SERVICE, async (req) => {
-    if (req.op === "setChannels" && Array.isArray((req.args as { channels?: unknown })?.channels)) {
-      await pub.setChatFilterFor(req.from.id, (req.args as { channels: string[] }).channels);
+    const ch = typeof (req.args as { channel?: unknown })?.channel === "string" ? (req.args as { channel: string }).channel : "";
+    if (req.op === "durableJoin") return { ok: true, data: await pub.durableJoinFor(req.from.id, ch) };
+    if (req.op === "durableLeave") {
+      await pub.durableLeaveFor(req.from.id, ch, typeof (req.args as { generation?: unknown })?.generation === "number" ? (req.args as { generation: number }).generation : undefined);
       return { ok: true };
     }
-    return { ok: false, error: "unknown op" };
+    return { ok: false, error: `unknown op ${req.op}` };
   });
   await wait(200);
   const dual = await a.joinChannel("ops.dual");
-  check("manager-present joinChannel(ops.dual) reports durable:true", dual.joined === true && dual.durable === true, dual);
+  check("manager-present joinChannel(ops.dual) reports durable:true (Plane-3)", dual.joined === true && dual.durable === true, dual);
   server.kill("SIGKILL");
   await awaitExit(server);
   server = spawn("nats-server", ["-c", join(dir, "server.conf")], { stdio: "ignore" });
   let back2 = false;
   for (let i = 0; i < 50; i++) { if (await isReachable(SERVERS)) { back2 = true; break; } await wait(200); }
   if (!back2) throw new Error("broker did not restart (2)");
-  await wait(3000);
+  await wait(3500); // mgr + agent reconnect; mgr re-arms fan-out + reader
   got.length = 0;
   await pub.multicast("dual-after-restart", { channel: "ops.dual" });
-  await wait(800);
-  // Catches a coverage-partition that, after rebind, no longer matches the durable's filter → double-delivery.
-  check("dual-path join stays EXACTLY ONCE across a restart",
-    got.filter((g) => g === "#ops.dual:dual-after-restart").length === 1, got);
+  // The durable backstop survives the restart (the agent's id-dedup collapses the dual-path live+durable
+  // copies; here at the raw endpoint we just assert the post still arrives).
+  check("durable join survives a broker restart — post still reaches the member",
+    await until(() => got.includes("#ops.dual:dual-after-restart"), 12000), got);
 
   await a.stop();
   await pub.stop();

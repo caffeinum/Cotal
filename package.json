@@ -44,7 +44,6 @@
     "smoke:channel-attention:auth": "tsx extensions/connector-core/per-channel-attention-auth.smoke.ts",
     "smoke:presence-scrub": "tsx packages/core/presence-offline-scrub.smoke.ts",
     "smoke:cross-path-dedup": "tsx extensions/connector-core/cross-path-dedup.smoke.ts",
-    "smoke:durable-redelivery": "tsx extensions/connector-core/durable-redelivery.smoke.ts",
     "smoke:feedback": "tsx extensions/connector-core/feedback.smoke.ts",
     "smoke:opencode": "tsx extensions/connector-opencode/turn-wedge.smoke.ts",
     "smoke:attach": "tsx implementations/manager/attach.smoke.ts",

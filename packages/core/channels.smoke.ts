@@ -130,7 +130,8 @@ try {
   const jr = await B.ep.joinChannel("incident");
   await until(() => B.got.filter((g) => g.channel === "incident" && g.historical).length === 1);
   check("dynamic join backfills replay channel", jr.joined === true && jr.backfilled === 1 && B.got.filter((g) => g.channel === "incident" && g.historical).length === 1);
-  check("re-join is a no-op", JSON.stringify(await B.ep.joinChannel("incident")) === JSON.stringify({ joined: false, backfilled: 0, durable: true }));
+  // Open mode has no manager → no Plane-3 backstop, so a durable-class join is live-only (durable:false).
+  check("re-join is a no-op", JSON.stringify(await B.ep.joinChannel("incident")) === JSON.stringify({ joined: false, backfilled: 0, durable: false }));
 
   // ---- dynamic join (no-replay) → tail drop suppresses pre-join history ----
   B.got.length = 0;
@@ -150,27 +151,30 @@ try {
   await A.multicast("chat-after-leave", { channel: "chat" });
   await sleep(400);
   check("leave stops delivery", has(B.got, "chat-after-leave").length === 0);
+  // Leaving any channel is now manager-free — just close the core-sub (there is no legacy durable to
+  // refuse the leave, and no last-channel restriction).
   await B.ep.leaveChannel("incident");
-  await B.ep.leaveChannel("general");
-  await assert.rejects(() => B.ep.leaveChannel("log"), /only durable-covered channel/);
-  check("can't leave the last channel", true);
+  check("leaving the last channel succeeds (manager-free core-sub close)", (await B.ep.leaveChannel("general")).left === true);
 
-  // ---- rebind = pure resume, no re-backfill ----
+  // ---- restart (a fresh endpoint instance) backfills its boot channels' replay history ----
+  // Stage 5: there is no per-instance chat durable + cursor — a fresh instance re-reads its boot
+  // channels' replay history as a "catching up" block. (A same-instance broker reconnect resumes live
+  // without re-backfilling; see firstConnect. The durable backstop, auth, redelivers any missed window.)
   await B.ep.stop();
   await sleep(300);
   const B2 = recorder("B", "B_join", ["log"]);
   await B2.ep.start();
-  await sleep(500);
-  check("rebind does not re-backfill history", B2.got.filter((g) => g.historical).length === 0);
+  await until(() => B2.got.filter((g) => g.channel === "log" && g.historical).length >= 2);
+  check("a fresh instance backfills its boot channel's replay history", B2.got.filter((g) => g.channel === "log" && g.historical).length >= 2);
 
-  // ---- Gap 2: restart with a CHANGED config reconciles the filter + backfills the gained channel ----
+  // ---- restart with a CHANGED config backfills the full (replay) boot set ----
   await B2.ep.stop();
   await sleep(300);
-  const B3 = recorder("B", "B_join", ["log", "incident"]); // config gained #incident (has history)
+  const B3 = recorder("B", "B_join", ["log", "incident"]); // boot set now log + incident (both have history)
   await B3.ep.start();
-  await until(() => B3.got.filter((g) => g.channel === "incident" && g.historical).length === 1);
-  check("restart reconciles to config: gained channel is backfilled", B3.got.filter((g) => g.channel === "incident" && g.historical).length === 1);
-  check("restart does not re-backfill the unchanged channel", B3.got.filter((g) => g.channel === "log" && g.historical).length === 0);
+  await until(() => B3.got.filter((g) => g.channel === "incident" && g.historical).length >= 1 && B3.got.filter((g) => g.channel === "log" && g.historical).length >= 2);
+  check("restart backfills both boot channels' replay history",
+    B3.got.filter((g) => g.channel === "incident" && g.historical).length >= 1 && B3.got.filter((g) => g.channel === "log" && g.historical).length >= 2);
 
   // ---- native time-window backfill (Direct-Get start_time) ----
   await seedChannelRegistry({ servers, space, file: { channels: { recent: { replay: true, replayWindow: "1s" }, archive: { replay: true, replayWindow: "1h" } } } });

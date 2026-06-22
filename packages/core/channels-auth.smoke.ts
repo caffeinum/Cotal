@@ -53,15 +53,8 @@ mgr.serveControl(CONTROL_SELF_SERVICE, async (req: ControlRequest) => {
     return { ok: true, data: await mgr.durableJoinFor(req.from.id, ch) };
   }
   if (req.op === "durableLeave") {
-    await mgr.durableLeaveFor(req.from.id, ch);
+    await mgr.durableLeaveFor(req.from.id, ch, typeof args.generation === "number" ? args.generation : undefined);
     return { ok: true, data: { channel: ch } };
-  }
-  if (req.op === "setChannels") {
-    const channels = (args.channels as string[]) ?? [];
-    for (const c of channels)
-      if (!channelInAllow(allowSub, c)) return { ok: false, error: `"${c}" outside allowSubscribe` };
-    await mgr.setChatFilterFor(req.from.id, channels);
-    return { ok: true, data: { channels } };
   }
   return { ok: false, error: `unsupported op ${req.op}` };
 });

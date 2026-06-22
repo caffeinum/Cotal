@@ -93,9 +93,12 @@ try {
   });
   mgr.on("error", (e: Error) => console.error("  ! mgr", e.message));
   await mgr.start();
-
-  // An agent: provision its bind-only durables, mint scoped creds, join #general.
+  // Host Plane-3 so provisionAgent's boot membership write (durable-class boot channels → durable-active
+  // records) lands — channelMembers reads that registry.
   const agentId = newIdentity();
+  await mgr.startPlane3((id) => (id === agentId.id ? ["general"] : undefined));
+
+  // An agent: provision its bind-only durables + boot membership, mint scoped creds, join #general.
   const agentCreds = await provisionAgent(mgr, auth, agentId, { subscribe: ["general"], allowPublish: ["general"], role: "worker" });
   const agent = new CotalEndpoint({
     space,

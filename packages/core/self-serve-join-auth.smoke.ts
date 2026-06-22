@@ -142,7 +142,7 @@ try {
   await pub.multicast("on general", { channel: "general" });
   await wait(400);
   check(
-    "boot channel still delivered via durable, exactly once",
+    "boot channel delivered via its core-sub, exactly once",
     got.filter((g) => g === "#general:on general").length === 1,
     got,
   );
@@ -186,18 +186,14 @@ try {
   await wait(400);
   check("after manager-free leave, no live delivery", !got.some((g) => g.includes("after leave")), got);
 
-  // Durable-covered leave with NO provisioner is REFUSED honestly (it can't stop durable delivery).
-  let leaveRefused = false;
-  try {
-    await a.leaveChannel("general");
-  } catch {
-    leaveRefused = true;
-  }
-  check("durable-covered leave with no provisioner is refused (honest)", leaveRefused);
+  // Leaving a boot channel is now manager-free too (just closes the core-sub — there is no legacy
+  // durable to refuse the leave). It stops delivery.
+  const leftGeneral = await a.leaveChannel("general");
+  check("leaving a boot channel succeeds (manager-free core-sub close)", leftGeneral.left === true, leftGeneral);
   got.length = 0;
-  await pub.multicast("general still flows", { channel: "general" });
+  await pub.multicast("after general leave", { channel: "general" });
   await wait(300);
-  check("refused leave means the channel still delivers (no false 'left')", got.some((g) => g.includes("general still flows")), got);
+  check("after leaving the boot channel, no delivery", !got.some((g) => g.includes("after general leave")), got);
 
   // ───────────── Phase 2 — a real Plane-3 manager (fan-out + trusted reader + durableJoin/Leave) ─────────────
   // Host Plane-3 on `pub` and serve the durableJoin/Leave ctl ops that joinChannel/leaveChannel now use

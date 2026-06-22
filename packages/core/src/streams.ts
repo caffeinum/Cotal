@@ -15,8 +15,6 @@ import {
   chatStream,
   chatSubject,
   chatWildcard,
-  chatDurable,
-  collapseFilterSubjects,
   isConcreteChannel,
   dmStream,
   dmDurable,
@@ -153,42 +151,6 @@ export function dmDurableConfig(
     ack_policy: AckPolicy.Explicit,
     ack_wait: nanos(opts.ackWaitMs ?? 60_000),
     deliver_policy: DeliverPolicy.All,
-  };
-  if (opts.inactiveThresholdMs) cfg.inactive_threshold = nanos(opts.inactiveThresholdMs);
-  return cfg;
-}
-
-/**
- * The chat live-tail durable for an instance — ONE definition, used both by the privileged
- * pre-create (manager/provisioner, auth mode) and the endpoint's open-mode self-create, so an
- * idempotent re-add can't error on a config delta. `filter_subjects` binds it to the instance's
- * subscribe set (`chat.*.<ch>` per channel); only the privileged creator sets it under auth, which
- * is the whole point — the agent BINDS-only (denied CONSUMER.CREATE/UPDATE on CHAT) and so can
- * never widen its own read past `allowSubscribe`. `DeliverPolicy.New` (a tail): history is the
- * explicit per-channel backfill on join, the only shape that can honor per-channel replay policy
- * given `deliver_policy` is consumer-wide.
- *
- * Multi-channel ⇒ plural `filter_subjects`, which the client sends on the filter-less create
- * subject (`CONSUMER.CREATE.<stream>.<name>`) — so this durable's filter is NOT ACL-pinnable by
- * subject; bind-only + a trusted creator is the enforcement, exactly as for DM/TASK.
- *
- * `inactive_threshold` is set ONLY when the caller passes one — the open-mode self-create, where
- * the agent owns the durable. The privileged auth pre-create OMITS it (same bind-only reasoning as
- * {@link dmDurableConfig}): a threshold would retire the durable before a late/relaunched agent
- * binds it, and bind would then fail permanently.
- */
-export function chatDurableConfig(
-  space: string,
-  id: string,
-  channels: string[],
-  opts: { ackWaitMs?: number; inactiveThresholdMs?: number } = {},
-): Partial<ConsumerConfig> {
-  const cfg: Partial<ConsumerConfig> = {
-    durable_name: chatDurable(id),
-    filter_subjects: collapseFilterSubjects(channels.map((ch) => chatSubject(space, "*", ch))),
-    ack_policy: AckPolicy.Explicit,
-    ack_wait: nanos(opts.ackWaitMs ?? 60_000),
-    deliver_policy: DeliverPolicy.New,
   };
   if (opts.inactiveThresholdMs) cfg.inactive_threshold = nanos(opts.inactiveThresholdMs);
   return cfg;

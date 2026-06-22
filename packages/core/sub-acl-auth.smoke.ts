@@ -87,7 +87,7 @@ writeFileSync(join(dir, "server.conf"), serverConfig(auth, { port: PORT, storeDi
 const srv = spawn("nats-server", ["-c", join(dir, "server.conf")], { stdio: "ignore" });
 
 const noop = {
-  provisionChatDurable: async () => {},
+  provisionMembership: async () => {},
   provisionDmInbox: async () => {},
   provisionDlvInbox: async () => {},
   provisionTaskQueue: async () => {},

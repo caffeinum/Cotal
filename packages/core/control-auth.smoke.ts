@@ -91,7 +91,7 @@ try {
   // Two agents: one without capabilities, one declaring spawn. The stub provisioner skips
   // durable pre-create (we only need the creds' publish allow-list, which is what nats-server
   // enforces).
-  const noop = { provisionChatDurable: async () => {}, provisionDmInbox: async () => {}, provisionDlvInbox: async () => {}, provisionTaskQueue: async () => {} };
+  const noop = { provisionMembership: async () => {}, provisionDmInbox: async () => {}, provisionDlvInbox: async () => {}, provisionTaskQueue: async () => {} };
   const plainId = newIdentity();
   const plainCreds = await provisionAgent(noop, auth, plainId, { subscribe: ["general"], allowPublish: ["general"] });
   const capId = newIdentity();

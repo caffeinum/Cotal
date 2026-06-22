@@ -12,7 +12,7 @@ import {
 } from "@nats-io/transport-node";
 import { idFromCreds } from "./identity.js";
 import { assertValidName } from "./resolve.js";
-import { createSpaceStreams, chatDurableConfig, dmDurableConfig, dlvDurableConfig, taskDurableConfig, fanoutDurableConfig, inboxReaderConfig, MAX_MSGS_PER_SUBJECT } from "./streams.js";
+import { createSpaceStreams, dmDurableConfig, dlvDurableConfig, taskDurableConfig, fanoutDurableConfig, inboxReaderConfig, MAX_MSGS_PER_SUBJECT } from "./streams.js";
 import {
   jetstream,
   jetstreamManager,
@@ -66,10 +66,8 @@ import {
   anycastSubject,
   CHANNEL_DEFAULTS_KEY,
   chatStream,
-  chatDurable,
   chatHistDurable,
   chatSubject,
-  collapseFilterSubjects,
   controlServiceSubject,
   CONTROL_SELF_SERVICE,
   dmStream,
@@ -216,24 +214,23 @@ export class CotalEndpoint extends EventEmitter {
   /** Channels whose core-sub the broker refused (async sub.allow violation) — read by the
    *  broker-confirmed join: a denied subscribe is NOT a successful join (SPEC conformance #13). */
   private readonly chatSubDenied = new Set<string>();
-  /** Channels the legacy `chat_<id>` durable filter currently covers (boot set; open-mode runtime joins
-   *  still self-update it). The core-sub drops these (the durable owns their delivery+ack), so the two
-   *  paths never double-deliver. Under auth, runtime durable joins no longer move this — they go to
-   *  Plane-3 ({@link plane3Channels}); this stays the boot set until Stage 5 removes the legacy tail. */
-  private durableChannels: string[] = [];
-  /** Channels this session has a Plane-3 durable backstop for (auth runtime joins). DISTINCT from
-   *  {@link durableChannels} (legacy): a Plane-3 channel is NOT coverage-dropped — its core-sub still
-   *  delivers a live wake-hint, dedup-coalesced with the Plane-3 durable copy by id-dedup. Drives the
-   *  durable-state surface + routes leave to `durableLeave`. PERSISTS across reconnect (like
-   *  `this.channels`): the durable membership record + the `dlv_<id>` durable are persistent, so the
-   *  backstop survives a reconnect on its own — the agent can't re-read the privileged members KV, so
-   *  this in-memory mirror is kept, not rebuilt. Cleared only on full stop. Maps each channel to the
-   *  join GENERATION (from durableJoin) so leave passes it back for the stale-leave guard. */
+  /** Channels this session has a Plane-3 durable backstop for (per-channel join GENERATION, from
+   *  durableJoin, so leave passes it back for the stale-leave guard). A durable channel's core-sub is
+   *  NOT coverage-dropped — it stays a live wake-hint, dedup-coalesced with the Plane-3 durable copy by
+   *  id-dedup. Drives the durable-state surface + routes leave to `durableLeave`. PERSISTS across
+   *  reconnect (like `this.channels`): the membership record + the `dlv_<id>` durable are persistent so
+   *  the backstop survives a reconnect on its own; the agent can't re-read the privileged members KV,
+   *  so this in-memory mirror is kept, not rebuilt. Cleared only on full stop. */
   private readonly plane3Channels = new Map<string, number>();
   /** Chat-join subjects currently being broker-confirmed. An out-of-ACL subscribe among these trips an
    *  EXPECTED async permission violation that joinChannel turns into a clean throw, so watchStatus
    *  suppresses it rather than surfacing a spurious connection error. */
   private readonly confirmingChatSubs = new Set<string>();
+  /** True until the first successful connect completes its boot backfill — distinguishes first-connect
+   *  (backfill the boot channels' history) from a reconnect (reopen the core-subs, no re-backfill).
+   *  Persists across reconnect (NOT connection-scoped). Replaces the legacy chat-durable consumed-cursor
+   *  signal now that there is no per-instance chat durable. */
+  private firstConnect = true;
   private heartbeatTimer?: ReturnType<typeof setInterval>;
   private sweepTimer?: ReturnType<typeof setInterval>;
   private readonly roster = new Map<string, Presence>();
@@ -408,7 +405,6 @@ export class CotalEndpoint extends EventEmitter {
     this.chatSubs.clear();
     this.chatSubDenied.clear();
     this.confirmingChatSubs.clear();
-    this.durableChannels = [];
     this.roster.clear();
     this.joinSeq.clear();
     this.channelConfigs.clear();
@@ -800,22 +796,18 @@ export class CotalEndpoint extends EventEmitter {
   }
 
   /**
-   * Join a channel mid-session: add it to our chat durable's `filter_subjects` (same durable,
-   * same ack-floor, no teardown — `update` rides the self-scoped create grant), capture the
-   * stream frontier as this channel's join watermark, and backfill its history if replay is on.
-   * Idempotent: re-joining a channel already in our filter is a no-op (no re-backfill). Returns
-   * the number of historical messages backfilled (emitted as `historical` "message" events).
+   * Join a channel mid-session: open a native core subscription (manager-free live read, broker-
+   * confirmed against `sub.allow`), capture the stream frontier as the join watermark, backfill its
+   * history if replay is on, and — for a `durable`-class channel under a manager — request a Plane-3
+   * durable backstop. Idempotent: re-joining is a no-op (no re-backfill). Returns the backfill count +
+   * whether the durable backstop is active (+ a `reason` when a durable channel couldn't get one).
    */
   async joinChannel(
     channel: string,
   ): Promise<{ joined: boolean; backfilled: number; durable: boolean; reason?: string }> {
     if (!this.jsm) throw new Error(this.notLiveMsg());
     if (this.channels.includes(channel))
-      return {
-        joined: false,
-        backfilled: 0,
-        durable: this.durableChannels.includes(channel) || this.plane3Channels.has(channel),
-      };
+      return { joined: false, backfilled: 0, durable: this.plane3Channels.has(channel) };
     // Arm the watermark BEFORE going live: the backfill reads ≤ frontier and the core-sub only ever
     // delivers post-subscribe live messages (> frontier), so the two never overlap.
     const armed = await this.armJoin([channel]);
@@ -843,86 +835,39 @@ export class CotalEndpoint extends EventEmitter {
     }
     this.channels.push(channel);
     // Durable backstop. The live core-sub above already delivers (manager-free). For a `durable`-class
-    // channel we ALSO establish a backstop so a post reaches a busy/offline turn:
-    //   - AUTH (Stage 4): Plane-3 — request a per-member durable backstop from the manager via
-    //     `durableJoin` (the legacy chat_<id> filter-move is no longer used for runtime joins). The
-    //     core-sub is NOT coverage-dropped: it stays as a low-latency live wake-hint, dedup-coalesced
-    //     with the Plane-3 durable copy by id-dedup.
-    //   - OPEN (dev): no manager — the agent owns its legacy durable, so self-update its filter
-    //     (unchanged open-mode behaviour; coverage-partitioned via `durableChannels`).
-    // A `live`-class channel takes no backstop (joined live is the contract). No privileged writer /
-    // setup failure ⇒ `joined live` with the durable backstop unavailable (surfaced, never silent).
+    // channel, request a Plane-3 per-member backstop from the manager (durableJoin) so a post reaches a
+    // busy/offline turn — the core-sub stays as the live wake-hint, dedup-coalesced with the Plane-3
+    // copy by id-dedup. No manager (open dev / manager-less) ⇒ joined LIVE only, surfaced via `reason`
+    // (never silent). A `live`-class channel takes no backstop (joined live is the contract).
     let durable = false;
     let reason: string | undefined;
-    const cls = effectiveDeliveryClass(this.channelConfigs.get(channel), this.channelDefaults);
-    if (cls === "durable") {
-      if (!this.creds) {
-        try {
-          await this.setChatFilter([...this.durableChannels, channel]);
-          this.durableChannels.push(channel);
+    if (effectiveDeliveryClass(this.channelConfigs.get(channel), this.channelDefaults) === "durable") {
+      try {
+        const r = await this.durableJoinChannel(channel);
+        if (r.durable) {
+          this.plane3Channels.set(channel, r.generation ?? 0);
           durable = true;
-        } catch (e) {
-          if (!isNoProvisioner(e)) {
-            this.unsubscribeChat(channel);
-            const i = this.channels.indexOf(channel);
-            if (i >= 0) this.channels.splice(i, 1);
-            this.joinSeq.delete(channel);
-            throw e;
-          }
-          reason = "durable backstop unavailable (no privileged provisioner)";
+        } else {
+          reason = r.reason ?? "durable backstop unavailable";
         }
-      } else {
-        try {
-          const r = await this.durableJoinChannel(channel);
-          if (r.durable) {
-            this.plane3Channels.set(channel, r.generation ?? 0);
-            durable = true;
-          } else {
-            reason = r.reason ?? "durable backstop unavailable";
-          }
-        } catch (e) {
-          // No privileged writer (manager-less) or the write was rejected — joined live, backstop
-          // unavailable. NOT a join failure: the live subscription is up and authorized.
-          reason = `durable backstop unavailable (${(e as Error).message})`;
-        }
+      } catch (e) {
+        // No privileged writer (manager-less) or the write was rejected — joined live, backstop
+        // unavailable. NOT a join failure: the live subscription is up and authorized.
+        reason = `durable backstop unavailable (${(e as Error).message})`;
       }
     }
     const backfilled = await this.backfillArmed(armed);
     return { joined: true, backfilled, durable, ...(reason !== undefined ? { reason } : {}) };
   }
 
-  /** Leave a channel mid-session. A core-sub (runtime-joined) channel leaves MANAGER-FREE — just close
-   *  the subscription. A channel covered by the legacy durable can only stop delivery by moving that
-   *  filter, which needs the privileged provisioner: so a durable-covered leave is REFUSED with a clear
-   *  error when no provisioner is present (rather than reporting a leave that does not stop delivery),
-   *  and the only-durable-covered channel cannot be left until the legacy tail is removed (an empty
-   *  durable filter would match every chat subject). Returns whether anything changed. */
+  /** Leave a channel mid-session — MANAGER-FREE for the live read: just close the core subscription.
+   *  For a Plane-3 durable channel, also tombstone the membership at the leave cursor (SPEC §7: leave
+   *  is a hard read boundary for the backstop — a pre-leave entry stays deliverable, `seq > leaveCursor`
+   *  is denied). Best-effort on the ctl round-trip; the local leave proceeds regardless (the core-sub
+   *  closes, so live delivery stops immediately; a stale membership record is interval-bounded + GC'd). */
   async leaveChannel(channel: string): Promise<{ left: boolean }> {
     if (!this.jsm) throw new Error(this.notLiveMsg());
     if (!this.channels.includes(channel)) return { left: false };
-    if (this.durableChannels.includes(channel)) {
-      const remaining = this.durableChannels.filter((c) => c !== channel);
-      if (!remaining.length)
-        throw new Error(
-          `cannot leave "${channel}": it is your only durable-covered channel and the legacy durable ` +
-            `filter cannot be emptied (it would subscribe to every chat subject) — until the legacy tail is removed`,
-        );
-      try {
-        await this.setChatFilter(remaining);
-      } catch (e) {
-        if (isNoProvisioner(e))
-          throw new Error(
-            `cannot leave "${channel}": it is delivered by the legacy durable, which needs a privileged ` +
-              `provisioner (manager) to update — this session is fixed to its durable channels until reconnect/migration`,
-          );
-        throw e;
-      }
-      this.durableChannels = remaining;
-    }
-    // Plane-3 (Stage 4): a runtime durable-joined channel — tombstone its membership at the leave
-    // cursor so the backstop denies post-leave posts (SPEC §7: leave is a hard read boundary for the
-    // backstop). Best-effort on the ctl round-trip — the local leave still proceeds (the core-sub
-    // closes, so live delivery stops immediately; a stale membership record is interval-bounded + GC'd).
     if (this.plane3Channels.has(channel)) {
       try {
         await this.durableLeaveChannel(channel, this.plane3Channels.get(channel));
@@ -931,41 +876,11 @@ export class CotalEndpoint extends EventEmitter {
       }
       this.plane3Channels.delete(channel);
     }
-    // Delivery actually stopped (durable filter moved / Plane-3 tombstoned / core-sub-only): drop state.
     this.unsubscribeChat(channel);
     const i = this.channels.indexOf(channel);
     if (i >= 0) this.channels.splice(i, 1);
     this.joinSeq.delete(channel);
     return { left: true };
-  }
-
-  /** Move the chat live-tail durable to a new channel set. OPEN mode self-serves the
-   *  `consumers.update` (the agent owns its durable). AUTH mode is bind-only — the agent has no
-   *  UPDATE grant — so it sends a mediated control request to the manager, which validates the set
-   *  ⊆ its `allowSubscribe` before moving the filter. Throws clearly when no privileged responder is
-   *  present: a manager-less standalone auth session is fixed to its boot subscribe set — a
-   *  documented limitation, not a silent degrade. */
-  private async setChatFilter(channels: string[]): Promise<void> {
-    if (!this.jsm) throw new Error(this.notLiveMsg());
-    if (!this.creds) {
-      await this.jsm.consumers.update(chatStream(this.space), chatDurable(this.card.id), {
-        filter_subjects: collapseFilterSubjects(channels.map((ch) => chatSubject(this.space, "*", ch))),
-      });
-      return;
-    }
-    let reply: ControlReply;
-    try {
-      reply = await this.requestControl(CONTROL_SELF_SERVICE, { op: "setChannels", args: { channels } });
-    } catch (e) {
-      const msg = (e as Error).message;
-      if (/no responders/i.test(msg))
-        throw new Error(
-          "cannot change channels at runtime: no privileged provisioner (manager) is serving the mesh — " +
-            "this session is fixed to its boot subscribe set",
-        );
-      throw e;
-    }
-    if (!reply.ok) throw new Error(reply.error ?? "channel change rejected");
   }
 
   /** One coherent channel model for dashboards: every channel that has messages OR a registry
@@ -999,100 +914,46 @@ export class CotalEndpoint extends EventEmitter {
   }
 
   /**
-   * Who is subscribed to a channel — **broker truth, not self-report**. In Cotal a peer
-   * joins a channel by creating a chat-stream durable consumer (`chat_<id>`,
-   * `filter_subjects` = its channels), so `consumers.list(CHAT)` already records the real
-   * membership; we join it with presence so a lingering durable for a gone peer shows as a
-   * stale ghost (`live: false`) rather than a phantom listener.
-   *
-   * `channelMembers("review")` → that channel's members; `channelMembers()` → every channel
-   * mapped to its members. A member on a wildcard (`team.>`) counts for every concrete
-   * channel it subsumes (`team.backend`) — membership is the *effective subscription*.
-   *
-   * Privileged read: `consumers.list` needs `$JS.API.CONSUMER.LIST.<chat stream>`, which only
-   * the allow-all manager profile holds today (agents, observer, and admin are all denied), so
-   * this is not an agent-facing capability — serving it from a dashboard profile is a one-line
-   * ACL grant away.
+   * Who is a durable member of a channel — read from the privileged members registry (Plane-3),
+   * joined with presence for liveness (a member whose peer is gone but lingering shows `live:false`,
+   * not a phantom). Only CURRENT members (non-tombstoned). A wildcard registry channel would count for
+   * the concrete channels it subsumes, but durable membership is per-concrete-channel, so records are
+   * concrete. `live`-class channels carry no durable record — membership there is the live core-sub,
+   * not tracked here. Privileged read (the members KV is manager-write/read; agents hold no grant), so
+   * it is served by the manager, not an agent capability.
    */
   async channelMembers(channel: string): Promise<ChannelMember[]>;
   async channelMembers(): Promise<Map<string, ChannelMember[]>>;
   async channelMembers(
     channel?: string,
   ): Promise<ChannelMember[] | Map<string, ChannelMember[]>> {
-    const mgr = await this.manager();
-    // Group channel patterns by each consumer's durable id-token (chat_<id> → token(id)).
-    // One peer has one chat consumer, so this is a straight per-peer collection; join/leave
-    // just mutates that consumer's filter_subjects, which the next call re-reads live.
-    const byTok = new Map<string, Set<string>>();
-    for await (const ci of mgr.consumers.list(chatStream(this.space))) {
-      const tok = chatDurableToken(ci.config.durable_name ?? ci.name);
-      if (tok === null) continue;
-      // The server may report a single filter as `filter_subject` or `filter_subjects` — both
-      // are the same datum; read whichever is present. Filters are already collapsed (the
-      // effective subscription), so parse the channel straight out of each.
-      const filters =
-        ci.config.filter_subjects ?? (ci.config.filter_subject ? [ci.config.filter_subject] : []);
-      const set = byTok.get(tok) ?? new Set<string>();
-      for (const f of filters) {
-        const p = parseSubject(f);
-        if (p?.kind === "chat") set.add(p.rest);
-      }
-      byTok.set(tok, set);
-    }
-
-    // UNION the Plane-3 members registry (runtime durable joins) with the legacy consumer-derived list
-    // (boot joins) during Stage-4/5 coexistence — so durable members that have NO legacy chat_<id>
-    // consumer (the migration trap) are still visible, and boot members minted before the registry
-    // existed don't vanish. Only CURRENT durable members (non-tombstoned; `leaveCursor === undefined`).
-    // Stage 5 drops the legacy half when chat_<id> is removed. `live`-class channels have no durable
-    // record by design, so there a member reflects live subscription/presence, not durable membership.
-    const kvMembers = (await listMembers(await this.membersRegistry())).filter(
-      (r) => r.leaveCursor === undefined,
-    );
-
-    // Join with presence for liveness. token() is lossy, so match forward: index the roster
-    // by token(id). A durable with no roster match is a ghost/foreign id — keep its token,
-    // never drop it. The KV side keys by full owner id, so index that too.
-    const byToken = new Map<string, Presence>();
+    const members = (await listMembers(await this.membersRegistry())).filter((r) => r.leaveCursor === undefined);
     const byId = new Map<string, Presence>();
-    for (const p of this.roster.values()) {
-      byToken.set(token(p.card.id), p);
-      byId.set(p.card.id, p);
-    }
-    const memberFor = (tok: string): ChannelMember => {
-      const p = byToken.get(tok);
-      return p
-        ? { id: p.card.id, name: p.card.name, role: p.card.role, live: p.status !== "offline" }
-        : { id: tok, name: tok, live: false };
-    };
+    for (const p of this.roster.values()) byId.set(p.card.id, p);
     const memberForId = (id: string): ChannelMember => {
       const p = byId.get(id);
-      return p ? { id: p.card.id, name: p.card.name, role: p.card.role, live: p.status !== "offline" } : { id, name: id, live: false };
+      return p
+        ? { id: p.card.id, name: p.card.name, role: p.card.role, live: p.status !== "offline" }
+        : { id, name: id, live: false };
     };
     const byName = (a: ChannelMember, b: ChannelMember) => a.name.localeCompare(b.name);
-    const pushUnique = (arr: ChannelMember[], m: ChannelMember) => {
-      if (!arr.some((x) => x.id === m.id)) arr.push(m);
-    };
 
-    if (channel !== undefined) {
-      const out: ChannelMember[] = [];
-      for (const [tok, patterns] of byTok)
-        if ([...patterns].some((pat) => subjectMatches(pat, channel))) pushUnique(out, memberFor(tok));
-      for (const r of kvMembers) if (subjectMatches(r.channel, channel)) pushUnique(out, memberForId(r.owner));
-      return out.sort(byName);
-    }
+    if (channel !== undefined)
+      return members
+        .filter((r) => subjectMatches(r.channel, channel))
+        .map((r) => memberForId(r.owner))
+        .sort(byName);
 
     const map = new Map<string, ChannelMember[]>();
-    const into = (key: string, m: ChannelMember) => {
-      const arr = map.get(key);
-      if (arr) pushUnique(arr, m);
-      else map.set(key, [m]);
-    };
-    for (const [tok, patterns] of byTok) {
-      const m = memberFor(tok);
-      for (const pat of patterns) into(pat, m);
+    for (const r of members) {
+      const arr = map.get(r.channel);
+      const m = memberForId(r.owner);
+      if (arr) {
+        if (!arr.some((x) => x.id === m.id)) arr.push(m);
+      } else {
+        map.set(r.channel, [m]);
+      }
     }
-    for (const r of kvMembers) into(r.channel, memberForId(r.owner));
     for (const arr of map.values()) arr.sort(byName);
     return map;
   }
@@ -1202,44 +1063,19 @@ export class CotalEndpoint extends EventEmitter {
   }
 
   /**
-   * Privileged: pre-create an agent's bind-only chat live-tail durable (auth mode), filtered to its
-   * `subscribe` set, so the agent can BIND it without holding CONSUMER.CREATE/UPDATE on CHAT — its
-   * live read can't be self-widened past `allowSubscribe`. The creator sets the filter; the agent
-   * never does (mirrors {@link provisionDmInbox}). Idempotent. The caller must be permissive on CHAT.
+   * Privileged: write an agent's BOOT durable membership — each `durable`-class channel in its boot
+   * subscribe set gets a Plane-3 durable-active record (via {@link durableJoinFor}: cursor capture +
+   * activation catch-up), so it receives durable backstop copies from boot exactly like a runtime
+   * `durableJoin`. `live`-class (and non-concrete) channels are skipped. Idempotent. No-op unless this
+   * endpoint hosts Plane-3 (the manager). Replaces the legacy bind-only `chat_<id>` pre-create.
    */
-  async provisionChatDurable(targetId: string, subscribe: string[]): Promise<void> {
-    const jsm = await this.manager();
-    await jsm.consumers.add(chatStream(this.space), chatDurableConfig(this.space, targetId, subscribe));
-  }
-
-  /**
-   * Privileged: move an agent's bind-only chat durable to a new channel set — the write half of the
-   * mediated join/leave. The manager calls this AFTER validating the set ⊆ the agent's
-   * `allowSubscribe`; the agent itself has no UPDATE grant, so this trusted path is the only way its
-   * live filter moves. The filter is rebuilt from channel names here (not from agent-supplied
-   * subjects) so a caller can't smuggle a hand-built filter.
-   */
-  async setChatFilterFor(targetId: string, channels: string[]): Promise<void> {
-    const jsm = await this.manager();
-    await jsm.consumers.update(chatStream(this.space), chatDurable(targetId), {
-      filter_subjects: collapseFilterSubjects(channels.map((ch) => chatSubject(this.space, "*", ch))),
-    });
-  }
-
-  /** Privileged: the channels a target's LEGACY `chat_<id>` boot durable currently covers (parsed from
-   *  its `filter_subjects`), or `[]` if it has none. The boot/runtime disjoint guard: a Plane-3
-   *  `durableJoin` for a channel already covered by the legacy boot durable would double-deliver, so
-   *  the manager refuses it during coexistence. Becomes `[]` (a no-op) once Stage 5 removes the legacy
-   *  durable. Mirrors {@link durableCoveredChannels} but for a target id. */
-  async legacyCoveredChannelsFor(targetId: string): Promise<string[]> {
-    const info = await this.consumerInfo(chatStream(this.space), chatDurable(targetId));
-    if (!info) return [];
-    const filters =
-      info.config.filter_subjects ?? (info.config.filter_subject ? [info.config.filter_subject] : []);
-    return filters
-      .map((f) => parseSubject(f))
-      .filter((p): p is NonNullable<typeof p> => !!p && p.kind === "chat")
-      .map((p) => p.rest);
+  async provisionMembership(targetId: string, channels: string[]): Promise<void> {
+    if (!this.plane3) return;
+    for (const ch of channels) {
+      if (!isConcreteChannel(ch)) continue; // durable membership is per-concrete-channel
+      if ((await this.deliveryClassFresh(ch)) !== "durable") continue;
+      await this.durableJoinFor(targetId, ch);
+    }
   }
 
   /**
@@ -1632,86 +1468,24 @@ export class CotalEndpoint extends EventEmitter {
     // (open mode / un-provisioned). Auth-only feature; the pump self-guards on the durable's existence.
     await this.pumpDlv();
 
-    // Multicast: a DeliverPolicy.New *tail* of our channels. History is NOT a durable replay —
-    // it's an explicit, per-channel backfill on join (replay-policy gated, below), the only
-    // shape that can honor per-channel policy given deliver_policy is consumer-wide.
+    // Multicast: open a native CORE subscription for each channel (live, manager-free, broker-enforced
+    // by sub.allow) — boot + runtime joins use the SAME path; there is no per-instance chat durable.
+    // The durable backstop (a busy/offline turn) is Plane-3 (auth: membership written at provision, the
+    // manager's fan-out writer + trusted reader deliver via the `dlv_<id>` pump above; open dev mode is
+    // live-only — the durable plane needs the manager's trusted reader, the security boundary). Per-
+    // channel history is the explicit replay-gated backfill, on FIRST connect only; a reconnect reopens
+    // the subs without re-backfilling (the durable backstop redelivers any missed window via dlv).
     if (this.channels.length) {
-      const durable = chatDurable(id);
-      const want = collapseFilterSubjects(this.channels.map((ch) => chatSubject(this.space, "*", ch)));
-      // Auth mode: the chat live-tail durable is pre-created BIND-ONLY by the provisioner (the agent
-      // is denied CONSUMER.CREATE/UPDATE on CHAT — its filter is the read boundary). Open mode: the
-      // agent owns it and self-creates. Either way it is a DeliverPolicy.New tail; per-channel
-      // history is the explicit backfill below (the only shape that honors per-channel replay
-      // policy given deliver_policy is consumer-wide).
-      const info = await this.consumerInfo(chatStream(this.space), durable);
-      if (!info) {
-        if (this.creds)
-          throw new Error(
-            `chat durable ${durable} not pre-created — a launcher must call provisionChatDurable ` +
-              `(auth mode binds the durable, it never self-creates)`,
-          );
-        await this.jsm.consumers.add(
-          chatStream(this.space),
-          chatDurableConfig(this.space, id, this.channels, {
-            ackWaitMs: this.ackWaitMs,
-            inactiveThresholdMs: this.inactiveThresholdMs,
-          }),
-        );
-      }
-      // First bind to this durable (open self-create, or an auth pre-create never consumed) ⇒
-      // backfill the full subscribe set. A later reconnect (the consumed cursor has advanced)
-      // backfills only channels the config GAINED — un-acked live messages auto-redeliver, so a full
-      // re-backfill would double up. With pre-create, `info` always exists under auth, so the
-      // consumed cursor — not the durable's existence — is what tells first-bind from reconnect.
-      //
-      // Caveat (best-effort, by design): `consumer_seq > 0` proves the durable has delivered at
-      // least once, NOT that the initial backfill completed. A crash between the first delivery and
-      // backfillArmed() makes the next bind take the reconnect path and skip the full pre-bind
-      // backfill. This is unchanged from the prior self-create path (which keyed on durable
-      // existence and had the same gap — and was actually weaker: a crash before any delivery left
-      // the durable existing, so it never re-backfilled; consumer_seq still 0 here re-backfills).
-      // Reliable FORWARD delivery is the durable's job (un-acked redelivery); pre-bind history is
-      // opportunistic. A backfill-completion marker would make it reliable — a deferred follow-up.
-      const consumed = (info?.delivered?.consumer_seq ?? 0) > 0;
-      if (!consumed) {
-        // Arm the tail-drop watermarks BEFORE pump starts, so the tail can never deliver a
-        // just-bound channel's message un-watermarked (which would double-emit: live + backfill).
-        const armed = await this.armJoin(this.channels);
-        await this.pump(chatStream(this.space), durable);
-        await this.backfillArmed(armed);
-      } else {
-        // Reconnect: resume the tail, then backfill any channels the config GAINED since.
-        await this.pump(chatStream(this.space), durable);
-        const haveFilters =
-          info!.config.filter_subjects ?? (info!.config.filter_subject ? [info!.config.filter_subject] : []);
-        const gained = this.channels.filter(
-          (c) => !haveFilters.some((f) => subjectMatches(f, chatSubject(this.space, "*", c))),
-        );
-        const armed = gained.length ? await this.armJoin(gained) : undefined;
-        // Reconcile the durable's filter to the CURRENT config — OPEN MODE ONLY. Auth mode is
-        // bind-only (no UPDATE grant): the durable's filter is authoritative, moved solely by the
-        // mediated join/leave control op, so the agent never self-reconciles it.
-        if (!this.creds && !sameSet(haveFilters, want))
-          await this.jsm.consumers.update(chatStream(this.space), durable, { filter_subjects: want });
-        if (armed) await this.backfillArmed(armed);
-      }
-    }
-    // Overlay reconciliation (also runs on reconnect/rebind): set durableChannels to what the legacy
-    // durable's filter ACTUALLY covers — NOT all of this.channels, which also holds manager-free
-    // core-sub joins the durable never received — and (re)open a core subscription for every joined
-    // channel the durable does NOT cover. Without this a manager-free runtime join goes silently inert
-    // after a reconnect (it survives in this.channels but has no core sub and isn't in the durable).
-    this.durableChannels = await this.durableCoveredChannels();
-    const reopened: string[] = [];
-    for (const ch of this.channels)
-      if (!this.durableChannels.some((d) => subjectMatches(d, ch))) {
-        this.subscribeChat(ch);
-        reopened.push(ch);
-      }
-    if (reopened.length) {
+      // Arm the per-channel join watermarks BEFORE opening the subs: the backfill reads <= frontier and
+      // the core-sub delivers > frontier, so they never overlap (first connect). On reconnect we reopen
+      // without arming/backfilling.
+      const armed = this.firstConnect ? await this.armJoin(this.channels) : undefined;
+      for (const ch of this.channels) this.subscribeChat(ch);
       await this.confirmChatSub();
-      for (const ch of reopened) this.confirmingChatSubs.delete(chatSubject(this.space, "*", ch));
+      for (const ch of this.channels) this.confirmingChatSubs.delete(chatSubject(this.space, "*", ch));
+      if (armed) await this.backfillArmed(armed);
     }
+    this.firstConnect = false;
 
     // Anycast: a shared work-queue consumer for our role — one instance grabs each task.
     // Open mode self-creates; auth mode BINDS the provisioner-pre-created svc_<role>
@@ -1792,26 +1566,11 @@ export class CotalEndpoint extends EventEmitter {
     });
   }
 
-  /** The channels the legacy `chat_<id>` durable's filter ACTUALLY covers right now (parsed from its
-   *  `filter_subjects`) — the truth for the overlay coverage-partition, vs `this.channels` which also
-   *  holds manager-free core-sub joins the durable never received. Empty if there is no chat durable. */
-  private async durableCoveredChannels(): Promise<string[]> {
-    if (!this.jsm || !this.channels.length) return [];
-    const info = await this.consumerInfo(chatStream(this.space), chatDurable(this.card.id));
-    if (!info) return [];
-    const filters =
-      info.config.filter_subjects ?? (info.config.filter_subject ? [info.config.filter_subject] : []);
-    const out: string[] = [];
-    for (const f of filters) {
-      const p = parseSubject(f);
-      if (p && p.kind === "chat") out.push(p.rest);
-    }
-    return out;
-  }
-
-  /** Open a native core subscription to a channel's live feed (overlay: the manager-free read path,
-   *  broker-enforced by `sub.allow`). At-most-once — no replay, no ack. The handler coverage-drops
-   *  copies the legacy durable already owns, plus our own echo and spoofed senders. */
+  /** Open a native core subscription to a channel's live feed (the manager-free live read path,
+   *  broker-enforced by `sub.allow`). At-most-once — no replay, no ack; it is the live delivery for
+   *  every channel (boot + runtime). For a `durable` channel it is also the low-latency wake-hint
+   *  alongside the Plane-3 durable copy, coalesced by the receiver's id-dedup. Drops our own echo +
+   *  spoofed senders. */
   private subscribeChat(channel: string): void {
     if (!this.nc || this.chatSubs.has(channel)) return;
     this.chatSubDenied.delete(channel);
@@ -1834,8 +1593,7 @@ export class CotalEndpoint extends EventEmitter {
           if (i >= 0) {
             this.channels.splice(i, 1);
             this.joinSeq.delete(channel);
-            const di = this.durableChannels.indexOf(channel);
-            if (di >= 0) this.durableChannels.splice(di, 1);
+            this.plane3Channels.delete(channel);
             this.emit(
               "error",
               new Error(`left channel "${channel}": its live subscription was refused by the broker`),
@@ -1845,9 +1603,6 @@ export class CotalEndpoint extends EventEmitter {
         }
         const parsed = parseSubject(m.subject);
         if (!parsed || parsed.kind !== "chat") return;
-        // Coverage-partition dedup: if the legacy durable filter covers this channel it delivers +
-        // acks it, so drop the redundant core-sub copy — a channel is never double-delivered.
-        if (this.durableChannels.some((d) => subjectMatches(d, parsed.rest))) return;
         let msg: CotalMessage;
         try {
           msg = m.json<CotalMessage>();
@@ -2295,14 +2050,6 @@ export class CotalEndpoint extends EventEmitter {
   }
 }
 
-/** The id token of a chat-stream durable, or null if it isn't one — the inverse of
- *  `chatDurable` (`chat_<token(id)>`). token() is lossy, so this returns the token, not the
- *  original id; callers match it forward against `token(card.id)`. */
-function chatDurableToken(durable: string): string | null {
-  const prefix = "chat_";
-  return durable.startsWith(prefix) ? durable.slice(prefix.length) : null;
-}
-
 /** Map an authenticated parsed-subject kind to the message class surfaced to "message" listeners.
  *  Throws on `ctl` (control-plane is request/reply, never a "message") — per repo convention, no
  *  silent default: an unexpected delivering kind is a bug, not something to swallow. */
@@ -2319,12 +2066,6 @@ function kindFromParsed(kind: ParsedSubject["kind"]): MessageMeta["kind"] {
   }
 }
 
-/** Set equality over two subject lists (order/duplicate-insensitive). */
-function sameSet(a: string[], b: string[]): boolean {
-  if (a.length !== b.length) return false;
-  const s = new Set(a);
-  return b.every((x) => s.has(x));
-}
 
 /** Shallow-equal two per-channel-mode maps (presence dedup): a change must re-emit, so an attention
  *  toggle isn't swallowed as a quiet heartbeat. Absent and empty compare equal. */
@@ -2382,13 +2123,6 @@ export function isPermissionDenied(e: unknown): boolean {
   if (e instanceof PermissionViolationError) return true;
   if ((e as { cause?: unknown } | null)?.cause instanceof PermissionViolationError) return true;
   return /permissions?\s+violation/i.test(String((e as { message?: unknown } | null)?.message ?? ""));
-}
-
-/** True when a channel change failed because no privileged provisioner (manager) is serving the mesh.
- *  The overlay join/leave swallows this (the core-sub delivers live without a manager) but rethrows
- *  real rejections. Matches the message thrown by the no-responders branch of `setChatFilter`. */
-function isNoProvisioner(e: unknown): boolean {
-  return /no privileged provisioner/i.test(String((e as { message?: unknown } | null)?.message ?? ""));
 }
 
 /** Whether a NATS server is *running* at `servers`. True on a successful connect AND on an
