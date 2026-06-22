@@ -8,13 +8,17 @@ import {
   loadSpaceAuth,
   mintCreds,
   newIdentity,
+  stripSpaceAuth,
   type Profile,
 } from "@cotal-ai/core";
 import { cotalRoot } from "../lib/paths.js";
 import { c } from "../ui.js";
 
 /** Out-of-band cred minting: generate an identity, sign a profile-scoped user JWT with the
- *  space's account signing key, and write a creds file the agent/observer loads to join. */
+ *  space's account signing key, and write a creds file the agent/observer loads to join.
+ *  `--signer` instead emits a stripped signer file — only the account signing material
+ *  (`space` + `account.pub` + `account.signingSeed`), no operator root-of-trust — to mount into a
+ *  containerized manager so it can mint per-agent creds without holding the account-minting key. */
 export async function mint(argv: string[]): Promise<void> {
   const { values, positionals } = parseArgs({
     args: argv,
@@ -22,10 +26,33 @@ export async function mint(argv: string[]): Promise<void> {
     options: {
       profile: { type: "string" },
       out: { type: "string" },
+      signer: { type: "boolean" }, // emit a stripped signer file instead of agent/observer creds
+      force: { type: "boolean" }, // (--signer) overwrite an existing signer file
       "allow-subscribe": { type: "string" }, // read ACL override (comma-separated)
       "allow-publish": { type: "string" }, // post ACL override (comma-separated)
     },
   });
+  const dir = authDir(cotalRoot());
+
+  // `--signer`: no identity, no name — strip this space's auth.json to its account signing material.
+  if (values.signer) {
+    const auth = loadSpaceAuth(dir);
+    if (!auth) {
+      console.error(c.red("no space auth found here — run `cotal up` first"));
+      process.exit(1);
+    }
+    const out = resolve(values.out ?? "signer.json");
+    if (existsSync(out) && !values.force) {
+      console.error(c.red(`${out} already exists — pass --force to overwrite`));
+      process.exit(1);
+    }
+    writeFileSync(out, JSON.stringify(stripSpaceAuth(auth), null, 2), { mode: 0o600 });
+    console.log(c.green(`✓ wrote signer for space "${auth.space}"`));
+    console.log(c.dim(`  ${out}`));
+    console.log(c.dim("  mount read-only at /workspace/.cotal/auth/auth.json in the container"));
+    return;
+  }
+
   const name = positionals[0];
   if (!name) {
     console.error(c.red("usage: cotal mint <name> --profile <agent|observer|admin> [--allow-subscribe a,b] [--allow-publish a,b] [--out <path>]"));
@@ -37,7 +64,6 @@ export async function mint(argv: string[]): Promise<void> {
     console.error(c.red(`unknown profile "${profile}" — expected agent, observer, or admin`));
     process.exit(1);
   }
-  const dir = authDir(cotalRoot());
   const auth = loadSpaceAuth(dir);
   if (!auth) {
     console.error(c.red("no space auth found here — run `cotal up` first"));

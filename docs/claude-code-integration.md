@@ -34,7 +34,7 @@ happens to be on the mesh.
 **One command, from inside a cmux pane:**
 
 ```
-cotal cmux go --space <s>
+cotal go
 ```
 
 It does the whole onboarding:
@@ -54,7 +54,7 @@ Under the hood it is the existing pieces, so you can also run them by hand:
 
 - `cotal setup` (one-time plugin install)
 - `cotal up --open`
-- `cotal cmux --space <s>` (the manager daemon; `cotal supervise` for the plain pty runtime)
+- `cotal supervise --runtime cmux --space <s>` (the manager daemon, each teammate in its own cmux tab; drop `--runtime` for the auto-detected pty/tmux runtime)
 - `cotal spawn <name> --space <s>` (a foreground Claude on the mesh; a bare name with no
   agent file launches a personaless session)
 
@@ -156,8 +156,8 @@ persistently — it caches the stub (`~/.config/cotal/completion.<shell>`, or fi
 dir) and sources that from your shell rc (auto-detects `$SHELL`, idempotent, opt-in — never run
 by `setup`). Each `<TAB>` then forwards
 to a hidden `cotal __complete`, so completion sees real data: `cotal spawn <TAB>` lists your
-personas, `cotal msg <TAB>` the channels your agent files **declare**, `cotal ask <TAB>` the
-declared roles. By contract `__complete` reads only local files — never the mesh — so a
+personas, `cotal send msg <TAB>` the channels your agent files **declare**, `cotal send ask <TAB>`
+the declared roles. By contract `__complete` reads only local files — never the mesh — so a
 keystroke never blocks on the network, and there is **no fallback**: a completer that can't
 produce its authoritative answer (e.g. a malformed agent file) fails the process (nothing
 emitted, non-zero exit) rather than offer a silently-partial set, with the broken file named
@@ -526,7 +526,7 @@ To read submissions yourself:
 
 ```
 pnpm cotal mint feedback-observer --profile observer --out .cotal/auth/creds/feedback-observer.creds
-pnpm cotal watch --space beta-feedback --creds .cotal/auth/creds/feedback-observer.creds
+pnpm cotal console --plain --space beta-feedback --creds .cotal/auth/creds/feedback-observer.creds
 ```
 
 For the browser dashboard, run `pnpm cotal web --space beta-feedback --port 8788 --no-open` on

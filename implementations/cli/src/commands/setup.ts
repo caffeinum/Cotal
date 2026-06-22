@@ -369,8 +369,8 @@ function ensureCmuxSession(cwd: string): void {
   const cotal = selfArgv();
   const run = (...args: string[]): Pane => ({ command: cotal[0], args: [...cotal.slice(1), ...args], cwd });
   const space = resolveSpace(cwd);
-  // `space` reaches the panes as a discrete argv token, but keep it a bare token anyway (the same
-  // guard `cotal cmux go` uses) so it can't confuse downstream parsing.
+  // `space` reaches the panes as a discrete argv token, but keep it a bare token anyway so it can't
+  // confuse downstream parsing.
   if (!/^[A-Za-z0-9_.-]+$/.test(space))
     throw new Error(`cotal setup: unsafe space ${JSON.stringify(space)} (allowed: letters, digits, _ . -)`);
 
@@ -383,7 +383,7 @@ function ensureCmuxSession(cwd: string): void {
     for (const label of ["cotal-manager", ...DEMO_TEAM.map((n) => `cotal-${n}`)]) closeStaleTabs(term, label);
     term.open(
       "cotal-manager",
-      { panes: [run("cmux", "--space", space, "--spawn", DEMO_TEAM.join(","))] },
+      { panes: [run("supervise", "--runtime", "cmux", "--space", space, "--spawn", DEMO_TEAM.join(","))] },
       { focus: false },
     );
   }

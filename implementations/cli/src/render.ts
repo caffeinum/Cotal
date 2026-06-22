@@ -52,7 +52,7 @@ function presenceLine(ev: PresenceEvent): string {
   return `${ts(Date.now())} ${label} ${who(ev.presence.card)} ${statusBadge(ev.presence.status)}${activity}`;
 }
 
-// ---- the passive line stream (console --plain / watch / pipes) -------------
+// ---- the passive line stream (console --plain / pipes) ---------------------
 
 /** Wire the (not-yet-started) observer into a scrolling line log via the shared MeshView, and
  *  park until SIGINT. MeshView owns the endpoint lifecycle and all the normalization; this just

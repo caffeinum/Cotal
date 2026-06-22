@@ -19,7 +19,7 @@ re-implements the wire semantics. The wire is the source of truth; these are ren
 | **web** | `cotal web` | operator dashboard: see what needs you | HTTP + SSE, vanilla JS |
 
 `console` auto-selects: a real TTY gets the Ink TUI, a pipe or `--plain` gets the stream.
-`watch` is an alias of `console --plain`. The web dashboard is a **god-view** (it self-mints an
+The web dashboard is a **god-view** (it self-mints an
 admin cred so it sees DMs and anycast); the terminal console sees what its creds allow
 (`dmVisible`).
 

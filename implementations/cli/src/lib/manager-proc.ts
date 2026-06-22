@@ -31,10 +31,25 @@ export function pgrepMatches(pattern: string): boolean {
 }
 
 /** True if a cmux-runtime manager is live for this space. Its cmux tab persists after the process
- *  exits, so a workspace listing isn't proof — the process is. Matches prod `cotal.js` and dev
- *  `cotal.ts` (both carry `cmux --space <space>`). */
+ *  exits, so a workspace listing isn't proof — the process is. A cmux manager runs `… supervise
+ *  --runtime cmux … --space <space> …`; match order-independently (the session launcher emits the
+ *  two flags adjacent, but a hand-typed launch may reorder them) by narrowing to `--runtime cmux`
+ *  processes, then confirming the exact `--space <space>` token in each one's argv. Works for prod
+ *  `cotal.js` and dev `cotal.ts` alike. */
 export function cmuxManagerRunning(space: string): boolean {
-  return pgrepMatches(`cmux --space ${space}`);
+  // `--` so pgrep doesn't read the leading `--runtime` as one of its own options.
+  const r = spawnSync("pgrep", ["-f", "--", "--runtime cmux"], { encoding: "utf8" });
+  if (r.status !== 0) return false;
+  // Match the `--space` value as a whole token (space names can't contain whitespace), so `demo`
+  // never matches a process serving `demo2`. Both `--space <space>` and `--space=<space>` forms.
+  const servesSpace = (args: string): boolean => {
+    const tokens = args.split(/\s+/);
+    return tokens.some((t, i) => (t === "--space" && tokens[i + 1] === space) || t === `--space=${space}`);
+  };
+  return r.stdout
+    .split("\n")
+    .filter(Boolean)
+    .some((pid) => servesSpace(spawnSync("ps", ["-p", pid, "-o", "args="], { encoding: "utf8" }).stdout));
 }
 
 /** Start the control-plane manager detached (pid in `.cotal/manager.pid`, output to
