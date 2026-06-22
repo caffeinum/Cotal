@@ -1,5 +1,18 @@
 # cotal-ai
 
+## 0.5.0
+
+### Patch Changes
+
+- Updated dependencies [58f2d41]
+  - @cotal-ai/core@0.5.0
+  - @cotal-ai/cli@0.5.0
+  - @cotal-ai/manager@0.5.0
+  - @cotal-ai/cmux@0.5.0
+  - @cotal-ai/connector-claude-code@0.5.0
+  - @cotal-ai/connector-hermes@0.5.0
+  - @cotal-ai/connector-opencode@0.5.0
+
 ## 0.4.0
 
 ### Patch Changes
