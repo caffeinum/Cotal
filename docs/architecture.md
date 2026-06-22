@@ -51,6 +51,21 @@ fit lateral pub/sub.
   concrete `team.backend`; subscribe to a subtree with `team.>` (or one level with `team.*`).
   Flat names (`general`) still work. Publishing is always concrete; only subscriptions
   wildcard.
+- **Delivery classes + self-serve join + durable backstop (SPEC v0.3 rebuild — the current model).**
+  Channel delivery is two wire-observable classes (SPEC §4/§7). **`live`** is a native core-NATS
+  subscription to `cotal.<space>.chat.*.<channel>` bounded by the agent's `sub.allow`: **join =
+  subscribe, leave = unsubscribe, no manager**, at-most-once. **`durable`** is `live` plus a
+  per-subscriber durable backstop ("Plane-3"), so a post still reaches a busy/offline agent on its
+  next turn (SPEC §8): a privileged **fan-out writer** copies each post into every eligible member's
+  *mixed* per-owner inbox (which the agent cannot read), a **trusted reader** re-authorizes every
+  entry against the **current** read ACL **and** the membership interval (`joinCursor < seq ≤
+  leaveCursor`) and transfers authorized copies to the agent's own bind-only DELIVER durable, which
+  the agent acks natively (at-least-once, end-to-end). Membership is a **privileged cursored KV
+  registry** (`cotal_members_<space>`), not consumer topology; `channelMembers()` reads it (unioned
+  with the legacy consumers during migration) ∩ presence-liveness. The single multi-filter
+  `chat_<id>` durable + mediated filter-move described in the rest of this section is the
+  **transitional/boot path** still serving the boot subscribe set during the migration (removed once
+  boot moves to Plane-3); the normative model is SPEC §4/§7/§8.
 - **Channel membership** (who is on a channel) is **server-known, not self-reported**. A peer
   joins a channel by creating a chat-stream durable consumer, so `consumers.list` *is* the
   membership: unforgeable, with no presence field to lie in. `endpoint.channelMembers(channel)`
