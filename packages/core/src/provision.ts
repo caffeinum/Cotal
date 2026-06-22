@@ -34,15 +34,23 @@ import {
   controlServiceSubject,
   CONTROL_PRIVILEGED,
   CONTROL_SELF_SERVICE,
+  CONTROL_DELIVERY,
   chatStream,
   dmStream,
   taskStream,
-  chatDurable,
+  dlvStream,
+  inboxStream,
   chatHistDurable,
   dmDurable,
   taskDurable,
+  dlvDurable,
   presenceBucket,
   channelBucket,
+  membersBucket,
+  aclBucket,
+  deliveryBucket,
+  FANOUT_DURABLE,
+  INBOX_READER_DURABLE,
 } from "./subjects.js";
 import type { Identity } from "./identity.js";
 
@@ -50,7 +58,7 @@ import type { Identity } from "./identity.js";
  *  scope each one — at which point the manager MUST already hold its own privileged
  *  profile (broad: pre-create others' DM durables, serve ctl), not "agent", or it
  *  silently loses those powers the moment "agent" is tightened. */
-export type Profile = "agent" | "observer" | "admin" | "manager";
+export type Profile = "agent" | "observer" | "admin" | "manager" | "delivery";
 
 /** A space's persisted trust material. The `signingSeed` is the sensitive provisioner
  *  secret; everything else is public (JWTs) or recoverable. */
@@ -132,9 +140,8 @@ export interface MintOpts {
    *  by the caller). Minted as per-channel single-filter history-consumer create grants
    *  (`CONSUMER.CREATE.<CHAT>.<chathist_id>.<chat.*.ch>`) — the broker boundary on chat **history**
    *  reads (join-backfill / focus-recall). Each is run through the chat-subject builder so a
-   *  wildcard subtree `team.>` becomes `chat.*.team.>`. Defaults to `["general"]`. The live tail's
-   *  filter (the active `subscribe` set) is pinned separately by the privileged
-   *  {@link DurableProvisioner.provisionChatDurable} pre-create, never here. */
+   *  wildcard subtree `team.>` becomes `chat.*.team.>`. Defaults to `["general"]`. The live read is the
+   *  agent's own native `sub.allow` over `chat.*.<channel>` (also minted from this list, below). */
   allowSubscribe?: string[];
   /** Post ACL — channels an "agent" may publish to (the agent file's `allowPublish`, already
    *  resolved by the caller). Each becomes a `chat.<id>.<ch>` publish grant. **Default-deny**:
@@ -149,27 +156,53 @@ export interface MintOpts {
    *  publish to the privileged control subject (start/purge/definePersona/named stop).
    *  Default-deny when absent — nats-server rejects the publish, no handler involved. */
   capabilities?: string[];
+  /** Delivery-daemon shard seam (`delivery` profile only). N=1 is the only operating mode; these do
+   *  not change permissions in this build (the daemon owns the whole space at N=1). Present so the
+   *  N>1 follow-up is a small diff. Default `{0,1}`. */
+  shard?: number;
+  shards?: number;
 }
 
 /** Options for {@link provisionAgent} — {@link MintOpts} plus the active read set. */
 export interface ProvisionOpts extends MintOpts {
-  /** The active read set: pre-created as the live chat durable's `filter_subjects` (the channels
-   *  the agent actually subscribes to at boot). Must be ⊆ `allowSubscribe`. Defaults to `["general"]`. */
+  /** The active read set: the channels the agent subscribes to (live core-sub) at boot, and whose
+   *  `durable`-class ones the agent self-joins for a Plane-3 backstop at connect (via the delivery
+   *  daemon). Must be ⊆ `allowSubscribe`. Defaults to `["general"]`. */
   subscribe?: string[];
+  /** Record this agent's read ACL so it can participate in durable delivery (default true). A durable
+   *  backstop needs the agent's read ACL in the registry — the server-side delivery daemon re-authorizes
+   *  every durable entry against it — written here at provision. Set FALSE for a LIVE-ONLY launcher
+   *  (e.g. a direct foreground `cotal spawn` with no durable intent): no ACL row is written, so the daemon
+   *  refuses to authorize a durable backstop and the agent stays live-only. Boot durable MEMBERSHIP itself
+   *  is not written here — the agent self-joins its durable channels via the daemon's `ctl.delivery` op at
+   *  connect. */
+  durableMembership?: boolean;
 }
 
-/** The privileged onboarding ops a launcher needs — implemented by a connected, permissive
- *  endpoint (the manager, or a short-lived provisioner that `cotal spawn` opens). */
+/** The privileged onboarding ops a launcher needs at spawn — implemented by a connected, permissive
+ *  endpoint (the manager at `cotal start`/`cotal up`, or a short-lived provisioner that `cotal spawn`
+ *  opens). It pre-creates the agent's own mailboxes and records its read ACL; it does NOT host Plane-3
+ *  delivery (that is the server-side delivery daemon). */
 export interface DurableProvisioner {
-  /** Pre-create the agent's bind-only chat live-tail durable, filtered to `subscribe`. */
-  provisionChatDurable(id: string, subscribe: string[]): Promise<void>;
   provisionDmInbox(id: string): Promise<void>;
+  /** Pre-create the agent's bind-only Plane-3 DELIVER durable (`dlv_<id>`, filtered to `dlv.<id>`) so
+   *  it can BIND its per-member durable handoff without holding CONSUMER.CREATE on the DLV stream. */
+  provisionDlvInbox(id: string): Promise<void>;
+  /** Record the agent's read ACL (`allowSubscribe`) in the durable ACL registry — the same act as
+   *  baking it into the JWT, persisted so the **server-side delivery daemon** can re-authorize the
+   *  agent's durable entries and validate its runtime durable-joins (it holds no in-memory ledger).
+   *  Replaces the old manager-written boot membership: boot durable membership is now the agent
+   *  SELF-JOINING its durable channels via the daemon's `ctl.delivery` op at connect. */
+  commitAcl(id: string, allowSubscribe: string[]): Promise<void>;
   provisionTaskQueue(role: string): Promise<void>;
 }
 
-/** Onboard an agent for launch (auth mode): pre-create its bind-only chat (+ DM + role TASK)
- *  durables and mint its scoped creds. The single shared step so every launcher — the manager and
- *  `cotal spawn` alike — provisions identically (manager not special). */
+/** Onboard an agent for launch (auth mode): pre-create its bind-only DM (+ Plane-3 DELIVER + role
+ *  TASK) durables, RECORD its read ACL in the durable registry (unless `durableMembership:false`), and
+ *  mint its scoped creds. Live delivery is the agent's own core subscription — there is no per-instance
+ *  chat durable. Boot durable MEMBERSHIP is not written here: the agent self-joins its durable channels
+ *  via the server-side delivery daemon's `ctl.delivery` op at connect. A live-only launcher
+ *  (`durableMembership:false`, e.g. direct `cotal spawn`) gets no ACL row and stays live-only. */
 export async function provisionAgent(
   provisioner: DurableProvisioner,
   auth: SpaceAuth,
@@ -188,8 +221,15 @@ export async function provisionAgent(
       throw new Error(
         `provisionAgent: subscribe "${ch}" is not within allowSubscribe [${allowSubscribe.join(", ")}]`,
       );
-  await provisioner.provisionChatDurable(identity.id, subscribe);
   await provisioner.provisionDmInbox(identity.id);
+  await provisioner.provisionDlvInbox(identity.id);
+  // Record the agent's read ACL in the durable registry (the same act as baking it into the JWT) so the
+  // server-side delivery daemon can re-authorize this agent's durable entries + validate its runtime
+  // durable-joins — it holds no in-memory ledger. The agent SELF-JOINS its durable boot channels via the
+  // daemon at connect (no manager-written boot membership). `durableMembership:false` (a live-only
+  // launcher, e.g. direct `cotal spawn` with no daemon) opts out of the ACL row → the daemon never
+  // authorizes a durable backstop for it, so it stays live-only.
+  if (opts.durableMembership !== false) await provisioner.commitAcl(identity.id, allowSubscribe);
   if (opts.role) await provisioner.provisionTaskQueue(opts.role);
   return mintCreds(auth, identity, "agent", { ...opts, allowSubscribe });
 }
@@ -230,10 +270,12 @@ function permissionsFor(
   id: string,
   opts: MintOpts,
 ): Record<string, unknown> {
+  if (profile === "delivery") return deliveryPermissions(space, id); // scoped server-side Plane-3 infra
   if (profile === "manager") return {}; // privileged: allow-all defaults
   const CHAT = chatStream(space), DM = dmStream(space), TASK = taskStream(space);
   const KV = `KV_${presenceBucket(space)}`;
   const CHKV = `KV_${channelBucket(space)}`; // channel registry (read-only for everyone)
+  const DLVKV = `KV_${deliveryBucket(space)}`; // delivery lease/readiness (read-only — Component 6 health)
   const inbox = `_INBOX_${id}.>`;
 
   if (profile === "observer" || profile === "admin") {
@@ -296,7 +338,8 @@ function permissionsFor(
   // channel must equal its wire token, or the minted grant would alias the logical ACL.
   for (const ch of [...allowSubscribe, ...allowPublish]) assertValidChannel(ch);
   const manager = opts.manager ?? CONTROL_PRIVILEGED;
-  const chatD = chatDurable(id), chatHistD = chatHistDurable(id), dmD = dmDurable(id);
+  const chatHistD = chatHistDurable(id), dmD = dmDurable(id);
+  const DLV = dlvStream(space), dlvD = dlvDurable(id); // Plane-3 per-member delivery (bind-only)
   const svcD = opts.role ? taskDurable(opts.role) : undefined;
   const pubAllow = [
     // peer publish — identity + channel scope, built from the real builders. Default-deny: ONLY the
@@ -304,7 +347,11 @@ function permissionsFor(
     ...allowPublish.map((ch) => chatSubject(space, id, ch)),
     unicastSubject(space, "*", id), //  inst.*.<id>   — DM any instance, as me
     anycastSubject(space, "*", id), //  svc.*.<id>    — anycast any role, as me
-    controlServiceSubject(space, CONTROL_SELF_SERVICE, id), // ctl.self.<id> — self stop/despawn + mediated join/leave, granted to all
+    controlServiceSubject(space, CONTROL_SELF_SERVICE, id), // ctl.self.<id> — self stop/despawn, granted to all
+    // ctl.delivery.<id> — request a durable backstop join/leave/list from the SERVER-SIDE delivery
+    // daemon (NOT the manager). The reply rides this same subtree (`ctl.delivery.<id>.reply.<n>`, in
+    // sub.allow below) so the daemon can answer without broad inbox-publish — see CONTROL_DELIVERY.
+    controlServiceSubject(space, CONTROL_DELIVERY, id),
     // JetStream control plane — scoped to this agent's own streams/durables.
     "$JS.API.INFO",
     // STREAM.INFO: CHAT (join watermark, recall drop-marker, channel-list counts — a documented
@@ -312,15 +359,9 @@ function permissionsFor(
     // bind their dm_<id>/svc_<role> by name and never inspect those streams, so granting INFO there
     // would only leak DM-inbox / task subject metadata across peers for no functional gain.
     `$JS.API.STREAM.INFO.${CHAT}`, `$JS.API.STREAM.INFO.${KV}`, `$JS.API.STREAM.INFO.${CHKV}`,
-    // CHAT live tail: BIND ONLY its own pre-created chat_<id> durable — info / fetch / ack, NO
-    // create or update. The durable's `filter_subjects` is the read boundary; it is set only by the
-    // privileged provisioner (subscribe ⊆ allowSubscribe) and moved only via the mediated
-    // join/leave control op. With no create/update path the agent can never widen its own live
-    // read. (The multi-filter durable rides the filter-less create subject, so it is not
-    // ACL-pinnable by subject anyway — bind-only + trusted creator is the enforcement, as DM/TASK.)
-    `$JS.API.CONSUMER.INFO.${CHAT}.${chatD}`,
-    `$JS.API.CONSUMER.MSG.NEXT.${CHAT}.${chatD}`,
-    `$JS.ACK.${CHAT}.${chatD}.>`,
+    // Live channel delivery is the agent's own native core subscription (sub.allow over chat.*.<ch>,
+    // below) — there is NO per-instance chat live-tail durable to bind. The durable backstop is
+    // Plane-3 (the bind-only dlv_<id> durable below). So no CHAT consumer bind/ack grants here.
     // CHAT history reads (join-backfill, focus-recall, drop-marker) — single-filter EPHEMERAL
     // consumers named chathist_<id>. The create rides the extended subject
     // CONSUMER.CREATE.<CHAT>.<chathist_id>.<filter>, whose trailing filter token nats-server pins to
@@ -337,6 +378,13 @@ function permissionsFor(
     `$JS.API.CONSUMER.INFO.${DM}.${dmD}`,
     `$JS.API.CONSUMER.MSG.NEXT.${DM}.${dmD}`,
     `$JS.ACK.${DM}.${dmD}.>`,
+    // Plane-3 DELIVER consumer (SPEC §8): BIND ONLY its own pre-created dlv_<id> — info/fetch/ack,
+    // never create (the provisioner pre-creates it filtered to dlv.<id>). The agent acks this via
+    // native JetStream — the re-authorized per-member handoff. It gets NO grant on the INBOX (mixed
+    // pre-auth) stream at all: default-deny keeps the fan-out target unreadable by the agent.
+    `$JS.API.CONSUMER.INFO.${DLV}.${dlvD}`,
+    `$JS.API.CONSUMER.MSG.NEXT.${DLV}.${dlvD}`,
+    `$JS.ACK.${DLV}.${dlvD}.>`,
     // Presence: watch (read, public roster) + flow control + PUT OWN KEY ONLY.
     `$JS.API.CONSUMER.CREATE.${KV}.>`,
     `$JS.API.CONSUMER.INFO.${KV}.>`,
@@ -347,6 +395,11 @@ function permissionsFor(
     `$JS.API.STREAM.MSG.GET.${CHKV}`,
     `$JS.API.CONSUMER.CREATE.${CHKV}.>`,
     `$JS.API.CONSUMER.INFO.${CHKV}.>`,
+    // Delivery lease/readiness: READ-ONLY (kv.get) for the non-gating `cotal_channels` delivery-health
+    // surface (Component 6). The lease key is daemon-availability info, like the world-readable roster;
+    // NO write grant — only the `delivery` cred writes it.
+    `$JS.API.STREAM.INFO.${DLVKV}`,
+    `$JS.API.STREAM.MSG.GET.${DLVKV}`,
   ];
   if (svcD) {
     // TASK consumer: BIND ONLY its own role's pre-created durable (svc_<role>). Like DM, the
@@ -377,8 +430,88 @@ function permissionsFor(
     `$JS.API.CONSUMER.CREATE.${TASK}`,
     `$JS.API.CONSUMER.CREATE.${TASK}.>`,
     `$JS.API.CONSUMER.DURABLE.CREATE.${TASK}.>`,
+    // Plane-3 DELIVER: bind-only, like DM — the create-time filter_subject is the attack surface, so
+    // no create path (the provisioner pre-creates dlv_<id> filtered to dlv.<id>).
+    `$JS.API.CONSUMER.CREATE.${DLV}`,
+    `$JS.API.CONSUMER.CREATE.${DLV}.>`,
+    `$JS.API.CONSUMER.DURABLE.CREATE.${DLV}.>`,
   ];
-  return { pub: { allow: pubAllow, deny: pubDeny }, sub: { allow: [inbox] } };
+  // CHAT live read boundary (SPEC v0.3 §9 / Appendix B): mint the read ACL as a native `sub.allow`
+  // over cotal.<space>.chat.*.<channel> — one per allowSubscribe channel, wildcards passed through
+  // (e.g. chat.*.review.>, chat.*.>). This is what lets an agent self-serve a live channel subscribe
+  // with NO manager: join = nc.subscribe, broker-enforced per-subscribe, no consumer name to confine,
+  // so an open ACL needs no enumeration. This sub.allow grant IS the live read path — there is no
+  // per-instance chat durable; the durable backstop is Plane-3 (delivery-daemon fan-out → per-member DELIVER).
+  const subChat = allowSubscribe.map((ch) => chatSubject(space, "*", ch));
+  // Replies to this agent's durable join/leave/list requests ride `ctl.delivery.<id>.>` (NOT the
+  // per-id _INBOX), so the scoped delivery daemon can answer without broad inbox-publish.
+  const deliveryReplies = `${controlServiceSubject(space, CONTROL_DELIVERY, id)}.>`;
+  return { pub: { allow: pubAllow, deny: pubDeny }, sub: { allow: [inbox, deliveryReplies, ...subChat] } };
+}
+
+/** The scoped `delivery` daemon permission set (server-side Plane-3 infra; NEVER allow-all, never
+ *  minted for an agent — `cotal mint` excludes it, like `manager`). Least-privilege: exactly what the
+ *  fan-out writer + trusted reader + activation catch-up + membership/ACL reads + members-KV writes +
+ *  the lease + the `ctl.delivery` control service touch. `sub.allow` is the per-identity inbox (all JS
+ *  pull delivery / KV-watch / request replies land there) PLUS the `ctl.delivery` control subtree it
+ *  serves; ALL stream/KV reads ride the JS API (publishes), so there is NO native `chat`/`dinbox`/`dlv`
+ *  subscription — a leaked cred can't natively sniff the mixed pre-auth store. Honest blast radius
+ *  (delivery-daemon.md): it can write any owner's `dlv` (the post-auth store agents trust); the future
+ *  fan-out/reader cred split bounds that. */
+function deliveryPermissions(space: string, id: string): Record<string, unknown> {
+  const p = spacePrefix(space);
+  const CHAT = chatStream(space), INBOX = inboxStream(space), DLV = dlvStream(space);
+  const PKV = `KV_${presenceBucket(space)}`, CHKV = `KV_${channelBucket(space)}`;
+  const MKV = `KV_${membersBucket(space)}`, AKV = `KV_${aclBucket(space)}`, DKV = `KV_${deliveryBucket(space)}`;
+  const kvRead = (bucket: string) => [
+    `$JS.API.STREAM.INFO.${bucket}`,
+    `$JS.API.STREAM.MSG.GET.${bucket}`, // kv.get
+    `$JS.API.CONSUMER.CREATE.${bucket}.>`, // kv.watch ordered consumer
+    `$JS.API.CONSUMER.INFO.${bucket}.>`,
+    `$JS.API.CONSUMER.DELETE.${bucket}.>`,
+  ];
+  const pub = [
+    "$JS.API.INFO",
+    `$JS.API.STREAM.INFO.${CHAT}`, `$JS.API.STREAM.INFO.${INBOX}`, `$JS.API.STREAM.INFO.${DLV}`,
+    // Fan-out durable + activation-catch-up ephemerals live on CHAT — the daemon legitimately reads ALL
+    // chat (the fan-out consumes the whole stream), so a stream-wide CHAT consumer grant is no
+    // escalation. The catch-up ephemeral names (`cu_<owner>_<gen>`) are dynamic, so they can't be
+    // name-pinned; CHAT-wide is correct here.
+    `$JS.API.CONSUMER.CREATE.${CHAT}.>`,
+    `$JS.API.CONSUMER.DURABLE.CREATE.${CHAT}.>`,
+    `$JS.API.CONSUMER.INFO.${CHAT}.>`,
+    `$JS.API.CONSUMER.MSG.NEXT.${CHAT}.>`,
+    `$JS.API.CONSUMER.DELETE.${CHAT}.>`,
+    `$JS.ACK.${CHAT}.>`,
+    // Trusted reader on INBOX — NAME-PINNED to the single `reader` durable (the meaningful confinement:
+    // no arbitrary INBOX consumer create against the mixed pre-auth store).
+    `$JS.API.CONSUMER.CREATE.${INBOX}.${INBOX_READER_DURABLE}.>`,
+    `$JS.API.CONSUMER.DURABLE.CREATE.${INBOX}.${INBOX_READER_DURABLE}`,
+    `$JS.API.CONSUMER.INFO.${INBOX}.${INBOX_READER_DURABLE}`,
+    `$JS.API.CONSUMER.MSG.NEXT.${INBOX}.${INBOX_READER_DURABLE}`,
+    `$JS.API.CONSUMER.DELETE.${INBOX}.${INBOX_READER_DURABLE}`,
+    `$JS.ACK.${INBOX}.${INBOX_READER_DURABLE}.>`,
+    "$JS.FC.>", // ordered-consumer flow control
+    // Reads: presence (@mention resolve) + channel registry (delivery class) + members + ACL (re-auth).
+    ...kvRead(PKV), ...kvRead(CHKV), ...kvRead(MKV), ...kvRead(AKV),
+    // Members-KV WRITE — the daemon is the durable-membership authority (join/leave/activate/catch-up).
+    `$KV.${membersBucket(space)}.>`,
+    // Delivery lease/readiness KV: read the bucket (renew CAS) + write ONLY lease keys.
+    `$JS.API.STREAM.INFO.${DKV}`, `$JS.API.STREAM.MSG.GET.${DKV}`,
+    `$KV.${deliveryBucket(space)}.lease.*`,
+    // Plane-3 data writes: dinbox (fan-out target) + dlv (post-auth handoff) for ANY owner.
+    `${p}.dinbox.*`, `${p}.dlv.*`,
+    // ctl.delivery control REPLIES ONLY (requests arrive on the sub below; the daemon only ever
+    // m.respond()s to a requester's reply subject `ctl.delivery.<id>.reply.<n>`). Scoped to the
+    // `.reply.>` leaf so the daemon can't publish to the request subjects themselves — tighter than a
+    // blanket `ctl.delivery.>` (fact-check precision, review panel).
+    `${p}.ctl.delivery.*.reply.>`,
+  ];
+  const sub = [
+    `_INBOX_${id}.>`,
+    `${p}.ctl.delivery.*`, // serve the delivery control service (queue-grouped durable join/leave/list)
+  ];
+  return { pub: { allow: pub }, sub: { allow: sub } };
 }
 
 /** Render the `nats-server` config that trusts this space's operator and serves its

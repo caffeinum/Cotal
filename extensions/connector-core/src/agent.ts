@@ -88,6 +88,15 @@ export class MeshAgent extends EventEmitter {
   readonly config: AgentConfig;
 
   private inbox: Pending[] = [];
+  /** Ids already SURFACED to the model (handled) — bounded, commit-aware dedup ACROSS a drain. The
+   *  live↔durable transition window can deliver the two copies of one message far enough apart that the
+   *  first is already drained (removed from {@link inbox}) when the second arrives; the pending-inbox
+   *  check alone would then re-buffer and double-surface it. Recorded at HANDLE time ({@link drainInbox}),
+   *  never at receive time — so a later durable duplicate of an already-handled id is safe to ack (the
+   *  logical message was delivered), which is exactly what the removed endpoint-level `firstSeenChat`
+   *  got wrong (it acked at receive time, before handling). Two rotating windows bound memory. */
+  private handledIds = new Set<string>();
+  private handledIdsPrev = new Set<string>();
   private _connected = false;
   private _status: PresenceStatus = "idle";
   private _attention: AttentionMode = "open"; // F3: fail-open default; reset to open on SessionStart
@@ -117,6 +126,7 @@ export class MeshAgent extends EventEmitter {
       pass: config.pass,
       creds: config.creds,
       tls: config.tls,
+      ackWaitMs: config.ackWaitMs, // undefined → endpoint default (60s); shortened in tests to observe redelivery
       channels: config.subscribe, // the endpoint's live filter = the active read set
       channelModes: Object.fromEntries(this.channelModes), // seed presence so file defaults are visible at boot
       card: {
@@ -205,10 +215,24 @@ export class MeshAgent extends EventEmitter {
   // ---- inbox ---------------------------------------------------------------
 
   private ingest(m: CotalMessage, delivery: Delivery, meta?: MessageMeta): void {
-    // Redelivery (we held it unacked past ack_wait): keep one entry, take the freshest ack handle.
+    // Already SURFACED and drained? This is a post-handle cross-path duplicate (the transition window's
+    // second copy, arriving after the first was handled). Don't surface it again; if it's the durable
+    // copy, ack it so JetStream stops redelivering — safe because the logical message was already
+    // handled (handledIds is recorded at drain time, never at receive time).
+    if (this.handledIds.has(m.id) || this.handledIdsPrev.has(m.id)) {
+      if (delivery.durable) delivery.ack();
+      return;
+    }
+    // Duplicate id still PENDING — keep ONE entry. Take the freshest ack handle, but NEVER downgrade a
+    // durable (committing) ack to a live no-op. Two cases produce a duplicate: same-path JetStream
+    // redelivery (always durable → upgrade to the fresh handle), and the cross-path live/durable
+    // transition window. There, if the DURABLE copy arrived first and a LIVE copy lands second,
+    // overwriting with the live no-op would leave the durable copy uncommitted → JS redelivers it → it
+    // double-surfaces. So only a durable delivery may replace the stored handle; a live duplicate is
+    // dropped as-is.
     const existing = this.inbox.find((p) => p.item.id === m.id);
     if (existing) {
-      existing.ack = delivery.ack;
+      if (delivery.durable) existing.ack = delivery.ack;
       return;
     }
     if (!meta)
@@ -273,8 +297,22 @@ export class MeshAgent extends EventEmitter {
   drainInbox(limit?: number): InboxItem[] {
     const n = limit && limit > 0 ? Math.min(limit, this.inbox.length) : this.inbox.length;
     const taken = this.inbox.splice(0, n);
-    for (const p of taken) p.ack();
+    for (const p of taken) {
+      p.ack();
+      this.markHandled(p.item.id);
+    }
     return taken.map((p) => p.item);
+  }
+
+  /** Record an id as surfaced/handled, for {@link ingest}'s commit-aware cross-path dedup. Bounded via
+   *  two rotating windows: when the live set fills, it becomes the previous window and a fresh one
+   *  starts — so memory stays ~2× the cap while the lookup horizon never shrinks below it. */
+  private markHandled(id: string): void {
+    this.handledIds.add(id);
+    if (this.handledIds.size >= 4096) {
+      this.handledIdsPrev = this.handledIds;
+      this.handledIds = new Set();
+    }
   }
 
   /** Return pending messages without acking them (they stay on the stream). */
@@ -575,23 +613,81 @@ export class MeshAgent extends EventEmitter {
       description?: string;
       replay: boolean;
       joined: boolean;
+      durableUnclosed: boolean;
+      deliveryHealth?: "active" | "degraded";
       messages: number;
       mode: ChannelMode | "normal";
     }[]
   > {
     const mine = this.ep.joinedChannels();
-    return (await this.ep.listChannels()).map((c) => ({
-      channel: c.channel,
-      description: c.config?.description,
-      replay: this.ep.channelReplay(c.channel),
-      joined: mine.some((p) => subjectMatches(p, c.channel)),
-      messages: c.messages,
-      mode: this.channelMode(c.channel) ?? "normal",
-    }));
+    const pending = this.ep.pendingDurableLeaves();
+    const unclosed = new Set(pending);
+    // Non-gating delivery-health signal: read the server-side daemon's lease ONCE (a durable-joined
+    // channel must not render as ordinary "subscribed, replay on" when the daemon is down). A read that
+    // throws = open mode / no delivery bucket / no grant → no health surface (left undefined).
+    let leaseLive = false;
+    let daemonKnown = false;
+    try {
+      // "ready" (responder bound), not mere lease existence (single-flight slot claimed mid-startup).
+      leaseLive = (await this.ep.readDeliveryLease(0))?.ready === true;
+      daemonKnown = true;
+    } catch {
+      /* open dev mode or no delivery plane here — health surface does not apply */
+    }
+    // Membership-aware: "active" requires BOTH a live daemon lease AND an established owner membership.
+    // A joined durable channel whose boot self-join hasn't landed yet (daemon was down at connect, now
+    // reconciling) has no backstop for this owner even if the lease is live — render it degraded, never
+    // a false "active" off the lease alone (ux honesty blocker).
+    const health = (channel: string, joined: boolean): "active" | "degraded" | undefined =>
+      daemonKnown && joined && this.ep.channelDeliveryClass(channel) === "durable"
+        ? (leaseLive && this.ep.hasDurableMembership(channel) ? "active" : "degraded")
+        : undefined;
+    const rows: {
+      channel: string; description?: string; replay: boolean; joined: boolean;
+      durableUnclosed: boolean; deliveryHealth?: "active" | "degraded"; messages: number; mode: ChannelMode | "normal";
+    }[] = (await this.ep.listChannels()).map((c) => {
+      const joined = mine.some((p) => subjectMatches(p, c.channel));
+      return {
+        channel: c.channel,
+        description: c.config?.description,
+        replay: this.ep.channelReplay(c.channel),
+        joined,
+        // A live sub was refused while a Plane-3 durable membership stayed open; its §7 tombstone is
+        // still retrying. Surface it so the channel is never shown as ordinary "not subscribed" (ux).
+        durableUnclosed: unclosed.has(c.channel),
+        deliveryHealth: health(c.channel, joined),
+        messages: c.messages,
+        mode: this.channelMode(c.channel) ?? "normal",
+      };
+    });
+    // A channel in refused-sub durable cleanup can have NO traffic AND no registry entry, so listChannels()
+    // omits it — UNION it in so the durable-unclosed state can never disappear by omission (ux/security).
+    const present = new Set(rows.map((r) => r.channel));
+    for (const ch of pending) {
+      if (present.has(ch)) continue;
+      rows.push({
+        channel: ch,
+        description: undefined,
+        replay: this.ep.channelReplay(ch),
+        joined: false,
+        durableUnclosed: true,
+        deliveryHealth: undefined,
+        messages: 0,
+        mode: this.channelMode(ch) ?? "normal",
+      });
+    }
+    return rows;
   }
 
-  /** Join a channel mid-session (backfills history if replay is on; idempotent). */
-  async joinChannel(channel: string): Promise<{ joined: boolean; backfilled: number }> {
+  /** Join a channel mid-session (backfills history if replay is on; idempotent). `durable` reports
+   *  whether a durable backstop is active (Plane-3, SPEC §8, for a `durable`-class channel when a
+   *  manager is present) — `false` means joined LIVE only, so messages sent while this session is
+   *  offline won't be replayed. `reason` explains a `durable:false` on a channel that EXPECTED a
+   *  backstop (e.g. no privileged provisioner); absent on a `live`-class channel (joined live is the
+   *  contract there). */
+  async joinChannel(
+    channel: string,
+  ): Promise<{ joined: boolean; backfilled: number; durable: boolean; reason?: string }> {
     this.assertConnected();
     return this.ep.joinChannel(channel);
   }

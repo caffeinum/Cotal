@@ -4,9 +4,7 @@ import {
   CotalEndpoint,
   DEFAULT_SERVER,
   agentFilePath,
-  assertValidChannel,
   authDir,
-  channelInAllow,
   clearSpaceHistory,
   connectorServers,
   findCotalRoot,
@@ -19,6 +17,7 @@ import {
   provisionAgent,
   registry,
   saveAgentFile,
+  subjectMatches,
   CONTROL_PRIVILEGED,
   CONTROL_SELF_SERVICE,
   CONTROL_ADMIN,
@@ -79,9 +78,6 @@ interface ManagedAgent {
   spawner: string;
   startedAt: number;
   handle: AgentHandle;
-  /** The agent's read ACL (its `allowSubscribe`, defaulted), retained so the mediated join/leave
-   *  control op can validate `channel ∈ allowSubscribe` before moving its bind-only chat filter. */
-  allowSubscribe: string[];
 }
 
 /**
@@ -173,6 +169,11 @@ export class Manager {
     this.ep.serveControl(CONTROL_PRIVILEGED, (req) => this.handle(req, CONTROL_PRIVILEGED));
     this.ep.serveControl(CONTROL_SELF_SERVICE, (req) => this.handle(req, CONTROL_SELF_SERVICE));
     this.ep.serveControl(CONTROL_ADMIN, (req) => this.handle(req, CONTROL_ADMIN));
+    // Plane-3 (durable backstop) is NOT the manager's job — the manager only manages agent lifecycle.
+    // The server-side delivery daemon hosts the fan-out writer + trusted reader, owns the durable
+    // membership registry, and serves the runtime durable join/leave/list ops (on `ctl.delivery`). The
+    // manager records each agent's read ACL at spawn (`commitAcl`, in provisionAgent) so the daemon can
+    // re-authorize it; that is the only Plane-3 state the manager touches, and it rides minting.
   }
 
   async stop(): Promise<void> {
@@ -193,10 +194,9 @@ export class Manager {
     // subject; this gates WHAT each subject will honor, fail-closed. A privileged op arriving on
     // the self-service subject (publishable by all) must be rejected or the split does nothing.
     if (tier === CONTROL_SELF_SERVICE) {
-      // Self-service honors self-ops only: a no-name stop (self-despawn) and setChannels (mediated
-      // join/leave — the caller moving its OWN chat read within its allowSubscribe). Anything else —
-      // including a named stop (belongs on privileged/admin) — is a misroute and rejected.
-      if (req.op === "setChannels") return this.opSetChannels(caller, args);
+      // Self-service honors self-ops only: a no-name stop (self-despawn). Durable join/leave/list moved
+      // OFF the manager onto the server-side delivery daemon's `ctl.delivery` service (the manager is
+      // lifecycle-only). A named stop (belongs on privileged/admin) or anything else is a misroute.
       if (req.op !== "stop") return { ok: false, error: `op "${req.op}" not allowed on self-service control subject` };
       if (name) return { ok: false, error: "named stop not allowed on self-service subject; send it on the privileged subject" };
       return this.opStopSelf(caller, args);
@@ -256,40 +256,10 @@ export class Manager {
     return { ok: true, data: { name: target.name, stopped: true, graceful } };
   }
 
-  /** Mediated join/leave (P-read-ACL): move the caller's OWN bind-only chat durable to a new channel
-   *  set, validated against its `allowSubscribe`. The caller is the authenticated id (non-forgeable
-   *  in auth mode), so this can only ever resolve to its own managed entry — and the durable filter
-   *  is moved with the manager's privileged creds, the only path that can (the agent has no UPDATE
-   *  grant). An unmanaged caller (a `cotal spawn` standalone agent, or any peer this manager didn't
-   *  start) gets a loud error, not a silent no-op — its read stays at its boot subscribe set. */
-  private async opSetChannels(callerId: string, args: Record<string, unknown>): Promise<ControlReply> {
-    const target = [...this.agents.values()].find((a) => a.id === callerId);
-    if (!target) return { ok: false, error: `setChannels: caller ${callerId} is not an agent this manager spawned` };
-    // Normalize defensively — this is a security boundary: accept only real strings, trimmed and
-    // non-empty, reject anything coerced or blank, and cap the list so a request can't bloat the
-    // control plane or the durable filter.
-    const raw = Array.isArray(args.channels) ? args.channels : [];
-    const channels = raw.filter((c): c is string => typeof c === "string").map((c) => c.trim()).filter(Boolean);
-    if (!channels.length || channels.length !== raw.length)
-      return { ok: false, error: "setChannels: channels must be a non-empty list of non-blank strings" };
-    if (channels.length > 64)
-      return { ok: false, error: "setChannels: too many channels (max 64)" };
-    for (const ch of channels) {
-      try {
-        assertValidChannel(ch); // reject names the wire layer would rewrite, before any ACL check
-      } catch (e) {
-        return { ok: false, error: (e as Error).message };
-      }
-      if (!channelInAllow(target.allowSubscribe, ch))
-        return { ok: false, error: `channel "${ch}" is not within allowSubscribe [${target.allowSubscribe.join(", ")}]` };
-    }
-    try {
-      await this.ep.setChatFilterFor(callerId, channels);
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
-    return { ok: true, data: { channels } };
-  }
+  // Plane-3 durable join/leave/list ops moved OFF the manager onto the server-side delivery daemon's
+  // `ctl.delivery` control service (endpoint.startPlane3 → handleDeliveryControl). The manager is
+  // lifecycle-only; it records each agent's read ACL at spawn (commitAcl) so the daemon can validate
+  // those ops against the durable ACL registry — the single source of truth, no in-memory ledger.
 
   /** Drop a live agent's slot. When `floor` is set and the agent died young (lived less than
    *  MIN_LIFETIME), push a cooling stamp so the freed slot still counts toward the ceiling until it
@@ -471,7 +441,6 @@ export class Manager {
         spawner: spawner ?? this.ep.ref().id,
         startedAt: Date.now(),
         handle,
-        allowSubscribe,
       };
       this.agents.set(name, managed);
       // Wire the runtime exit signal so a natural exit (crash / /exit / finished) frees the slot

@@ -2,8 +2,9 @@ import type { Command, Registry } from "@cotal-ai/core";
 import { c } from "./ui.js";
 
 function help(commands: Command[]): void {
-  // `__`-prefixed commands are internal (e.g. `__complete`, the completion dispatcher) — hide them.
-  const visible = commands.filter((cmd) => !cmd.name.startsWith("__"));
+  // `__`-prefixed commands are internal (e.g. `__complete`, the completion dispatcher); `hidden`
+  // ones are runnable dev/test aids (e.g. `demo`) kept off the surface — hide both.
+  const visible = commands.filter((cmd) => !cmd.name.startsWith("__") && !cmd.hidden);
   const groups = new Map<string, Command[]>();
   for (const cmd of visible) {
     const g = cmd.group ?? "Commands";

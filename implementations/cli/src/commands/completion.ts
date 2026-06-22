@@ -40,7 +40,11 @@ function emit(items: CompletionItem[], directive: NonNullable<CompletionResult["
 /** The hidden dispatcher the shell stubs call. `argv` is the words after `cotal`, up to and
  *  including the (possibly empty) word being completed. */
 export async function complete(argv: string[]): Promise<void> {
-  const commands = registry.all<Command>("command").filter((cmd) => !cmd.name.startsWith("__"));
+  // Mirror help()'s visibility: drop `__`-internal and `hidden` commands (e.g. `demo`) so the
+  // completion surface matches the listed one.
+  const commands = registry
+    .all<Command>("command")
+    .filter((cmd) => !cmd.name.startsWith("__") && !cmd.hidden);
   // Word 0 (the command name itself): offer the command names.
   if (argv.length <= 1) {
     emit(commands.map((cmd) => ({ value: cmd.name, description: cmd.summary })), "nofiles");

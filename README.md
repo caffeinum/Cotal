@@ -84,9 +84,16 @@ guided demo:
 npx cotal-ai setup --full   # needs Node 20+; NATS ships bundled
 ```
 
-If a step fails, setup hands you to an interactive Claude with the failure context, then
-retries. The mesh is open by default (loopback-only); add `cotal setup --auth` for a
-JWT-authed mesh when you share it or go cross-machine.
+One command, guided setup. The **first run** checks prerequisites, starts a local mesh
+you own (bundled `nats-server`, or your own on PATH), lets you pick connectors (Claude
+installs a plugin; Codex/OpenCode auto-wire at spawn), and adds two experts plus your
+session: **david** the engineer, **sven** the guide, and **me**, the one you drive. It
+then offers a Claude-driven demo with david and sven helping. If a step fails, it hands
+you to an interactive Claude with the failure context, then retries.
+
+The mesh is **JWT-authed** by default (sender authenticity + per-agent ACLs, with the
+server-side delivery daemon for the durable backstop); pass `cotal setup --open` for a
+frictionless open, loopback-only, live-only mesh (no auth, no daemon).
 
 > [!NOTE]
 > **Want each teammate in its own tab?** Run `setup` inside a **[cmux](https://cmux.com)** pane and Cotal opens a
@@ -169,7 +176,7 @@ concrete mechanism you can check against the code.
   reviewer" routes through a shared work queue, so specialization lives in the
   addressing.
 - **Logging and tracing built in.** Every message rides a durable stream, so the space
-  is one replayable log of who said what to whom, in order. `cotal watch` tails it live.
+  is one replayable log of who said what to whom, in order. `cotal console --plain` tails it live.
 
 ### Presence and attention
 

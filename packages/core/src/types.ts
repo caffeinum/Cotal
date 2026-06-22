@@ -78,6 +78,19 @@ export interface Presence {
 }
 
 /**
+ * A channel's delivery class (SPEC §4). Fixed per channel, wire-observable.
+ * - `live` — native broker-subscription delivery; **at-most-once** (only instances subscribed at
+ *   publish time receive it; a disconnected/busy/not-yet-joined instance has no claim to it later).
+ * - `durable` — `live` plus a per-subscriber durable backstop; **at-least-once for current members**
+ *   (also retained per member and redelivered on the member's next connection/turn until acked).
+ *
+ * Effective class is {@link effectiveDeliveryClass}: `channel ?? space default ?? "durable"`. The
+ * space default is set at space creation from the deployment profile (local/self-hosted ⇒ `durable`,
+ * public/web-scale ⇒ `live`) so it is always discoverable on the wire, never inferred per-component.
+ */
+export type DeliveryClass = "live" | "durable";
+
+/**
  * Channel registry entry — channel-global config, stored in the per-space channels KV
  * (one entry per channel; the space-wide default lives under {@link CHANNEL_DEFAULTS_KEY}).
  * Shared across every peer, not a per-subscriber choice. `description`/`instructions` reach
@@ -88,9 +101,11 @@ export interface ChannelConfig {
   /** Override the space default for history replay-on-join. */
   replay?: boolean;
   /** How far back a joiner's backfill reaches — a duration like `"24h"`, `"30m"`, `"7d"`.
-   *  Maps to a native Direct-Get `start_time` (now − window). Unset + `replay` ⇒ the full
-   *  retained window; ignored when replay is off. */
+   *  Bounds the join-backfill read horizon (now − window) on the pinned single-filter `chathist`
+   *  history consumer. Unset + `replay` ⇒ the full retained window; ignored when replay is off. */
   replayWindow?: string;
+  /** Override the space default delivery class (SPEC §4, §7). See {@link DeliveryClass}. */
+  deliveryClass?: DeliveryClass;
   /** One-line "what this channel is for". */
   description?: string;
   /** Longer "how to use it" — surfaced to joiners as advisory, attributed data. */
@@ -101,6 +116,92 @@ export interface ChannelConfig {
 export interface ChannelDefaults {
   replay?: boolean;
   replayWindow?: string;
+  /** Default delivery class for channels without an explicit one. Written at space creation from
+   *  the deployment profile (local ⇒ `durable`, web ⇒ `live`); see {@link DeliveryClass}. */
+  deliveryClass?: DeliveryClass;
+}
+
+/**
+ * Durable-membership state (Plane-3, SPEC §7). One {@link MembershipRecord} per (concrete channel,
+ * owner) in the privileged members registry KV.
+ * - `live-confirmed` — the owner is live-subscribed (core-sub / boot durable); no Plane-3 backstop.
+ *   Fan-out does NOT target these (their durability, if any, is the legacy tail until Stage 5).
+ * - `durable-active` — a Plane-3 durable backstop is established for this (channel, owner). Fan-out
+ *   targets these; the trusted reader re-authorizes each entry against the interval below.
+ */
+export type MembershipState = "live-confirmed" | "durable-active";
+
+/**
+ * A durable-membership record (privileged write only; agent-authored membership is forbidden —
+ * it would self-authorize delivery + reads). Eligibility is by **CHAT stream sequence**, never
+ * wall-clock: a `durable-channel` entry is deliverable to this owner iff
+ * `joinCursor < seq <= leaveCursor` (open leave ⇒ no upper bound) — SPEC §7 L355-356. `leaveCursor`
+ * present ⇒ this is a tombstone (kept through the retention horizon so late entries are denied
+ * deterministically); a rejoin bumps {@link generation} and takes a fresh {@link joinCursor}.
+ */
+export interface MembershipRecord {
+  /** Concrete channel (never a wildcard — wildcard ACLs grant live breadth, durable is per-channel). */
+  channel: string;
+  /** Owner agent id (nkey). */
+  owner: string;
+  state: MembershipState;
+  /** CHAT stream seq captured at join — durable eligibility is `seq > joinCursor`. */
+  joinCursor: number;
+  /** True only once activation catch-up has COMPLETED. A **completeness/reporting** flag, NOT a delivery
+   *  gate: {@link durableEligible} is pure membership-interval, so a `durable-active` record routes
+   *  in-interval immediately (no live message is lost during catch-up). `activated` instead gates what is
+   *  REPORTED — `durableJoin` returns `durable:true` and `channelMembers()` lists the owner only once
+   *  catch-up confirms; a join whose catch-up never completes reports `durable:false`, stays hidden, and
+   *  is tombstoned on eviction so it does not route. A tombstone preserves the `activated` it had at leave. */
+  activated?: boolean;
+  /** CHAT stream seq captured at leave — eligibility upper bound `seq <= leaveCursor`. Present ⇒
+   *  tombstone. Absent ⇒ open membership (no upper bound). */
+  leaveCursor?: number;
+  /** Bumped each (re)join. Stale-write guard (with the KV revision CAS) + idempotency-key component
+   *  for fan-out/catch-up (`<msgId>:<owner>:<generation>`). */
+  generation: number;
+  /** The privileged writer's id (audit; never an agent). */
+  writerIdentity: string;
+  /** Epoch ms of the last write (diagnostics only — eligibility is seq, never this). */
+  updatedAt: number;
+}
+
+/**
+ * A durable read-ACL record (privileged write only — the manager records it at mint; agent-authored
+ * ACLs are forbidden, they would self-authorize reads). One per OWNER in the `cotal_acl_<space>` KV.
+ * The delivery daemon's trusted reader re-authorizes each durable entry against `allowSubscribe`, and
+ * validates a runtime durable-join against it (channel ∈ `allowSubscribe`). Written ATOMICALLY (a
+ * single CAS put of the whole value) so a present record is always complete: a present
+ * `allowSubscribe: []` is a known "reads nothing" decision (DROP), distinct from an ABSENT record
+ * (unknown owner — DEFER, never drop).
+ */
+export interface AclRecord {
+  /** The owner's current read ACL — the channels/patterns it may read (its `allowSubscribe`). */
+  allowSubscribe: string[];
+  /** Bumped each write; stale-write guard companion to the KV revision CAS. */
+  revision: number;
+  /** Epoch ms of the last write (diagnostics only). */
+  updatedAt: number;
+}
+
+/**
+ * A fan-out entry in an owner's mixed pre-auth inbox (`dinbox.<owner>`, Plane-3). The fan-out writer
+ * copies one of these per eligible owner; the trusted reader re-authorizes it (`channel`+`seq` against
+ * the membership interval for `durable-channel`, ACL-only for `live-mention`) before transferring the
+ * embedded `msg` to the owner's DELIVER store. `seq`/`reason`/`generation` are the re-auth metadata;
+ * the agent never sees this envelope (it receives only `msg` on `dlv.<owner>`).
+ */
+export interface Plane3Entry {
+  msg: CotalMessage;
+  /** Concrete channel the message was published on (the re-auth subject). */
+  channel: string;
+  /** The message's CHAT stream sequence (membership-interval re-auth). */
+  seq: number;
+  /** Why this owner was fanned to: a `durable` channel's member (interval-gated) vs a `live` channel
+   *  `@mention` to an authorized target (ACL-only, no membership). */
+  reason: "durable-channel" | "live-mention";
+  /** The owner's membership generation at fan-out (idempotency-key component + diagnostics). */
+  generation: number;
 }
 
 /** Reverse-DNS extension part kind, e.g. `com.acme.snapshot`.
@@ -125,9 +226,11 @@ interface CotalMessageBase {
   ts: number;
   space: string;
   from: EndpointRef;
-  /** Lowercased peer names called out within a `channel` message — a priority/wake hint,
-   *  not a routing target: the message still multicasts to the whole channel. Omitted when
-   *  empty. */
+  /** Lowercased peer names called out within a `channel` message — a wake hint that also, on a
+   *  `live` channel, routes a durable copy to each mentioned target **authorized to read that
+   *  channel** (SPEC §4/§5). It never carries content outside the target's read ACL and is not a
+   *  routing substitute for `channel`/`to`; the message still multicasts to the whole channel.
+   *  Omitted when empty. */
   mentions?: string[];
   parts: Part[];
   /** Id of the message being replied to. */
@@ -187,6 +290,11 @@ export interface Delivery {
   ack(): void;
   /** Decline for now; the message redelivers (e.g. couldn't surface it yet). */
   nak(): void;
+  /** Whether {@link ack} actually COMMITS this copy (durable backstop / JetStream, at-least-once)
+   *  or is a no-op (live core-sub / history backfill, at-most-once). A receiver coalescing a
+   *  cross-path duplicate must NOT downgrade a durable ack to a live no-op — else the durable copy
+   *  is never committed, JetStream redelivers it, and it double-surfaces. See {@link DeliveryClass}. */
+  durable: boolean;
 }
 
 /** Control-plane request/reply (e.g. CLI → manager). */

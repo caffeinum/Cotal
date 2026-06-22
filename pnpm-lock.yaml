@@ -66,6 +66,9 @@ importers:
       '@cotal-ai/core':
         specifier: workspace:*
         version: link:../packages/core
+      '@cotal-ai/delivery':
+        specifier: workspace:*
+        version: link:../implementations/delivery
       '@cotal-ai/manager':
         specifier: workspace:*
         version: link:../implementations/manager
@@ -228,6 +231,12 @@ importers:
       '@eplightning/nats-server-win32-x64':
         specifier: ^2.14.0
         version: 2.14.0
+
+  implementations/delivery:
+    dependencies:
+      '@cotal-ai/core':
+        specifier: workspace:*
+        version: link:../../packages/core
 
   implementations/manager:
     dependencies:
