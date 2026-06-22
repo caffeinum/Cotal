@@ -205,6 +205,7 @@ export class Manager {
       // Anything else — including a named stop (belongs on privileged/admin) — is a misroute, rejected.
       if (req.op === "durableJoin") return this.opDurableJoin(caller, args);
       if (req.op === "durableLeave") return this.opDurableLeave(caller, args);
+      if (req.op === "listMemberships") return this.opListMemberships(caller);
       if (req.op !== "stop") return { ok: false, error: `op "${req.op}" not allowed on self-service control subject` };
       if (name) return { ok: false, error: "named stop not allowed on self-service subject; send it on the privileged subject" };
       return this.opStopSelf(caller, args);
@@ -318,6 +319,15 @@ export class Manager {
       return { ok: false, error: (e as Error).message };
     }
     return { ok: true, data: { channel } };
+  }
+
+  /** Plane-3 self-service: the caller's CURRENT (activated, non-tombstoned) durable memberships as
+   *  `{channel, generation}`, so a freshly connected agent can hydrate its leave-generation mirror for
+   *  BOOT durable channels — the agent holds no read on the privileged members KV. Strictly own-scoped:
+   *  the op takes no owner arg and reads `callerId` (authenticated, non-forgeable), so it can only ever
+   *  return the caller's own records. Read-only. */
+  private async opListMemberships(callerId: string): Promise<ControlReply> {
+    return { ok: true, data: { memberships: await this.ep.ownerMemberships(callerId) } };
   }
 
   /** Drop a live agent's slot. When `floor` is set and the agent died young (lived less than

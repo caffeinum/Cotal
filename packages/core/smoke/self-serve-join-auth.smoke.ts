@@ -3,13 +3,16 @@
  *
  *  Phase 1 — NO manager serving control: an auth-mode agent joins a channel's live feed at runtime
  *  and receives the live message via its native core subscription (broker-enforced by sub.allow).
- *  Join reports `durable:false` (joined live, backstop unestablished); out-of-ACL join is refused
- *  (broker-confirmed); a core-sub leave stops delivery; a durable-covered leave is REFUSED honestly
- *  (the legacy filter needs the provisioner) rather than reporting a leave that doesn't stop delivery.
+ *  Join reports `durable:false` (joined live, backstop unestablished — no Plane-3 host); out-of-ACL
+ *  join is refused (broker-confirmed); a core-sub leave stops delivery; the live read survives a broker
+ *  reconnect. Manager-free, so there is no durable backstop to establish or tombstone.
  *
- *  Phase 2 — a control responder IS present (simulating the manager): a runtime join now also moves
- *  the legacy durable filter (`durable:true`), and the message is delivered EXACTLY ONCE — the durable
- *  owns it, the core-sub coverage-drops it, the id-dedup backstop covers the transition window.
+ *  Phase 2 — a real Plane-3 manager is present (fan-out + trusted reader + the durableJoin/durableLeave/
+ *  listMemberships control ops the agent uses). A runtime join now also arms a Plane-3 backstop
+ *  (`durable:true`), delivered alongside the live core-sub copy (the connector's id-dedup coalesces to
+ *  exactly once — proven in cross-path-dedup). A runtime leave tombstones the §7 boundary. And a BOOT
+ *  durable membership — written server-side at provision, never runtime-joined — is hydrated into the
+ *  agent's leave mirror on connect, so leaving the boot channel tombstones it too (panel blocker).
  *
  * Run: pnpm smoke:self-serve-join:auth   (needs `nats-server` on PATH; auth/JetStream, local-only)
  */
@@ -199,17 +202,24 @@ try {
   // Host Plane-3 on `pub` and serve the durableJoin/Leave ctl ops that joinChannel/leaveChannel now use
   // for a `durable`-class channel (the legacy filter-move is no longer the runtime durable path). The
   // trusted reader re-authorizes against the caller's current ACL (its allowSubscribe), supplied here.
-  const aliceAcl = ["general", "ops", "review.>"];
-  await pub.startPlane3((id) => (id === aId.id ? aliceAcl : undefined));
+  // Per-id read ACLs, shared by the reader (startPlane3) and the control responder. Faithful to the
+  // real Manager (implementations/manager): durableJoin checks the caller's ACL, durableLeave REQUIRES
+  // a finite generation (fail-closed stale-leave guard), and listMemberships serves the caller's own
+  // current memberships so a connecting agent can hydrate its boot generations.
+  const acls: Record<string, string[]> = { [aId.id]: ["general", "ops", "review.>"] };
+  await pub.startPlane3((id) => acls[id]);
   pub.serveControl(CONTROL_SELF_SERVICE, async (req) => {
-    const ch =
-      typeof (req.args as { channel?: unknown })?.channel === "string" ? (req.args as { channel: string }).channel : "";
+    const acl = acls[req.from.id];
+    const args = req.args as { channel?: unknown; generation?: unknown };
+    const ch = typeof args?.channel === "string" ? args.channel : "";
+    if (req.op === "listMemberships") return { ok: true, data: { memberships: await pub.ownerMemberships(req.from.id) } };
     if (req.op === "durableJoin") {
-      if (!ch || !channelInAllow(aliceAcl, ch)) return { ok: false, error: `not in ACL: ${ch}` };
+      if (!ch || !acl || !channelInAllow(acl, ch)) return { ok: false, error: `not in ACL: ${ch}` };
       return { ok: true, data: await pub.durableJoinFor(req.from.id, ch) };
     }
     if (req.op === "durableLeave") {
-      await pub.durableLeaveFor(req.from.id, ch);
+      if (typeof args?.generation !== "number") return { ok: false, error: "durableLeave: a finite generation is required (fail-closed)" };
+      await pub.durableLeaveFor(req.from.id, ch, args.generation);
       return { ok: true, data: { channel: ch } };
     }
     return { ok: false, error: `unknown op: ${req.op}` };
@@ -242,6 +252,38 @@ try {
   await wait(900);
   check("manager-present leave stops delivery (core-sub closed + backstop tombstoned)", !got.some((g) => g.includes("gone")), got);
 
+  // ── BOOT durable LEAVE (panel blocker): a boot durable channel is provisioned server-side and never
+  //    runtime-joined, so its generation lives only in the registry until hydrateMemberships seeds it on
+  //    connect. bob boots on "ops" (durable) WITH the manager present, so leaving "ops" tombstones the
+  //    §7 boundary — without hydration, leaveChannel could not (the prior boot-leave leak).
+  const bId = newIdentity();
+  acls[bId.id] = ["ops"];
+  const bCreds = await provisionAgent(pub, auth, bId, { subscribe: ["ops"], allowSubscribe: ["ops"] });
+  const b = new CotalEndpoint({
+    space, servers: SERVERS, creds: bCreds,
+    card: { id: bId.id, name: "bob", kind: "agent" },
+    channels: ["ops"], heartbeatMs: 500, ttlMs: 2000,
+  });
+  const gotB: string[] = [];
+  b.on("error", () => {});
+  b.on("message", (m, d: Delivery) => { gotB.push(`#${m.channel}:${m.parts.map((p) => (p.kind === "text" ? p.text : "")).join("")}`); d.ack(); });
+  await b.start();
+  await wait(400); // connect + boot-membership hydration round-trip
+
+  const bootMembers = await pub.channelMembers("ops");
+  check("bob's BOOT durable membership is listed (activated, hydrated)", bootMembers.some((m) => m.id === bId.id), bootMembers);
+
+  const bootLeave = await b.leaveChannel("ops");
+  check("leaving a BOOT durable channel succeeds (hydrated generation → fail-closed tombstone)", bootLeave.left === true, bootLeave);
+  await wait(150);
+  const afterBootLeave = await pub.channelMembers("ops");
+  check("a boot-channel leave TOMBSTONES its Plane-3 membership (no longer a member)", !afterBootLeave.some((m) => m.id === bId.id), afterBootLeave);
+  gotB.length = 0;
+  await pub.multicast("after boot leave", { channel: "ops" });
+  await wait(900); // settle: prove ABSENCE — both planes closed (live sub + backstop)
+  check("after a boot-channel leave the backstop stops too (§7 hard boundary, both planes)", !gotB.some((g) => g.includes("after boot leave")), gotB);
+
+  await b.stop();
   await a.stop();
   await pub.stop();
 } catch (e) {

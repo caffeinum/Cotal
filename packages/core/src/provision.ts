@@ -153,8 +153,9 @@ export interface MintOpts {
 
 /** Options for {@link provisionAgent} — {@link MintOpts} plus the active read set. */
 export interface ProvisionOpts extends MintOpts {
-  /** The active read set: pre-created as the live chat durable's `filter_subjects` (the channels
-   *  the agent actually subscribes to at boot). Must be ⊆ `allowSubscribe`. Defaults to `["general"]`. */
+  /** The active read set: the channels the agent subscribes to (live core-sub) at boot, and whose
+   *  `durable`-class members get a boot Plane-3 membership. Must be ⊆ `allowSubscribe`. Defaults to
+   *  `["general"]`. */
   subscribe?: string[];
 }
 
@@ -397,8 +398,8 @@ function permissionsFor(
   // over cotal.<space>.chat.*.<channel> — one per allowSubscribe channel, wildcards passed through
   // (e.g. chat.*.review.>, chat.*.>). This is what lets an agent self-serve a live channel subscribe
   // with NO manager: join = nc.subscribe, broker-enforced per-subscribe, no consumer name to confine,
-  // so an open ACL needs no enumeration. ADDITIVE (overlay phase): the legacy chat_<id> bind-tail
-  // grants above stay until the durable live-tail is removed; both paths dedup by msg.id downstream.
+  // so an open ACL needs no enumeration. This sub.allow grant IS the live read path — there is no
+  // per-instance chat durable; the durable backstop is Plane-3 (manager fan-out → per-member DELIVER).
   const subChat = allowSubscribe.map((ch) => chatSubject(space, "*", ch));
   return { pub: { allow: pubAllow, deny: pubDeny }, sub: { allow: [inbox, ...subChat] } };
 }

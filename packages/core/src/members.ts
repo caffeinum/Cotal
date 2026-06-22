@@ -156,18 +156,20 @@ export async function listMembers(
 }
 
 /** True if a record makes the owner an **eligible durable recipient** for a CHAT message at `seq`:
- *  the membership interval `joinCursor < seq <= leaveCursor` (open leave ⇒ no upper bound). The
- *  single interval rule shared by fan-out routing and the trusted reader's re-auth (SPEC §7
- *  L355-356) so they can't drift. State must be `durable-active` (a `live-confirmed` record has no
- *  Plane-3 backstop). */
+ *  the membership interval `joinCursor < seq <= leaveCursor` (open leave ⇒ no upper bound). The single
+ *  interval rule shared by fan-out routing and the trusted reader's re-auth (SPEC §7 L355-356) so they
+ *  can't drift. A tombstone stays interval-eligible for its PRE-leave window (`seq <= leaveCursor`) —
+ *  "leave is a hard read boundary" is the leaveCursor cutoff, not a drop of in-interval entries.
+ *
+ *  This is a pure DELIVERY predicate, deliberately INDEPENDENT of `activated`. `activated` is a
+ *  COMPLETENESS/reporting flag (it gates `durableJoin`'s return value + `channelMembers`), NOT a
+ *  delivery gate: a `durable-active` record is committed `activated:false` and routes in-interval
+ *  *immediately* so no live message published during activation catch-up is lost — only the *report*
+ *  (durable:true / member listing) waits for the catch-up to confirm. Gating delivery on `activated`
+ *  instead dropped the very catch-up + post-fence messages activation exists to deliver (the
+ *  activation race): the trusted reader ack-dropped catch-up dinbox entries and fan-out skipped
+ *  post-fence/pre-activation messages, both before the flip. */
 export function durableEligible(rec: MembershipRecord, seq: number): boolean {
-  // Only a fully-ACTIVATED record carries a backstop: a `durable-active` record whose activation
-  // catch-up has not completed (`activated` false) is NON-routing — fan-out + the reader skip it, so a
-  // join reported `durable:false` never gets routed (panel honesty gate). A tombstone keeps its
-  // `activated` and stays interval-eligible for its PRE-leave window (`seq <= leaveCursor`) — "leave is
-  // a hard read boundary" is the leaveCursor cutoff, not a drop of in-interval entries (SPEC §7). A
-  // plain live-confirmed/boot record (never activated) is not a durable recipient.
-  if (!rec.activated) return false;
   if (seq <= rec.joinCursor) return false;
   if (rec.leaveCursor !== undefined && seq > rec.leaveCursor) return false;
   return true;

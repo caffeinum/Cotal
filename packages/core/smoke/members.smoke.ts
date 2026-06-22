@@ -121,11 +121,14 @@ async function main() {
   check("interval: seq == leaveCursor eligible (inclusive)", durableEligible(left, 200));
   check("interval: seq > leaveCursor NOT eligible (hard cut)", !durableEligible(left, 201));
   check("interval: mid-interval eligible", durableEligible(left, 150));
-  const liveConf = rec({ channel: "x", owner: "Z", state: "live-confirmed", activated: false, joinCursor: 0 });
-  check("live-confirmed record is NOT a durable recipient (no Plane-3 backstop)", !durableEligible(liveConf, 99999));
-  // A durable-active record whose activation catch-up has NOT completed is non-routing (panel honesty).
+  // durableEligible is a PURE-INTERVAL delivery predicate, INDEPENDENT of `activated` (the activation-
+  // race fix): a `durable-active` record still completing catch-up (`activated:false`) IS delivery-
+  // eligible in-interval — so the catch-up + post-fence messages activation exists to deliver are never
+  // ack-dropped/skipped before the flip. `activated` gates only the REPORT (durableJoin's return +
+  // channelMembers), never delivery. Reverting this predicate to gate on `activated` reopens the race.
   const notActivated = rec({ channel: "x", owner: "Z", state: "durable-active", activated: false, joinCursor: 100 });
-  check("durable-active but NOT activated is NOT a durable recipient (non-routing until catch-up)", !durableEligible(notActivated, 150));
+  check("activation-pending (activated:false) IS delivery-eligible in-interval (activation-race fix)", durableEligible(notActivated, 150));
+  check("activation-pending: seq <= joinCursor still NOT eligible (interval still bounds delivery)", !durableEligible(notActivated, 100));
   // HIGH-1 regression: a TOMBSTONE (live-confirmed + leaveCursor — exactly what tombstoneMember writes)
   // stays interval-eligible for its PRE-leave window. This previously dropped ALL pre-leave entries
   // because durableEligible required state===durable-active and the leaveCursor branch was dead code.

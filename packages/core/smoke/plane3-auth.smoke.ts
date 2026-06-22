@@ -159,7 +159,7 @@ try {
     got.slice(beforeLeave),
   );
 
-  // ---- general (boot channel) is untouched: a general post still reaches A live (legacy path) ----
+  // ---- general (boot channel) is untouched: a general post still reaches A live (core-sub path) ----
   await mgr.multicast("on-general", { channel: "general" });
   check("boot channel 'general' still delivers (Plane-3 is additive)", await until(() => got.some((g) => g.text === "on-general")));
 

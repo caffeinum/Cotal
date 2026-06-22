@@ -11,7 +11,8 @@
  *   C. CANNOT create a history consumer on a FORBIDDEN channel (no grant for that EX subject).
  *   D. CANNOT use the bare, filter-less create subject (the multi-filter escape hatch).
  *   E. CANNOT Direct-Get the CHAT stream (the removed unfiltered read hole).
- *   F. CANNOT create/update its own LIVE durable chat_<id> (bind-only — no self-widening).
+ *   F. CANNOT create a CHAT-stream consumer at all — agents hold no CHAT consumer grant post-v0.3
+ *      (the removed `chat_<id>` name + a forbidden filter is just the probe; the live read is a core-sub).
  *
  * If a future nats-server / nats.js upgrade ever stops enforcing B, this smoke fails loud — the
  * whole read boundary rests on it. Run: pnpm smoke:read-acl:auth
@@ -134,13 +135,15 @@ try {
   const e = await jsApi(ag, `$JS.API.DIRECT.GET.${CHAT}`, { seq: 1 });
   check("E: Direct Get on CHAT is blocked (read hole removed)", e.kind === "blocked", e);
 
-  // F — create/update the agent's OWN live durable chat_<id>: bind-only ⇒ blocked (no self-widen).
+  // F — an agent holds NO CHAT consumer grant (v0.3: the live read is a core-sub, not a durable).
+  // Probe it by trying to create a CHAT-stream consumer (using the removed chat_<id> name + a forbidden
+  // filter) — blocked, so an agent can never stand up its own CHAT reader to self-widen its read.
   const f = await jsApi(ag, `$JS.API.CONSUMER.CREATE.${CHAT}.${chatDurable(id.id)}`, {
     stream_name: CHAT,
     config: { durable_name: chatDurable(id.id), filter_subjects: [forbiddenFilter], ack_policy: "explicit" },
     action: "create",
   });
-  check("F: self-create/update of the live chat_<id> durable is blocked (bind-only)", f.kind === "blocked", f);
+  check("F: an agent cannot create a CHAT-stream consumer (no grant — probed via the removed chat_<id> name)", f.kind === "blocked", f);
 
   // G — STREAM.INFO on DM/TASK is NOT granted (agents bind by name; granting it would leak DM-inbox
   // and task subject metadata across peers). CHAT STREAM.INFO IS granted (documented metadata surface).

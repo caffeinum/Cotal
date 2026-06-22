@@ -62,19 +62,19 @@ fit lateral pub/sub.
   leaveCursor`) and transfers authorized copies to the agent's own bind-only DELIVER durable, which
   the agent acks natively (at-least-once, end-to-end). Membership is a **privileged cursored KV
   registry** (`cotal_members_<space>`), not consumer topology; `channelMembers()` reads it ∩
-  presence-liveness. The legacy per-instance `chat_<id>` live-tail durable + mediated filter-move
-  described in the rest of this section is **fully removed** — boot + runtime channels both use the
-  core-sub + Plane-3 model above (open dev mode has no manager, so it is live-only). Treat the
-  remainder of this section as **historical (v0.2)**; the current normative model is SPEC §4/§7/§8.
-- **Channel membership** (who is on a channel) is **server-known, not self-reported**. A peer
-  joins a channel by creating a chat-stream durable consumer, so `consumers.list` *is* the
-  membership: unforgeable, with no presence field to lie in. `endpoint.channelMembers(channel)`
-  reads that broker truth and joins it with presence for liveness, so a durable whose peer is
-  gone but lingering (reconnect grace) shows as a stale member (`live:false`), not a phantom
-  listener. This is a privileged read: `consumers.list` needs
-  `$JS.API.CONSUMER.LIST.CHAT_<space>`, which only the allow-all **manager** profile holds
-  today (agents/observer/admin are denied), so it is manager-served (a dashboard profile is a
-  one-line grant away). It is observability only, never an agent gate on sending.
+  presence-liveness. The legacy per-instance `chat_<id>` live-tail durable + mediated filter-move is
+  **fully removed** — boot + runtime channels both use the core-sub + Plane-3 model above (open dev
+  mode has no manager, so it is live-only). The bullets below describe that current model (normative:
+  SPEC §4/§7/§8).
+- **Channel membership** (who is on a channel) is **server-known, not self-reported**. It lives in the
+  privileged cursored KV registry `cotal_members_<space>` (one `MembershipRecord` per concrete channel
+  + owner): a durable join writes a `durable-active` record, a leave tombstones it at the leave cursor.
+  There is no presence field to lie in. `endpoint.channelMembers(channel)` reads that broker truth —
+  only ACTIVATED, non-tombstoned members (a join still completing or that failed activation catch-up
+  reported `durable:false` and stays hidden, so the surface never overstates) — and joins it with
+  presence for liveness, so a member whose peer is gone but lingering (reconnect grace) shows
+  `live:false`, not a phantom. The registry is manager-write/read (agents hold no grant), so it is
+  manager-served. It is observability only, never an agent gate on sending.
 - **Channel registry** (config *about* a channel) lives in a per-space KV bucket
   (`cotal_channels_<space>`, sibling of presence): per-channel `{ replay?, description?,
   instructions? }` plus a space-wide default under a reserved key. It is **channel-global, not
@@ -85,34 +85,27 @@ fit lateral pub/sub.
   `description`/`instructions` reach the model, so the registry is a prompt-injection surface:
   text is length-bounded at the write path and surfaced to agents as attributed, advisory data
   (never system-prompt text).
-- **Replay mechanism (tail + backfill).** `deliver_policy` is consumer-wide, so it cannot
-  honor per-channel replay. Instead the chat durable is a `DeliverPolicy.New` **tail** ("from
-  now on") and history is an explicit **per-channel backfill on join** through a short-lived
-  single-filter consumer scoped to that one channel (so the read stays within the agent's read
-  ACL — see the read-containment note below), gated by the channel's replay policy. A
-  per-channel join watermark (the stream frontier at join) lets the tail ack-drop pre-join
-  messages, so a
-  no-replay channel starts clean and a replay backfill never double-delivers. **How far back**
-  is the registry's `replayWindow` (`"24h"`), realized natively as a Direct-Get `start_time`,
-  not a client-side count.
+- **Replay mechanism (live tail + backfill).** The live read is a native **core subscription** per
+  channel ("from now on", at-most-once, broker-enforced by `sub.allow`) — there is no per-instance
+  chat durable. History is an explicit **per-channel backfill on join** through a short-lived
+  single-filter consumer scoped to that one channel (so the read stays within the agent's read ACL —
+  see the read-containment note below), gated by the channel's replay policy. A per-channel join
+  watermark (the stream frontier at join) ack-drops pre-join messages on the live tail, so a no-replay
+  channel starts clean and a replay backfill never double-delivers. **How far back** is the registry's
+  `replayWindow` (`"24h"`), realized natively as a Direct-Get `start_time`, not a client-side count.
 
   **No-replay is noise control, not confidentiality.** The drop is client-side and every peer
   can read a channel's history on demand (chat is world-readable, agents hold `DIRECT.GET`), so
   it must never be documented or relied on as privacy or access-control. Anything confidential
   uses DM/anycast (private streams, consumer-create-deny), never a no-replay channel.
-
-  *Why one multi-filter durable and not one consumer per channel (which would let the broker
-  replay natively)?* A per-channel consumer is named `chat_<id>_<channel>`, and consumer names
-  cannot contain `.`, so that is a single ACL token. NATS permission wildcards are
-  token-granular, so it cannot be scoped to one agent. One fixed-name durable is what keeps the
-  per-agent grant tight *and* makes dynamic join just a filter edit (no per-channel grant).
-- **Dynamic subscription.** A peer joins or leaves channels **mid-session**:
-  `endpoint.joinChannel`/`leaveChannel` mutate the existing chat durable's `filter_subjects`
-  via `consumers.update` (same durable, no teardown; this rides the self-scoped create grant).
-  Channel membership is therefore a live view, and join triggers the replay backfill above. On
-  **restart** the durable's filter is **reconciled to the agent's current config** (channels
-  the config gained are backfilled like a join; channels it lost are dropped); an unchanged
-  config is a pure resume.
+- **Dynamic subscription.** A peer joins or leaves channels **mid-session**: `endpoint.joinChannel`
+  opens a new core subscription (and, for a `durable`-class channel, requests a Plane-3 backstop from
+  the manager via the self-service control op); `endpoint.leaveChannel` closes the core-sub and
+  tombstones the durable membership — **fail-closed**, since §7's leave is a server-side read boundary
+  (a leave whose tombstone can't be confirmed is not applied). No durable filter editing, no teardown.
+  Join triggers the replay backfill above. On **reconnect** the core-subs reopen from the agent's
+  current config; the persistent membership records + per-member DELIVER durable mean the Plane-3
+  backstop survives on its own (no re-backfill).
 - **Sessions + moderator** (managed groups with admit/remove) are *deferred*, but the design
   leaves room for them.
 

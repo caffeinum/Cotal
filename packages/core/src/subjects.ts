@@ -344,15 +344,17 @@ export const FANOUT_DURABLE = "fanout" as const;
  *  manager-pumped). It re-authorizes each entry and transfers the authorized copy to `dlv.<owner>`. */
 export const INBOX_READER_DURABLE = "reader" as const;
 
-/** Durable consumer name for an instance's view of the chat stream — its live tail. */
+/** Name of the REMOVED per-instance chat live-tail durable. Retained only as the canonical name the
+ *  read-ACL conformance test asserts an agent can NOT create — it has no live callers, the live read is
+ *  now a native core subscription. */
 export function chatDurable(instance: string): string {
   return `chat_${token(instance)}`;
 }
 
 /** Consumer name for an instance's short-lived chat **history** reads (join-backfill, focus-recall,
- *  drop-marker). A single per-instance name (not the live `chat_<id>`) so its create/info/fetch/
- *  delete grants are name-scoped to the agent's own id — a peer can never bind it — while the
- *  per-read single `filter_subject` is what the create-time ACL pins to `allowSubscribe`. */
+ *  drop-marker). A single per-instance name, scoped to the agent's own id so its create/info/fetch/
+ *  delete grants name-scope to that id — a peer can never bind it — while the per-read single
+ *  `filter_subject` is what the create-time ACL pins to `allowSubscribe`. */
 export function chatHistDurable(instance: string): string {
   return `chathist_${token(instance)}`;
 }
