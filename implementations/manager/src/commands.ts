@@ -43,6 +43,7 @@ function parse(argv: string[]): Values {
       role: { type: "string" },
       agent: { type: "string" },
       config: { type: "string" },
+      model: { type: "string" }, // start: model override, wins over the agent file's `model:`
       roster: { type: "string" },
       creds: { type: "string" },
       runtime: { type: "string" }, // supervise: force pty | tmux | cmux (default auto-detects)
@@ -136,6 +137,7 @@ async function start(argv: string[]): Promise<void> {
     role: v.role,
     agent: v.agent,
     config: v.config,
+    model: v.model,
     // Opt-in: only sent when `--transcript` is given; absent => the daemon's default (mirror off).
     transcript: v.transcript ? true : undefined,
   }, v.creds);
@@ -304,7 +306,7 @@ const managerCommands: Command[] = [
     name: "start",
     group: "Control plane",
     summary:
-      "ask the manager to spawn an agent — --name <n> [--role <r>] [--agent <a>] [--config <file>] (auto-discovers .cotal/agents/<n>.md)",
+      "ask the manager to spawn an agent — --name <n> [--role <r>] [--agent <a>] [--config <file>] [--model <m>] (auto-discovers .cotal/agents/<n>.md)",
     run: start,
   },
   {

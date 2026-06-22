@@ -124,7 +124,7 @@ run`). They differ only in how they *run* the spec:
 
 | Launcher | How to point at a file |
 |---|---|
-| Manager (supervised PTY) | `cotal start --name dave` (auto-discovers `.cotal/agents/dave.md` in the manager's workspace) or `--config <path>`. Detached; view via console / `cotal attach`. |
+| Manager (supervised PTY) | `cotal start --name dave` (auto-discovers `.cotal/agents/dave.md` in the manager's workspace) or `--config <path>`; `--model <m>` overrides the file's `model:` for this launch. Detached; view via console / `cotal attach`. |
 | Foreground (`cotal spawn`) | `cotal spawn <name-or-path>`. The real Claude TUI takes over this terminal (run it inside a cmux/tmux pane to multiplex). |
 
 `.cotal/` is gitignored (user-local, like `.claude/`). The demo ships committed example

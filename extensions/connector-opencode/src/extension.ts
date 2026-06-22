@@ -30,6 +30,7 @@ const SERVE_SHIM = fileURLToPath(new URL("./serve.js", import.meta.url));
 export const opencodeConnector: Connector = {
   kind: "connector",
   name: "opencode",
+  requires: ["opencode"],
   buildLaunch(opts: LaunchOpts): LaunchSpec {
     // Tool-sharing isn't wired for opencode: its OPENCODE_CONFIG_CONTENT is a merge layer, so an
     // opencode agent already INHERITS the operator's MCP servers (the opposite default to Claude's
@@ -79,14 +80,17 @@ export const opencodeConnector: Connector = {
     // An agent file carries identity (read in-session via COTAL_AGENT_FILE) plus persona + model.
     // The model is a config default (the session — and the attached TUI — use it); the persona is
     // applied in-session by the plugin (opencode has no `--append-system-prompt`).
+    let model = opts.model;
     if (opts.configPath) {
       const path = resolve(opts.configPath);
       env.COTAL_AGENT_FILE = path; // plugin reads persona from it
       const def = loadAgentFile(path);
-      if (def.model) config.model = def.model;
+      model ??= def.model;
       const face = def.meta?.face;
       if (face) env.COTAL_FACE_PERSONA = face; // shim swaps the TUI for the face viewer
     }
+    // The `--model` flag wins over the agent file, and applies even with no agent file.
+    if (model) config.model = model;
 
     env.OPENCODE_CONFIG_CONTENT = JSON.stringify(config);
 

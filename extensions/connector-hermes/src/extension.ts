@@ -23,6 +23,7 @@ const LAUNCH_ENTRY = fileURLToPath(new URL(`./launch.${ENTRY_EXT}`, import.meta.
 export const hermesConnector: Connector = {
   kind: "connector",
   name: "hermes",
+  requires: ["hermes"],
   buildLaunch(opts: LaunchOpts): LaunchSpec {
     // OS allow-list + the named model-provider key (Hermes is model-agnostic; any one unlocks a
     // provider), forwarded BY NAME — never `...process.env` — so the operator's unrelated secrets
@@ -39,7 +40,9 @@ export const hermesConnector: Connector = {
     // An agent file carries identity + persona + model; the launcher applies the persona as
     // Hermes' SOUL.md (system prompt) at gateway startup, the one place it can be set.
     if (opts.configPath) env.COTAL_AGENT_FILE = opts.configPath;
-    if (process.env.HERMES_MODEL) env.HERMES_MODEL = process.env.HERMES_MODEL!;
+    // The `--model` flag wins over an ambient HERMES_MODEL; the launcher applies it as the gateway model.
+    const model = opts.model ?? process.env.HERMES_MODEL;
+    if (model) env.HERMES_MODEL = model;
     return { command: TSX, args: [LAUNCH_ENTRY], env };
   },
 };

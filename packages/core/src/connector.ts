@@ -18,6 +18,10 @@ export interface LaunchOpts {
    *  passes it through (`COTAL_AGENT_FILE`) so the joined session reads its own
    *  card from it, and applies the file's persona/model at launch. */
   configPath?: string;
+  /** Explicit model override — the `cotal start --model <m>` flag. Takes precedence over the
+   *  agent file's `model:` and is applied even when no agent file is present. Each connector
+   *  renders it in its host form (Claude `--model`, OpenCode `config.model`, Hermes `HERMES_MODEL`). */
+  model?: string;
   /** An initial message for the session to act on the moment it starts. Connectors
    *  that support an auto-submitted first prompt (Claude Code) deliver it; others
    *  ignore it. Used to make a driving session greet the operator on launch. */
@@ -57,6 +61,12 @@ export interface Connector extends Extension {
   readonly kind: "connector";
   readonly name: string;
   buildLaunch(opts: LaunchOpts): LaunchSpec;
+  /** External executables this connector invokes beyond `LaunchSpec.command` (e.g. the
+   *  `claude` / `opencode` CLI). A preflight PATH hint, not a full environment validator: the
+   *  manager checks each is on PATH before spawning and fails with a clear error naming the
+   *  missing one, instead of an obscure process-spawn failure. Optional — omit for connectors
+   *  whose harness runs in-process. */
+  readonly requires?: readonly string[];
   /** Directory of installable editor-plugin assets shipped with the connector
    *  (e.g. a Claude Code plugin dir), when the agent type needs a one-time
    *  plugin install. Consumers (like `cotal setup`) resolve it via the registry

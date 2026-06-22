@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { accessSync, constants, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join, dirname, delimiter } from "node:path";
 import {
   CotalEndpoint,
   DEFAULT_SERVER,
@@ -39,6 +39,31 @@ const MAX_AGENTS = 50;
  *  expires — so churn (spawn↔despawn or spawn↔fast-exit) can't outrun the concurrency bound. */
 const MIN_LIFETIME = 10_000;
 
+/** Is `bin` an executable on PATH? A side-effect-free preflight for a connector's `requires` —
+ *  scans PATH directly with `accessSync(X_OK)` rather than shelling out to `which`, so it can't
+ *  hang or run the harness. An absolute/relative path is checked as-is; a bare name is looked up
+ *  across PATH entries (empty entries skipped). POSIX-only (macOS/Linux); no PATHEXT handling. */
+function binOnPath(bin: string): boolean {
+  if (bin.includes("/")) {
+    try {
+      accessSync(bin, constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  for (const dir of (process.env.PATH ?? "").split(delimiter)) {
+    if (!dir) continue;
+    try {
+      accessSync(join(dir, bin), constants.X_OK);
+      return true;
+    } catch {
+      // not here — keep scanning
+    }
+  }
+  return false;
+}
+
 export interface ManagerOptions {
   space: string;
   servers?: string;
@@ -59,6 +84,8 @@ export interface StartAgentOpts {
   role?: string;
   /** Explicit agent-file name-or-path; otherwise `.cotal/agents/<name>.md` is discovered if present. */
   config?: string;
+  /** Model override (the `--model` flag). Takes precedence over the agent file's `model:`. */
+  model?: string;
   /** Mirror the session's transcript to `tr-<name>`. Defaults to off; `true` (the
    *  `--transcript` flag) opts in. */
   transcript?: boolean;
@@ -335,6 +362,7 @@ export class Manager {
         agent: args.agent ? String(args.agent) : undefined,
         role: args.role ? String(args.role) : undefined,
         config: args.config ? String(args.config) : undefined,
+        model: args.model ? String(args.model) : undefined,
         transcript: typeof args.transcript === "boolean" ? args.transcript : undefined,
       },
       caller,
@@ -390,6 +418,12 @@ export class Manager {
       let handle: AgentHandle;
       try {
         const connector = registry.resolve<Connector>("connector", agent);
+        // Preflight the harness binaries this connector invokes (its `requires`) BEFORE minting
+        // creds or building the launch — a missing `claude`/`opencode` should fail here with a
+        // clear name, not obscurely at process spawn. No fallback: throw if it isn't on PATH.
+        const missing = (connector.requires ?? []).filter((bin) => !binOnPath(bin));
+        if (missing.length)
+          throw new Error(`${agent} harness needs ${missing.join(", ")} on PATH — not found`);
         const def = configPath ? loadAgentFile(configPath) : undefined;
         if (!role) role = def?.role;
         allowSubscribe = def?.allowSubscribe ?? def?.subscribe ?? ["general"];
@@ -423,6 +457,7 @@ export class Manager {
           creds: credsPath,
           servers: this.servers,
           configPath,
+          model: opts.model,
           transcript: opts.transcript,
           mcpServers,
         });
