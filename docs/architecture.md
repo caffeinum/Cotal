@@ -61,11 +61,11 @@ fit lateral pub/sub.
   entry against the **current** read ACL **and** the membership interval (`joinCursor < seq ≤
   leaveCursor`) and transfers authorized copies to the agent's own bind-only DELIVER durable, which
   the agent acks natively (at-least-once, end-to-end). Membership is a **privileged cursored KV
-  registry** (`cotal_members_<space>`), not consumer topology; `channelMembers()` reads it (unioned
-  with the legacy consumers during migration) ∩ presence-liveness. The single multi-filter
-  `chat_<id>` durable + mediated filter-move described in the rest of this section is the
-  **transitional/boot path** still serving the boot subscribe set during the migration (removed once
-  boot moves to Plane-3); the normative model is SPEC §4/§7/§8.
+  registry** (`cotal_members_<space>`), not consumer topology; `channelMembers()` reads it ∩
+  presence-liveness. The legacy per-instance `chat_<id>` live-tail durable + mediated filter-move
+  described in the rest of this section is **fully removed** — boot + runtime channels both use the
+  core-sub + Plane-3 model above (open dev mode has no manager, so it is live-only). Treat the
+  remainder of this section as **historical (v0.2)**; the current normative model is SPEC §4/§7/§8.
 - **Channel membership** (who is on a channel) is **server-known, not self-reported**. A peer
   joins a channel by creating a chat-stream durable consumer, so `consumers.list` *is* the
   membership: unforgeable, with no presence field to lie in. `endpoint.channelMembers(channel)`
