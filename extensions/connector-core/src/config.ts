@@ -149,7 +149,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AgentConfig
     subscribe: resolvedSubscribe,
     allowSubscribe: resolvedAllowSub,
     // Post ACL is default-DENY: only what's explicitly declared (env > agent-file). The broker
-    // enforces it under auth; in open mode posting is unrestricted regardless (see laneLine).
+    // enforces it under auth; in open mode posting is unrestricted regardless.
     allowPublish: resolvedAllowPub,
     quiet: resolvedQuiet,
     muted: resolvedMuted,
@@ -161,25 +161,6 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AgentConfig
     feedbackKey: env.COTAL_FEEDBACK_KEY?.trim() || undefined,
     feedbackUrl: env.COTAL_FEEDBACK_URL?.trim() || undefined,
   };
-}
-
-/** One sentence telling the agent its channel lanes — what it reads and where it may post —
- *  so it knows its scope up front instead of discovering it from inbound tags and send errors.
- *  Folded into each connector's MCP `instructions`. It must match the broker truth: under auth the
- *  post ACL is default-deny, so an undeclared agent genuinely cannot post (state it plainly rather
- *  than promise a lane the broker will reject). In open mode there is no cred, so posting is
- *  unrestricted regardless of the (display-only) post ACL. */
-export function laneLine(config: AgentConfig): string {
-  const fmt = (cs: string[]) => cs.map((c) => `#${c}`).join(", ");
-  const subs = config.subscribe;
-  // Open mode (no creds) ⇒ nothing is enforced; the agent reads and posts to its channels freely.
-  if (!config.creds) return `You read and may post to ${fmt(subs)}. `;
-  const pubs = config.allowPublish;
-  if (!pubs.length) return `You read ${fmt(subs)}; you may not post to any channel (no publish channels granted). `;
-  const same = subs.length === pubs.length && subs.every((c) => pubs.includes(c));
-  return same
-    ? `You read and may post to ${fmt(subs)}. `
-    : `You read ${fmt(subs)}; you may post only to ${fmt(pubs)} (posts to other channels are rejected). `;
 }
 
 /** Beta-feedback guidance folded into connector instructions. */
