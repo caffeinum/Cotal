@@ -3,7 +3,7 @@
  * Spins up its OWN JWT-auth nats-server, mints scoped per-peer creds, and proves the full
  * delivery surface works authenticated: multicast (+ normalized mentions), unicast, anycast,
  * offline-DM durability, presence-status propagation, and channel membership (live/stale).
- * channelMembers() rides the manager-only CONSUMER.LIST grant, so a manager endpoint reads it
+ * channelMembers() reads the manager-only members KV registry, so a manager endpoint reads it
  * (alice/bob/carol are scoped agents, exactly as a real spawn provisions them).
  * Run: pnpm smoke:auth
  */
@@ -24,9 +24,18 @@ import {
   type Delivery,
 } from "./src/index.js";
 
-const PORT = 14224;
+// Fresh random port per run + await-exit on the broker kill (finally): a FIXED port plus a SIGKILL that
+// doesn't await the child's exit leaks the broker, and the next run collides with the squatter (the
+// "Authorization Violation" reviewers hit). Same leak-class fix the channels/self-serve smokes carry.
+const PORT = 20000 + Math.floor(Math.random() * 40000);
 const SERVERS = `nats://127.0.0.1:${PORT}`;
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const awaitExit = (proc: ReturnType<typeof spawn>, timeoutMs = 3000): Promise<void> =>
+  new Promise((resolve) => {
+    if (proc.exitCode !== null || proc.signalCode !== null) return resolve();
+    proc.once("exit", () => resolve());
+    setTimeout(resolve, timeoutMs);
+  });
 let pass = 0;
 let fail = 0;
 const check = (name: string, cond: boolean, extra?: unknown) => {
@@ -155,7 +164,7 @@ try {
 
   const aliceInB = b.getRoster().find((p) => p.card.name === "alice");
 
-  // Membership = broker truth (chat-stream consumers) ∩ presence liveness — read by the manager.
+  // Membership = the privileged members KV registry ∩ presence liveness — read by the manager.
   const preLeave = await mgr.channelMembers("general");
   const allChannels = await mgr.channelMembers();
 
@@ -163,8 +172,8 @@ try {
   await wait(500);
   const bobInA = a.getRoster().find((p) => p.card.name === "bob");
 
-  // Bob's chat durable lingers past his leave, but presence flipped offline: he stays visible as
-  // a STALE member (live:false), distinct from still-live alice.
+  // Bob's membership record persists past his stop (stop ≠ leave — no tombstone), but presence flipped
+  // offline: he stays visible as a STALE member (live:false), distinct from still-live alice.
   const afterLeave = await mgr.channelMembers("general");
   const bobMember = afterLeave.find((m) => m.name === "bob");
   const aliceMember = afterLeave.find((m) => m.name === "alice");
@@ -197,7 +206,7 @@ try {
   console.error("  ✗ auth scenario threw:", (e as Error).message);
 } finally {
   srv.kill("SIGKILL");
-  await wait(200);
+  await awaitExit(srv); // await actual exit so a failed run never leaks the broker onto its port
   rmSync(dir, { recursive: true, force: true });
 }
 

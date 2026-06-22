@@ -11,7 +11,8 @@
  *   C. CANNOT create a history consumer on a FORBIDDEN channel (no grant for that EX subject).
  *   D. CANNOT use the bare, filter-less create subject (the multi-filter escape hatch).
  *   E. CANNOT Direct-Get the CHAT stream (the removed unfiltered read hole).
- *   F. CANNOT create/update its own LIVE durable chat_<id> (bind-only — no self-widening).
+ *   F. CANNOT create a CHAT-stream consumer at all — agents hold no CHAT consumer grant post-v0.3
+ *      (the removed `chat_<id>` name + a forbidden filter is just the probe; the live read is a core-sub).
  *
  * If a future nats-server / nats.js upgrade ever stops enforcing B, this smoke fails loud — the
  * whole read boundary rests on it. Run: pnpm smoke:read-acl:auth
@@ -36,11 +37,17 @@ import {
   chatSubject,
   chatDurable,
   chatHistDurable,
-} from "./src/index.js";
+} from "../src/index.js";
 
-const PORT = 14231;
+const PORT = 20000 + Math.floor(Math.random() * 40000);
 const SERVERS = `nats://127.0.0.1:${PORT}`;
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const awaitExit = (proc: ReturnType<typeof spawn>, timeoutMs = 3000): Promise<void> =>
+  new Promise((resolve) => {
+    if (proc.exitCode !== null || proc.signalCode !== null) return resolve();
+    proc.once("exit", () => resolve());
+    setTimeout(resolve, timeoutMs);
+  });
 const enc = (s: string) => new TextEncoder().encode(s);
 let pass = 0, fail = 0;
 const check = (name: string, cond: boolean, extra?: unknown) => {
@@ -91,7 +98,7 @@ try {
 
   // A scoped agent: read ACL = ["allowed"] only. The stub provisioner skips durable pre-create —
   // we only need the cred's grants, which is what nats-server enforces.
-  const noop = { provisionChatDurable: async () => {}, provisionDmInbox: async () => {}, provisionTaskQueue: async () => {} };
+  const noop = { provisionMembership: async () => {}, provisionDmInbox: async () => {}, provisionDlvInbox: async () => {}, provisionTaskQueue: async () => {} };
   const id = newIdentity();
   const agentCreds = await provisionAgent(noop, auth, id, { subscribe: ["allowed"], allowSubscribe: ["allowed"] });
   const chatHistD = chatHistDurable(id.id);
@@ -134,13 +141,15 @@ try {
   const e = await jsApi(ag, `$JS.API.DIRECT.GET.${CHAT}`, { seq: 1 });
   check("E: Direct Get on CHAT is blocked (read hole removed)", e.kind === "blocked", e);
 
-  // F — create/update the agent's OWN live durable chat_<id>: bind-only ⇒ blocked (no self-widen).
+  // F — an agent holds NO CHAT consumer grant (v0.3: the live read is a core-sub, not a durable).
+  // Probe it by trying to create a CHAT-stream consumer (using the removed chat_<id> name + a forbidden
+  // filter) — blocked, so an agent can never stand up its own CHAT reader to self-widen its read.
   const f = await jsApi(ag, `$JS.API.CONSUMER.CREATE.${CHAT}.${chatDurable(id.id)}`, {
     stream_name: CHAT,
     config: { durable_name: chatDurable(id.id), filter_subjects: [forbiddenFilter], ack_policy: "explicit" },
     action: "create",
   });
-  check("F: self-create/update of the live chat_<id> durable is blocked (bind-only)", f.kind === "blocked", f);
+  check("F: an agent cannot create a CHAT-stream consumer (no grant — probed via the removed chat_<id> name)", f.kind === "blocked", f);
 
   // G — STREAM.INFO on DM/TASK is NOT granted (agents bind by name; granting it would leak DM-inbox
   // and task subject metadata across peers). CHAT STREAM.INFO IS granted (documented metadata surface).
@@ -174,6 +183,6 @@ try {
   process.exitCode = 1;
 } finally {
   srv.kill("SIGKILL");
-  await wait(150);
+  await awaitExit(srv);
   rmSync(dir, { recursive: true, force: true });
 }

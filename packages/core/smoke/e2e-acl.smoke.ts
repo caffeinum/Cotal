@@ -28,10 +28,16 @@ import {
   setupSpaceStreams, seedChannelRegistry, provisionAgent, CotalEndpoint,
   CONTROL_SELF_SERVICE, channelInAllow, chatStream, chatSubject, chatHistDurable,
   type CotalMessage, type Delivery, type MessageMeta, type ControlRequest,
-} from "./src/index.js";
+} from "../src/index.js";
 
-const PORT = 14241, SERVERS = `nats://127.0.0.1:${PORT}`, space = "e2eacl";
+const PORT = 20000 + Math.floor(Math.random() * 40000), SERVERS = `nats://127.0.0.1:${PORT}`, space = "e2eacl";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const awaitExit = (proc: ReturnType<typeof spawn>, timeoutMs = 3000): Promise<void> =>
+  new Promise((resolve) => {
+    if (proc.exitCode !== null || proc.signalCode !== null) return resolve();
+    proc.once("exit", () => resolve());
+    setTimeout(resolve, timeoutMs);
+  });
 const enc = (s: string) => new TextEncoder().encode(s);
 const textOf = (m: CotalMessage) => m.parts.map((p) => (p.kind === "text" ? p.text : "")).join("");
 let pass = 0, fail = 0;
@@ -83,13 +89,19 @@ try {
   const mgr = new CotalEndpoint({ space, servers: SERVERS, creds: mgrCreds, card: { name: "mgr", kind: "endpoint" }, consume: false, watchPresence: false, registerPresence: false });
   mgr.on("error", (e) => console.log("mgr err:", e.message));
   await mgr.start();
+  await mgr.startPlane3((id) => allowById.get(id));
   mgr.serveControl(CONTROL_SELF_SERVICE, async (req: ControlRequest) => {
-    if (req.op !== "setChannels") return { ok: false, error: `unsupported op ${req.op}` };
     const allow = allowById.get(req.from.id) ?? [];
-    const channels = (req.args?.channels as string[]) ?? [];
-    for (const ch of channels) if (!channelInAllow(allow, ch)) return { ok: false, error: `"${ch}" outside allowSubscribe` };
-    await mgr.setChatFilterFor(req.from.id, channels);
-    return { ok: true, data: { channels } };
+    const ch = typeof req.args?.channel === "string" ? req.args.channel : "";
+    if (req.op === "durableJoin") {
+      if (!channelInAllow(allow, ch)) return { ok: false, error: `"${ch}" outside allowSubscribe` };
+      return { ok: true, data: await mgr.durableJoinFor(req.from.id, ch) };
+    }
+    if (req.op === "durableLeave") {
+      await mgr.durableLeaveFor(req.from.id, ch, typeof req.args?.generation === "number" ? req.args.generation : undefined);
+      return { ok: true, data: { channel: ch } };
+    }
+    return { ok: false, error: `unsupported op ${req.op}` };
   });
 
   // Pre-seed history BEFORE agents connect (so backfill has something to find).
@@ -200,7 +212,7 @@ try {
   process.exitCode = 1;
 } finally {
   srv.kill("SIGKILL");
-  await sleep(150);
+  await awaitExit(srv);
   rmSync(dir, { recursive: true, force: true });
 }
 process.exit(process.exitCode ?? (fail ? 1 : 0)); // force-exit: lingering endpoint reconnect timers keep the loop alive

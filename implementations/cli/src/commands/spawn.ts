@@ -174,12 +174,18 @@ export async function spawn(argv: string[]): Promise<void> {
     prov.on("error", (e: Error) => console.error(`! provisioner: ${e.message}`));
     await prov.start();
     const subscribe = splitFlag(values.subscribe) ?? def.subscribe;
+    // Direct foreground spawn is LIVE-ONLY: this short-lived provisioner is not a managing Plane-3 host,
+    // and no long-lived manager knows this agent (it's in no manager's `agents` ledger), so a durable
+    // boot membership could be neither authorized for reader delivery nor leaved via self-service. Skip
+    // it — the agent reads live via its core-sub; a durable backstop requires spawning under a manager
+    // (`cotal start` / `cotal up`).
     const creds = await provisionAgent(prov, auth, identity, {
       subscribe,
       allowSubscribe: splitFlag(values["allow-subscribe"]) ?? def.allowSubscribe ?? subscribe,
       allowPublish: splitFlag(values["allow-publish"]) ?? def.allowPublish,
       role,
       capabilities: def.capabilities,
+      durableMembership: false,
     });
     await prov.stop();
     credsPath = join(authDir(cotalRoot()), "creds", `${name}.creds`);

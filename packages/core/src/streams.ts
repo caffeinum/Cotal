@@ -14,8 +14,7 @@ import {
   spacePrefix,
   chatStream,
   chatSubject,
-  chatDurable,
-  collapseFilterSubjects,
+  chatWildcard,
   isConcreteChannel,
   dmStream,
   dmDurable,
@@ -25,6 +24,13 @@ import {
   anycastSubject,
   presenceBucket,
   channelBucket,
+  membersBucket,
+  inboxStream,
+  dlvStream,
+  dlvSubject,
+  dlvDurable,
+  FANOUT_DURABLE,
+  INBOX_READER_DURABLE,
 } from "./subjects.js";
 
 /** Default presence-bucket entry TTL (ms) — matches the endpoint's default liveness window. */
@@ -34,6 +40,22 @@ const PRESENCE_TTL_MS = 6_000;
  *  oldest message on a subject is discarded (`DiscardPolicy.Old`). Also the horizon of focus
  *  recall: only the last {@link MAX_MSGS_PER_SUBJECT} per sender-subject are recallable. */
 export const MAX_MSGS_PER_SUBJECT = 1000;
+
+/** JetStream message-dedup window on the Plane-3 streams: a `Nats-Msg-Id`
+ *  (`<msgId>:<owner>:<generation>`) repeated within this window is collapsed. Sized generous (2h) so
+ *  an activation-catch-up copy and a racing fan-out copy of the same message dedup even for a slow/
+ *  backlogged owner. **This window IS the cross-path exactly-once correctness horizon** — two writes
+ *  of the same logical copy separated by more than it (e.g. a manager crash after a DLV publish, the
+ *  dinbox ack lost, the window expiring, then a re-transfer after restart) are NOT collapsed at the
+ *  stream. The connector's commit-aware id-cache (`MeshAgent.ingest`) coalesces live↔durable and
+ *  redelivery duplicates within a SESSION, but it is in-memory and reset on agent restart, so it is
+ *  NOT a cross-restart guarantee. A persistent per-owner delivery ledger would lift the bound; not
+ *  built (the 2h horizon covers the realistic crash/redelivery lag). Keep the window ≥ worst-case lag. */
+export const PLANE3_DEDUP_WINDOW_MS = 2 * 60 * 60 * 1000;
+
+/** Bound on the trusted reader's in-flight (un-acked) entries per owner — an offline owner with a large
+ *  backlog can't stall the reader's own redelivery by pinning unbounded pending. */
+export const DINBOX_MAX_ACK_PENDING = 1000;
 
 export interface ClearSpaceHistoryResult {
   chat: number;
@@ -79,6 +101,29 @@ export async function createSpaceStreams(
     retention: RetentionPolicy.Workqueue,
     storage: StorageType.File,
   });
+  // Plane-3 (SPEC §8). INBOX = the mixed pre-auth store (fan-out target; agents hold no grant — see
+  // permissionsFor). DLV = the per-member post-auth handoff the agent binds + acks. Both per-owner
+  // (one subject per owner), capped per-owner backlog (DiscardPolicy.Old; an evicted entry is a
+  // delivery miss, surfaced, never a satisfied durable guarantee — SPEC §7). `duplicate_window`
+  // collapses a catch-up/fan-out double of the same Nats-Msg-Id. No Direct Get on either.
+  await jsm.streams.add({
+    name: inboxStream(space),
+    subjects: [`${p}.dinbox.>`],
+    retention: RetentionPolicy.Limits,
+    storage: StorageType.File,
+    max_msgs_per_subject: MAX_MSGS_PER_SUBJECT,
+    discard: DiscardPolicy.Old,
+    duplicate_window: nanos(PLANE3_DEDUP_WINDOW_MS),
+  });
+  await jsm.streams.add({
+    name: dlvStream(space),
+    subjects: [`${p}.dlv.>`],
+    retention: RetentionPolicy.Limits,
+    storage: StorageType.File,
+    max_msgs_per_subject: MAX_MSGS_PER_SUBJECT,
+    discard: DiscardPolicy.Old,
+    duplicate_window: nanos(PLANE3_DEDUP_WINDOW_MS),
+  });
 }
 
 /**
@@ -112,42 +157,6 @@ export function dmDurableConfig(
 }
 
 /**
- * The chat live-tail durable for an instance — ONE definition, used both by the privileged
- * pre-create (manager/provisioner, auth mode) and the endpoint's open-mode self-create, so an
- * idempotent re-add can't error on a config delta. `filter_subjects` binds it to the instance's
- * subscribe set (`chat.*.<ch>` per channel); only the privileged creator sets it under auth, which
- * is the whole point — the agent BINDS-only (denied CONSUMER.CREATE/UPDATE on CHAT) and so can
- * never widen its own read past `allowSubscribe`. `DeliverPolicy.New` (a tail): history is the
- * explicit per-channel backfill on join, the only shape that can honor per-channel replay policy
- * given `deliver_policy` is consumer-wide.
- *
- * Multi-channel ⇒ plural `filter_subjects`, which the client sends on the filter-less create
- * subject (`CONSUMER.CREATE.<stream>.<name>`) — so this durable's filter is NOT ACL-pinnable by
- * subject; bind-only + a trusted creator is the enforcement, exactly as for DM/TASK.
- *
- * `inactive_threshold` is set ONLY when the caller passes one — the open-mode self-create, where
- * the agent owns the durable. The privileged auth pre-create OMITS it (same bind-only reasoning as
- * {@link dmDurableConfig}): a threshold would retire the durable before a late/relaunched agent
- * binds it, and bind would then fail permanently.
- */
-export function chatDurableConfig(
-  space: string,
-  id: string,
-  channels: string[],
-  opts: { ackWaitMs?: number; inactiveThresholdMs?: number } = {},
-): Partial<ConsumerConfig> {
-  const cfg: Partial<ConsumerConfig> = {
-    durable_name: chatDurable(id),
-    filter_subjects: collapseFilterSubjects(channels.map((ch) => chatSubject(space, "*", ch))),
-    ack_policy: AckPolicy.Explicit,
-    ack_wait: nanos(opts.ackWaitMs ?? 60_000),
-    deliver_policy: DeliverPolicy.New,
-  };
-  if (opts.inactiveThresholdMs) cfg.inactive_threshold = nanos(opts.inactiveThresholdMs);
-  return cfg;
-}
-
-/**
  * The TASK work-queue durable for a role — ONE definition, shared by the privileged
  * pre-create (auth mode) and the endpoint's open-mode self-create. The durable is shared
  * across all instances of a role (queue group); the privileged creator sets the
@@ -164,6 +173,64 @@ export function taskDurableConfig(
     filter_subject: anycastSubject(space, role, "*"),
     ack_policy: AckPolicy.Explicit,
     ack_wait: nanos(opts.ackWaitMs ?? 60_000),
+  };
+}
+
+// ---- Plane-3 consumers (SPEC §8) ----
+
+/** The single privileged trusted-reader consumer over the WHOLE INBOX (mixed pre-auth) store
+ *  (`dinbox.>`, all owners) — created + bound only by the manager. Explicit ack: the reader holds an
+ *  entry un-acked until it has transferred the re-authorized copy to DLV (a crash before transfer
+ *  redelivers). `max_ack_pending` bounds the reader's in-flight set. The per-message owner is
+ *  recovered from the subject (`parseDinboxOwner`). */
+export function inboxReaderConfig(
+  space: string,
+  opts: { ackWaitMs?: number } = {},
+): Partial<ConsumerConfig> {
+  return {
+    durable_name: INBOX_READER_DURABLE,
+    filter_subject: `${spacePrefix(space)}.dinbox.>`,
+    ack_policy: AckPolicy.Explicit,
+    ack_wait: nanos(opts.ackWaitMs ?? 60_000),
+    deliver_policy: DeliverPolicy.All,
+    max_ack_pending: DINBOX_MAX_ACK_PENDING,
+  };
+}
+
+/** An agent's bind-only per-member DELIVER consumer (mirrors {@link dmDurableConfig}): the provisioner
+ *  pre-creates it filtered to `dlv.<owner>`; the agent BINDS it (denied CREATE on DLV) and acks via
+ *  native JetStream — the §8 "equivalent per-member at-least-once mechanism with the same ack
+ *  semantics". `inactive_threshold` only for an open-mode self-create (none today; Plane-3 is
+ *  auth-only). */
+export function dlvDurableConfig(
+  space: string,
+  owner: string,
+  opts: { ackWaitMs?: number; inactiveThresholdMs?: number } = {},
+): Partial<ConsumerConfig> {
+  const cfg: Partial<ConsumerConfig> = {
+    durable_name: dlvDurable(owner),
+    filter_subject: dlvSubject(space, owner),
+    ack_policy: AckPolicy.Explicit,
+    ack_wait: nanos(opts.ackWaitMs ?? 60_000),
+    deliver_policy: DeliverPolicy.All,
+  };
+  if (opts.inactiveThresholdMs) cfg.inactive_threshold = nanos(opts.inactiveThresholdMs);
+  return cfg;
+}
+
+/** The single privileged fan-out consumer on CHAT (manager-pumped; routing, not auth).
+ *  `DeliverPolicy.New` at creation (pre-existing backlog is pre-membership); a DURABLE, so on a
+ *  manager restart it resumes from its ack cursor and fans out the gap, idempotent via `Nats-Msg-Id`. */
+export function fanoutDurableConfig(
+  space: string,
+  opts: { ackWaitMs?: number } = {},
+): Partial<ConsumerConfig> {
+  return {
+    durable_name: FANOUT_DURABLE,
+    filter_subject: chatWildcard(space),
+    ack_policy: AckPolicy.Explicit,
+    ack_wait: nanos(opts.ackWaitMs ?? 60_000),
+    deliver_policy: DeliverPolicy.New,
   };
 }
 
@@ -187,6 +254,10 @@ export async function setupSpaceStreams(opts: {
     const kvm = new Kvm(nc);
     await kvm.create(presenceBucket(opts.space), { ttl: PRESENCE_TTL_MS });
     await kvm.create(channelBucket(opts.space));
+    // Durable-membership registry (Plane-3): privileged-write, no TTL (durable config, like the
+    // channel registry). Pre-created so the manager (and open-mode self) can OPEN it; agents hold no
+    // grant. Idempotent.
+    await kvm.create(membersBucket(opts.space));
   } finally {
     await nc.drain();
   }

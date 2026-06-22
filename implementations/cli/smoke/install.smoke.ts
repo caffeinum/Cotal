@@ -9,8 +9,8 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isNpx, cotalOnPath } from "./src/lib/self-exec.js";
-import { offerGlobalInstall } from "./src/commands/setup.js";
+import { isNpx, cotalOnPath } from "../src/lib/self-exec.js";
+import { offerGlobalInstall } from "../src/commands/setup.js";
 
 let failures = 0;
 function check(label: string, cond: boolean): void {

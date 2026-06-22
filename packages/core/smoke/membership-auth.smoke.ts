@@ -23,11 +23,17 @@ import {
   newIdentity,
   setupSpaceStreams,
   chatStream,
-} from "./src/index.js";
+} from "../src/index.js";
 
-const PORT = 14223;
+const PORT = 20000 + Math.floor(Math.random() * 40000);
 const SERVERS = `nats://127.0.0.1:${PORT}`;
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const awaitExit = (proc: ReturnType<typeof spawn>, timeoutMs = 3000): Promise<void> =>
+  new Promise((resolve) => {
+    if (proc.exitCode !== null || proc.signalCode !== null) return resolve();
+    proc.once("exit", () => resolve());
+    setTimeout(resolve, timeoutMs);
+  });
 let pass = 0;
 let fail = 0;
 const check = (name: string, cond: boolean, extra?: unknown) => {
@@ -93,9 +99,12 @@ try {
   });
   mgr.on("error", (e: Error) => console.error("  ! mgr", e.message));
   await mgr.start();
-
-  // An agent: provision its bind-only durables, mint scoped creds, join #general.
+  // Host Plane-3 so provisionAgent's boot membership write (durable-class boot channels → durable-active
+  // records) lands — channelMembers reads that registry.
   const agentId = newIdentity();
+  await mgr.startPlane3((id) => (id === agentId.id ? ["general"] : undefined));
+
+  // An agent: provision its bind-only durables + boot membership, mint scoped creds, join #general.
   const agentCreds = await provisionAgent(mgr, auth, agentId, { subscribe: ["general"], allowPublish: ["general"], role: "worker" });
   const agent = new CotalEndpoint({
     space,
@@ -128,7 +137,7 @@ try {
   console.error("  ✗ auth scenario threw:", (e as Error).message);
 } finally {
   srv.kill("SIGKILL");
-  await wait(200);
+  await awaitExit(srv);
   rmSync(dir, { recursive: true, force: true });
 }
 
