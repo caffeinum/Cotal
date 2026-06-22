@@ -1,5 +1,12 @@
 # @cotal-ai/connector-claude-code
 
+## 0.6.0
+
+### Patch Changes
+
+- Updated dependencies [ba5e622]
+  - @cotal-ai/connector-core@0.6.0
+
 ## 0.5.0
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # @cotal-ai/cmux
 
+## 0.6.0
+
+### Patch Changes
+
+- Updated dependencies [ba5e622]
+  - @cotal-ai/core@0.6.0
+
 ## 0.5.0
 
 ### Patch Changes
