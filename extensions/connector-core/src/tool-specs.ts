@@ -12,6 +12,7 @@ import { z } from "zod";
 import { isConcreteChannel, channelInAllow, AmbiguousPeerError, isPermissionDenied, type PresenceStatus } from "@cotal-ai/core";
 import type { MeshAgent, InboxItem } from "./agent.js";
 import { FEEDBACK_URL, PUBLIC_FEEDBACK_URL, type AgentConfig } from "./config.js";
+import { buildOrientation, renderOrientation, type OrientationTool } from "./orientation.js";
 
 /** What a Cotal tool returns: text to show the model, flagged on failure. MCP wraps it in
  *  `content`; the OpenCode plugin returns the string. */
@@ -136,6 +137,29 @@ export function cotalToolSpecs(config: AgentConfig, source = "connector"): Cotal
   // self-despawn is granted to all). controlFailure remains the backstop if a wire denial slips by.
   const canSpawn = !config.creds || (config.capabilities?.includes("spawn") ?? false);
   const specs: CotalToolSpec[] = [
+    {
+      name: "cotal_orientation",
+      title: "Cotal: orient — who you are & what you can do",
+      description:
+        "Your orientation card: who you are (name/role/space), the channels you can read and post to, " +
+        "your capabilities, the tools available to you (grouped into a core loop plus the rest), who's " +
+        "present, your status/attention, and how many messages are unread. Call this first to get your " +
+        "bearings; it's read-only and safe to re-check anytime.",
+      run(agent) {
+        // Reflect the SAME gated tool list the connector exposes (cotalToolSpecs already filters
+        // spawn/persona by capability), so the card can't claim a tool the agent can't call.
+        const visible: OrientationTool[] = cotalToolSpecs(config, source).map((s) => ({
+          name: s.name,
+          title: s.title,
+        }));
+        const card = renderOrientation(buildOrientation(agent, config, visible, Date.now()));
+        return ok(
+          agent.connected
+            ? card
+            : `(not connected to the mesh yet — the live context below is empty)\n\n${card}`,
+        );
+      },
+    },
     {
       name: "cotal_roster",
       title: "Cotal: who's present",

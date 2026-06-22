@@ -7,6 +7,9 @@
 A bundled plugin inside the session joins NATS, maps lifecycle hooks to presence, and
 exposes the mesh tools: messaging, presence, and team supervision.
 
+- **`cotal_orientation`** is the orient-first entry point: a read-only card of identity, the
+  channels it reads and may post to, capabilities, the tools available to it, present peers, and
+  unread counts. The connector `instructions` tell the agent to call it first.
 - **`cotal_spawn`** grows the team. The new teammate joins as a lateral peer. A taken
   name auto-numbers (`reviewer` → `reviewer-2`), so you never collide; the requested name
   still picks the persona file.
@@ -102,9 +105,13 @@ You are a builder on a shared mesh of peer agents…   ← the body is the perso
   `buildLaunch` pre-allows that fetch with `--allowedTools
   "WebFetch(domain:github.com),WebFetch(domain:raw.githubusercontent.com)"` so the lookup
   does not prompt the operator mid-session.
-- **The agent is told its lanes.** The MCP server `instructions` name the channels it reads
-  and may post to (from `channels`/`publish`), so the model knows its scope up front instead
-  of learning it from inbound tags and rejected sends.
+- **The agent orients via one tool.** The MCP server `instructions` point the model at
+  `cotal_orientation` — a read-only card with its identity, the channels it reads and may post
+  to (from `channels`/`publish`), its capabilities, the tools available to it (grouped into a
+  core loop plus the rest), who's present, and unread counts — so it knows its scope up front
+  instead of learning it from inbound tags and rejected sends. Built from the same config and
+  gated tool set that drive the tools, so it can't claim access the agent doesn't have. The
+  same card surfaces on every connector (OpenCode, Hermes), not just Claude Code.
 - **Channel purpose is pulled, not pushed.** `cotal_channel_info(channel)` returns a
   channel's `{ description, instructions, replay }` from the registry at point of use. Read it
   before first posting to an unfamiliar channel. The text is rendered as *attributed,

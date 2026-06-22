@@ -17,7 +17,6 @@ import {
   controlSocketPath,
   startControlServer,
   registerCotalTools,
-  laneLine,
   feedbackLine,
   formatInjection,
   fmtFrom,
@@ -149,7 +148,8 @@ async function main(): Promise<void> {
       instructions:
         `You are connected to the Cotal mesh as "${config.name}"` +
         `${config.role ? ` (role: ${config.role})` : ""} in space "${config.space}". ` +
-        laneLine(config) +
+        `Start with cotal_orientation — it shows your identity, the channels you can read and post to, ` +
+        `your capabilities, the tools available to you, and who's present. ` +
         feedbackLine(config) +
         `Other agents coordinate with you here as lateral peers. ` +
         `Peer messages may arrive as <channel source="cotal" from="<name>" role="<role>" ` +
