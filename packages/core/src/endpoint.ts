@@ -7,6 +7,8 @@ import {
   AuthorizationError,
   PermissionViolationError,
   UserAuthenticationExpiredError,
+  NoRespondersError,
+  RequestError,
   type NatsConnection,
   type Subscription,
 } from "@nats-io/transport-node";
@@ -870,12 +872,21 @@ export class CotalEndpoint extends EventEmitter {
   async leaveChannel(channel: string): Promise<{ left: boolean }> {
     if (!this.jsm) throw new Error(this.notLiveMsg());
     if (!this.channels.includes(channel)) return { left: false };
-    // Tombstone the durable membership BEFORE touching local state. A failure propagates (no swallow):
-    // §7's read boundary is server-side, so a leave whose tombstone didn't land has not happened —
-    // reporting `left` while the trusted reader keeps transferring to DLV is the fail-open leak.
-    if (this.plane3Channels.has(channel)) {
-      await this.durableLeaveChannel(channel, this.plane3Channels.get(channel));
-      this.plane3Channels.delete(channel);
+    // Auth + durable-class ⇒ a Plane-3 membership may exist; tombstone it BEFORE touching local state.
+    // The join generation comes from the local mirror, but a BOOT membership whose hydration was missed
+    // (transient manager error at connect) is NOT in the mirror — so re-resolve it from the manager on
+    // demand. FAIL-CLOSED: fetchMemberships throws on a responder-present error, so a leave whose
+    // tombstone can't be confirmed propagates (live sub stays up, mirror intact) for the caller to retry
+    // — reporting `left` while the trusted reader keeps transferring to DLV is the fail-open leak. A
+    // genuine no-responder (open / manager-less, no Plane-3) means there is no membership to tombstone.
+    if (this.creds && effectiveDeliveryClass(this.channelConfigs.get(channel), this.channelDefaults) === "durable") {
+      let generation = this.plane3Channels.get(channel);
+      if (generation === undefined)
+        generation = (await this.fetchMemberships())?.find((m) => m.channel === channel)?.generation;
+      if (generation !== undefined) {
+        await this.durableLeaveChannel(channel, generation);
+        this.plane3Channels.delete(channel);
+      }
     }
     this.unsubscribeChat(channel);
     const i = this.channels.indexOf(channel);
@@ -1464,22 +1475,42 @@ export class CotalEndpoint extends EventEmitter {
     if (!reply.ok) throw new Error(reply.error ?? "durable leave rejected");
   }
 
-  /** Agent-side: seed `plane3Channels` with this session's CURRENT durable memberships + their join
-   *  generations, fetched from the manager (the agent holds no read on the privileged members KV). Run
-   *  once on first connect so leaving a BOOT durable channel — provisioned server-side, hence never in
-   *  the local mirror — still tombstones its Plane-3 membership (the generation is required by the
-   *  stale-leave guard, and `leaveChannel` is fail-closed). No-op without a privileged responder (open /
-   *  manager-less): live-only, nothing to hydrate. */
-  private async hydrateMemberships(): Promise<void> {
-    let reply;
+  /** A control request that found NO responder — open / manager-less (no privileged control plane),
+   *  distinct from a responder that errored. nats.js surfaces it as NoRespondersError, or a RequestError
+   *  whose `isNoResponders()` is true. */
+  private isNoResponders(e: unknown): boolean {
+    return e instanceof NoRespondersError || (e instanceof RequestError && e.isNoResponders());
+  }
+
+  /** Agent-side: this session's CURRENT durable memberships (channel + join generation) from the
+   *  manager — the agent holds no read on the privileged members KV. `undefined` ⇒ NO control responder
+   *  (open / manager-less, so there is no Plane-3 and no memberships). THROWS on a responder-present RPC
+   *  failure, so a caller can FAIL-CLOSED rather than mistaking a transient error for "no membership". */
+  private async fetchMemberships(): Promise<{ channel: string; generation: number }[] | undefined> {
+    let reply: ControlReply;
     try {
       reply = await this.requestControl(CONTROL_SELF_SERVICE, { op: "listMemberships", args: {} }, 5_000);
-    } catch {
-      return; // no manager responder (open / manager-less) — live-only
+    } catch (e) {
+      if (this.isNoResponders(e)) return undefined; // no manager — open / manager-less, no Plane-3
+      throw e; // responder present but errored — surface it (leaveChannel fails closed)
     }
-    if (!reply.ok) return;
-    const memberships =
-      (reply.data as { memberships?: { channel: string; generation: number }[] } | undefined)?.memberships ?? [];
+    if (!reply.ok) throw new Error(reply.error ?? "listMemberships failed");
+    return (reply.data as { memberships?: { channel: string; generation: number }[] } | undefined)?.memberships ?? [];
+  }
+
+  /** Agent-side: seed `plane3Channels` with this session's boot durable memberships + generations on
+   *  first connect (the agent holds no read on the privileged members KV). A best-effort OPTIMIZATION: it
+   *  pre-fills the leave-generation mirror + the durable-state surface. If it can't (a transient manager
+   *  error), {@link leaveChannel} re-resolves the generation on demand and fails closed there — so a
+   *  missed hydration never silently leaves a boot durable channel untombstonable. */
+  private async hydrateMemberships(): Promise<void> {
+    let memberships: { channel: string; generation: number }[] | undefined;
+    try {
+      memberships = await this.fetchMemberships();
+    } catch {
+      return; // transient manager error at boot — leaveChannel re-resolves on demand (fail-closed there)
+    }
+    if (!memberships) return; // no manager — live-only
     for (const m of memberships)
       if (this.channels.includes(m.channel)) this.plane3Channels.set(m.channel, m.generation);
   }

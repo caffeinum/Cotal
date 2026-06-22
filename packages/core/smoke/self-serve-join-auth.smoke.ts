@@ -252,10 +252,26 @@ try {
   await wait(900);
   check("manager-present leave stops delivery (core-sub closed + backstop tombstoned)", !got.some((g) => g.includes("gone")), got);
 
-  // ── BOOT durable LEAVE (panel blocker): a boot durable channel is provisioned server-side and never
+  // ── BOOT durable LEAVE via ON-DEMAND re-resolution: alice connected in Phase 1 (NO responder), so her
+  //    boot memberships were never hydrated into the mirror. Leaving "ops" must STILL tombstone —
+  //    leaveChannel re-resolves the generation from the manager on demand (fail-closed), so a missed
+  //    hydration is not a silent §7 fail-open (the red-team hole: hydrateMemberships swallowed errors).
+  const aliceOpsBefore = await pub.channelMembers("ops");
+  check("alice's boot 'ops' membership is present (provisioned, but NOT hydrated into alice's mirror)", aliceOpsBefore.some((m) => m.id === aId.id), aliceOpsBefore);
+  const opsLeave = await a.leaveChannel("ops");
+  check("leaving an UN-hydrated boot durable channel succeeds (generation re-resolved on demand)", opsLeave.left === true, opsLeave);
+  await wait(150);
+  const aliceOpsAfter = await pub.channelMembers("ops");
+  check("the un-hydrated boot leave TOMBSTONES the membership (no silent fail-open)", !aliceOpsAfter.some((m) => m.id === aId.id), aliceOpsAfter);
+  got.length = 0;
+  await pub.multicast("after ops leave", { channel: "ops" });
+  await wait(900); // settle: prove ABSENCE — both planes closed
+  check("after the un-hydrated boot leave, no delivery (live sub closed + backstop tombstoned)", !got.some((g) => g.includes("after ops leave")), got);
+
+  // ── BOOT durable LEAVE via HYDRATION: a boot durable channel is provisioned server-side and never
   //    runtime-joined, so its generation lives only in the registry until hydrateMemberships seeds it on
   //    connect. bob boots on "ops" (durable) WITH the manager present, so leaving "ops" tombstones the
-  //    §7 boundary — without hydration, leaveChannel could not (the prior boot-leave leak).
+  //    §7 boundary from the hydrated mirror — without hydration, leaveChannel could not (the prior leak).
   const bId = newIdentity();
   acls[bId.id] = ["ops"];
   const bCreds = await provisionAgent(pub, auth, bId, { subscribe: ["ops"], allowSubscribe: ["ops"] });
