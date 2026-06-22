@@ -20,7 +20,7 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.json",
-    "test": "tsx resolve.smoke.ts",
+    "test": "tsx smoke/resolve.smoke.ts",
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
