@@ -77,15 +77,19 @@ JetStream has run in production for years. We didn't invent the hard parts.
 
 ## Quick start
 
-The only prerequisite is Node 20+ (NATS ships bundled). One command does it all (plain
-terminal or cmux, it adapts):
+The only prerequisite is Node 20+ (NATS ships bundled). One command brings up a local mesh,
+the web dashboard, your agent's connector, and a quick guided demo:
 
 ```bash
 npx cotal-ai setup --full
 ```
 
-It brings up a local mesh, the web dashboard, your agent's connector, and a quick guided
-demo, then hands you the commands you'll actually use:
+> [!NOTE]
+> **Want each teammate in its own tab?** Run `setup` from inside a **cmux** pane and Cotal
+> opens a tab per agent. In a plain terminal they run in the background instead, on the same
+> mesh; watch them with `cotal console` or the web dashboard.
+
+When it's done it hands you the commands you'll actually use:
 
 ```bash
 cotal spawn me     # drive a session: talk to your agent; it messages and spawns peers
@@ -97,14 +101,9 @@ cotal down         # stop everything
 ```
 
 > [!TIP]
-> **Using a coding agent?** One `setup` wires it into the mesh, then just ask it to spawn a
-> teammate and it does (`cotal_spawn`), coordinating over the shared space. See
-> [docs/claude-code-integration.md](docs/claude-code-integration.md).
-
-> [!NOTE]
-> **Want each teammate in its own tab?** Run `setup` from inside a **cmux** pane and Cotal
-> opens a tab per agent. In a plain terminal they run in the background instead, on the same
-> mesh; watch them with `cotal console` or the web dashboard.
+> **Using a coding agent?** Setup brings up a **manager**, an endpoint that lets your agent
+> pull in teammates on demand: ask your agent for one ("spin up a reviewer") and it spawns it
+> on the mesh via `cotal_spawn`. See [docs/claude-code-integration.md](docs/claude-code-integration.md).
 
 ## Examples
 
