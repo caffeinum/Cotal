@@ -49,19 +49,34 @@ try {
   agent = new CotalEndpoint({ space, servers: SERVERS, creds: aCreds, channels: [], consume: false, watchPresence: false, registerPresence: false, card: { id: aId.id, name: "alice", kind: "agent" } });
   agent.on("error", () => {}); await agent.start();
 
-  // Pre-reconnect: the responder works.
+  // Pre-reconnect: the responder works + the daemon holds a (ready) lease (so the deliveryKv reopen is
+  // exercised post-reconnect).
+  const leaseRev = await daemon.acquireDeliveryLease(0);
+  await daemon.markDeliveryLeaseReady(0, leaseRev);
   const pre = await agent.durableJoinChannel("review");
   check("durableJoin works before reconnect", pre.durable === true);
+  const reviewGen = pre.generation ?? 0;
 
   // Force the daemon endpoint to drain + rebuild its connection (drops the old ctl.delivery sub + KV handles).
   await daemon.reconnect();
   await wait(400);
 
-  // Post-reconnect: the ctl.delivery responder was re-bound by armPlane3, and the Plane-3 KV handles
-  // re-opened on the fresh connection — so durable join (ACL read + members write) still works.
+  // Post-reconnect, ALL ctl.delivery ops + every Plane-3 KV handle must work on the fresh connection:
+  // join (aclKv read + membersKv write), list (membersKv read), leave (membersKv tombstone), and the
+  // lease read (deliveryKv) — the exact set the blocker covered (responder rebind + stale KV reopen).
   let postJoin: { durable: boolean } | undefined;
   try { postJoin = await agent.durableJoinChannel("ops"); } catch (e) { console.log(`    (post-reconnect join threw: ${(e as Error).message})`); }
-  check("durableJoin still works AFTER the daemon reconnects (responder + KV handles re-bound)", postJoin?.durable === true);
+  check("durableJoin works after reconnect (responder + aclKv + membersKv re-bound)", postJoin?.durable === true);
+
+  const members = await daemon.ownerMemberships(aId.id);
+  check("listMemberships works after reconnect (membersKv reopened)", members.some((m) => m.channel === "review") && members.some((m) => m.channel === "ops"));
+
+  let leftOk = false;
+  try { await agent.durableLeaveChannel("review", reviewGen); leftOk = true; } catch (e) { console.log(`    (post-reconnect leave threw: ${(e as Error).message})`); }
+  check("durableLeave works after reconnect (membersKv tombstone)", leftOk);
+
+  const lease = await daemon.readDeliveryLease(0);
+  check("the delivery lease is still readable after reconnect (deliveryKv reopened)", lease?.ready === true);
 
   console.log(`\nDELIVERY-RECONNECT SMOKE ${fail === 0 ? "OK ✅" : "FAILED ❌"}  (${pass} passed, ${fail} failed)`);
   if (fail) process.exitCode = 1;

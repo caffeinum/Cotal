@@ -880,9 +880,10 @@ export class CotalEndpoint extends EventEmitter {
   /**
    * Join a channel mid-session: open a native core subscription (manager-free live read, broker-
    * confirmed against `sub.allow`), capture the stream frontier as the join watermark, backfill its
-   * history if replay is on, and — for a `durable`-class channel under a manager — request a Plane-3
-   * durable backstop. Idempotent: re-joining is a no-op (no re-backfill). Returns the backfill count +
-   * whether the durable backstop is active (+ a `reason` when a durable channel couldn't get one).
+   * history if replay is on, and — for a `durable`-class channel when a delivery daemon is present —
+   * request a Plane-3 durable backstop (via `ctl.delivery`). Idempotent: re-joining is a no-op (no
+   * re-backfill). Returns the backfill count + whether the durable backstop is active (+ a `reason`
+   * when a durable channel couldn't get one).
    */
   async joinChannel(
     channel: string,
@@ -933,7 +934,7 @@ export class CotalEndpoint extends EventEmitter {
           reason = r.reason ?? "durable backstop unavailable";
         }
       } catch (e) {
-        // No privileged writer (manager-less) or the write was rejected — joined live, backstop
+        // No privileged writer (no delivery daemon) or the write was rejected — joined live, backstop
         // unavailable. NOT a join failure: the live subscription is up and authorized.
         reason = `durable backstop unavailable (${(e as Error).message})`;
       }
@@ -957,7 +958,7 @@ export class CotalEndpoint extends EventEmitter {
     // demand. FAIL-CLOSED: fetchMemberships throws on a responder-present error, so a leave whose
     // tombstone can't be confirmed propagates (live sub stays up, mirror intact) for the caller to retry
     // — reporting `left` while the trusted reader keeps transferring to DLV is the fail-open leak. A
-    // genuine no-responder (open / manager-less, no Plane-3) means there is no membership to tombstone.
+    // genuine no-responder (open / no delivery daemon, no Plane-3) means there is no membership to tombstone.
     if (this.creds && effectiveDeliveryClass(this.channelConfigs.get(channel), this.channelDefaults) === "durable") {
       let generation = this.plane3Channels.get(channel);
       if (generation === undefined)
@@ -1288,10 +1289,11 @@ export class CotalEndpoint extends EventEmitter {
   }
 
   /** Privileged: one owner's NON-TOMBSTONED durable memberships as `{channel, generation, activated}` —
-   *  the manager serves this to a connecting agent (via the `listMemberships` self-service op). The agent
-   *  hydrates its leave mirror from the ACTIVATED ones (the confirmed backstops), but the non-activated
-   *  ones are returned too so `leaveChannel` can discover + close a record that still routes under the
-   *  pure-interval predicate (a crash-stuck pending activation) — without reading the privileged KV. */
+   *  the server-side delivery daemon serves this to a connecting agent (the `listMemberships` op on
+   *  `ctl.delivery`). The agent seeds its leave mirror from the ACTIVATED ones (the confirmed backstops),
+   *  but the non-activated ones are returned too so `leaveChannel` can discover + close a record that
+   *  still routes under the pure-interval predicate (a crash-stuck pending activation) — without reading
+   *  the privileged KV itself. */
   async ownerMemberships(owner: string): Promise<{ channel: string; generation: number; activated: boolean }[]> {
     const recs = await listMembers(await this.membersRegistry(), { owner });
     return recs
@@ -1527,7 +1529,7 @@ export class CotalEndpoint extends EventEmitter {
 
   /** (Re)bind the Plane-3 fan-out writer + trusted reader. Idempotent — the durables resume from their
    *  cursor. Called by {@link startPlane3} once AND by {@link connectAndBind} on every (re)connect, so
-   *  a manager-endpoint reconnect RE-ARMS the backstop. Without this, a broker blip would silently kill
+   *  the delivery daemon's reconnect RE-ARMS the backstop + the ctl.delivery responder. Without this, a broker blip would silently kill
    *  the loops while `durableJoinFor` kept reporting `durable:true` (the impl-review's BLOCKER-1). No-op
    *  unless this endpoint hosts Plane-3 (`this.plane3` set). */
   private async armPlane3(): Promise<void> {
@@ -1690,7 +1692,7 @@ export class CotalEndpoint extends EventEmitter {
   }
 
   /** Agent-side: request a Plane-3 durable backstop for a channel via the server-side delivery daemon (ctl.delivery). Throws
-   *  when no privileged writer is present (open / manager-less). 30s timeout — activation catch-up may
+   *  when no privileged writer is present (open / no delivery daemon). 30s timeout — activation catch-up may
    *  run before the reply (the window is small, but a busy channel can take more than the 5s default). */
   async durableJoinChannel(channel: string): Promise<{ durable: boolean; reason?: string; generation?: number }> {
     const reply = await this.requestDelivery("durableJoin", { channel }, 30_000);
@@ -1699,7 +1701,7 @@ export class CotalEndpoint extends EventEmitter {
   }
 
   /** Agent-side: release a Plane-3 durable backstop (tombstone membership at the leave cursor). Passes
-   *  the join generation so a stale leave can't tombstone a newer rejoin (the manager validates it). */
+   *  the join generation so a stale leave can't tombstone a newer rejoin (the delivery daemon validates it). */
   async durableLeaveChannel(channel: string, generation?: number): Promise<void> {
     const reply = await this.requestDelivery("durableLeave", { channel, generation });
     if (!reply.ok) throw new Error(reply.error ?? "durable leave rejected");
@@ -1711,7 +1713,7 @@ export class CotalEndpoint extends EventEmitter {
    *  is reachable, never a silent give-up. While pending, the channel is tracked in
    *  {@link pendingDurableLeave} and surfaced via {@link pendingDurableLeaves} (the connector shows it in
    *  `cotal_channels` as `durable-unclosed`, never ordinary absence). The generation is kept the whole
-   *  time. Authoritative closure of a revoked membership is also the manager's job (revocation). */
+   *  time. Authoritative closure of a revoked membership is also handled by revocation (rotate creds + tear down). */
   private async closeRefusedMembership(channel: string, generation: number): Promise<void> {
     this.pendingDurableLeave.set(channel, generation);
     for (let attempt = 0; ; attempt++) {
@@ -1748,14 +1750,14 @@ export class CotalEndpoint extends EventEmitter {
 
   /** Agent-side: this session's CURRENT durable memberships (channel + join generation) from the
    *  manager — the agent holds no read on the privileged members KV. `undefined` ⇒ NO control responder
-   *  (open / manager-less, so there is no Plane-3 and no memberships). THROWS on a responder-present RPC
+   *  (open / no delivery daemon, so there is no Plane-3 and no memberships). THROWS on a responder-present RPC
    *  failure, so a caller can FAIL-CLOSED rather than mistaking a transient error for "no membership". */
   private async fetchMemberships(): Promise<{ channel: string; generation: number; activated: boolean }[] | undefined> {
     let reply: ControlReply;
     try {
       reply = await this.requestDelivery("listMemberships", {}, 5_000);
     } catch (e) {
-      if (this.isNoResponders(e)) return undefined; // no manager — open / manager-less, no Plane-3
+      if (this.isNoResponders(e)) return undefined; // no delivery daemon — open / daemon-less, no Plane-3
       throw e; // responder present but errored — surface it (leaveChannel fails closed)
     }
     if (!reply.ok) throw new Error(reply.error ?? "listMemberships failed");

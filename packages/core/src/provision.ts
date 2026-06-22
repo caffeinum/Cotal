@@ -169,18 +169,20 @@ export interface ProvisionOpts extends MintOpts {
    *  `durable`-class members get a boot Plane-3 membership. Must be ⊆ `allowSubscribe`. Defaults to
    *  `["general"]`. */
   subscribe?: string[];
-  /** Write a DURABLE boot membership for each `durable`-class channel (default true). A durable backstop
-   *  needs a long-lived manager that hosts Plane-3 AND knows this agent's ACL — true only for an agent
-   *  launched UNDER a manager (`cotal start` / `cotal up`), which registers it in its `agents` ledger.
-   *  Set FALSE for a launcher with no such manager — direct foreground `cotal spawn` — so the agent is
-   *  LIVE-ONLY (no manager would know it, so its durable copies couldn't be authorized by the trusted
-   *  reader nor its membership leaved via self-service; its runtime joins are live-only for that reason
-   *  too). Writing a record nobody can deliver/leave is worse than none. */
+  /** Record this agent's read ACL so it can participate in durable delivery (default true). A durable
+   *  backstop needs the agent's read ACL in the registry — the server-side delivery daemon re-authorizes
+   *  every durable entry against it — written here at provision. Set FALSE for a LIVE-ONLY launcher
+   *  (e.g. a direct foreground `cotal spawn` with no durable intent): no ACL row is written, so the daemon
+   *  refuses to authorize a durable backstop and the agent stays live-only. Boot durable MEMBERSHIP itself
+   *  is not written here — the agent self-joins its durable channels via the daemon's `ctl.delivery` op at
+   *  connect. */
   durableMembership?: boolean;
 }
 
-/** The privileged onboarding ops a launcher needs — implemented by a connected, permissive
- *  endpoint (the manager, or a short-lived provisioner that `cotal spawn` opens). */
+/** The privileged onboarding ops a launcher needs at spawn — implemented by a connected, permissive
+ *  endpoint (the manager at `cotal start`/`cotal up`, or a short-lived provisioner that `cotal spawn`
+ *  opens). It pre-creates the agent's own mailboxes and records its read ACL; it does NOT host Plane-3
+ *  delivery (that is the server-side delivery daemon). */
 export interface DurableProvisioner {
   provisionDmInbox(id: string): Promise<void>;
   /** Pre-create the agent's bind-only Plane-3 DELIVER durable (`dlv_<id>`, filtered to `dlv.<id>`) so
@@ -196,10 +198,11 @@ export interface DurableProvisioner {
 }
 
 /** Onboard an agent for launch (auth mode): pre-create its bind-only DM (+ Plane-3 DELIVER + role
- *  TASK) durables, write its boot durable membership (Plane-3, unless `durableMembership:false`), and
+ *  TASK) durables, RECORD its read ACL in the durable registry (unless `durableMembership:false`), and
  *  mint its scoped creds. Live delivery is the agent's own core subscription — there is no per-instance
- *  chat durable. The single shared onboarding step; a launcher with no managing Plane-3 host (direct
- *  `cotal spawn`) opts out of the durable membership and is live-only. */
+ *  chat durable. Boot durable MEMBERSHIP is not written here: the agent self-joins its durable channels
+ *  via the server-side delivery daemon's `ctl.delivery` op at connect. A live-only launcher
+ *  (`durableMembership:false`, e.g. direct `cotal spawn`) gets no ACL row and stays live-only. */
 export async function provisionAgent(
   provisioner: DurableProvisioner,
   auth: SpaceAuth,

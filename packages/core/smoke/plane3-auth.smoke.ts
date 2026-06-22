@@ -1,8 +1,9 @@
 /**
  * Plane-3 durable backstop (Stage-4) end-to-end against a REAL auth broker (no test runner).
  *
- * Proves the whole path the design promises: a privileged manager hosts the fan-out writer + trusted
- * reader; an agent that is a durable MEMBER of a channel but is NOT live-subscribed to it receives a
+ * Proves the whole path the design promises: the privileged Plane-3 host (the server-side delivery
+ * daemon) runs the fan-out writer + trusted reader; an agent that is a durable MEMBER of a channel but
+ * is NOT live-subscribed to it receives a
  * post on its next turn via the per-member DELIVER store (`dlv_<id>`) — kind=channel, durable:true,
  * a real JetStream ack. Then the interval rules: a post after `durableLeave` (`seq > leaveCursor`) is
  * NOT delivered (leave is a hard read boundary for the backstop), and the security boundary holds —

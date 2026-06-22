@@ -1,18 +1,18 @@
 /**
  * Self-serve channel-join smoke (SPEC v0.3 overlay). Two phases:
  *
- *  Phase 1 — NO manager serving control: an auth-mode agent joins a channel's live feed at runtime
- *  and receives the live message via its native core subscription (broker-enforced by sub.allow).
- *  Join reports `durable:false` (joined live, backstop unestablished — no Plane-3 host); out-of-ACL
- *  join is refused (broker-confirmed); a core-sub leave stops delivery; the live read survives a broker
- *  reconnect. Manager-free, so there is no durable backstop to establish or tombstone.
+ *  Phase 1 — NO delivery daemon serving Plane-3: an auth-mode agent joins a channel's live feed at
+ *  runtime and receives the live message via its native core subscription (broker-enforced by sub.allow).
+ *  Join reports `durable:false` (joined live, backstop unestablished — no daemon); out-of-ACL join is
+ *  refused (broker-confirmed); a core-sub leave stops delivery; the live read survives a broker
+ *  reconnect. Daemon-free, so there is no durable backstop to establish or tombstone.
  *
- *  Phase 2 — a real Plane-3 manager is present (fan-out + trusted reader + the durableJoin/durableLeave/
- *  listMemberships control ops the agent uses). A runtime join now also arms a Plane-3 backstop
- *  (`durable:true`), delivered alongside the live core-sub copy (the connector's id-dedup coalesces to
- *  exactly once — proven in cross-path-dedup). A runtime leave tombstones the §7 boundary. And a BOOT
- *  durable membership — written server-side at provision, never runtime-joined — is hydrated into the
- *  agent's leave mirror on connect, so leaving the boot channel tombstones it too (panel blocker).
+ *  Phase 2 — a real Plane-3 host is present (the server-side delivery daemon: fan-out + trusted reader +
+ *  the durableJoin/durableLeave/listMemberships ops it serves on `ctl.delivery`). A runtime join now also
+ *  arms a Plane-3 backstop (`durable:true`), delivered alongside the live core-sub copy (the connector's
+ *  id-dedup coalesces to exactly once — proven in cross-path-dedup). A runtime leave tombstones the §7
+ *  boundary. And a BOOT durable membership — established by the agent's SELF-JOIN at connect (v3, not
+ *  written at provision) — seeds the agent's leave mirror, so leaving the boot channel tombstones it too.
  *
  * Run: pnpm smoke:self-serve-join:auth   (needs `nats-server` on PATH; auth/JetStream, local-only)
  */
