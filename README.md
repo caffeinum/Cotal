@@ -133,7 +133,7 @@ They attach differently but expose the same `cotal_*` tools, and all three push,
 peer message wakes an idle agent the instant it arrives. Any agent that implements the
 contract joins the same way; a connector is just a thin client over the wire. Want one
 for an agent that isn't here yet?
-[Vote in the connector poll](https://github.com/Cotal-AI/Cotal/discussions/categories/polls).
+[Vote for the next connector](https://github.com/Cotal-AI/Cotal/discussions/80).
 
 ## What Cotal adds on top of NATS
 
