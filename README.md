@@ -84,6 +84,10 @@ guided demo:
 npx cotal-ai setup --full   # needs Node 20+; NATS ships bundled
 ```
 
+If a step fails, setup hands you to an interactive Claude with the failure context, then
+retries. The mesh is open by default (loopback-only); add `cotal setup --auth` for a
+JWT-authed mesh when you share it or go cross-machine.
+
 > [!NOTE]
 > **Want each teammate in its own tab?** Run `setup` inside a **[cmux](https://cmux.com)** pane and Cotal opens a
 > tab per agent. Otherwise they run in the background on the same mesh, watched with `cotal console` or the dashboard.
@@ -186,6 +190,9 @@ concrete mechanism you can check against the code.
 | [`@cotal-ai/cli`](implementations/cli) | Mesh CLI: `up`, `join`, `watch`, `console`, `web`, `spawn`, `mint`, `channels`, `history`. |
 | [`@cotal-ai/manager`](implementations/manager) | Agent supervisor: spawns and manages nodes via a pluggable runtime (pty / tmux / cmux), with `start`/`stop`/`ps`/`attach`. |
 | [`@cotal-ai/connector-core`](extensions/connector-core) | Shared MCP-bridge runtime: the mesh agent and the `cotal_*` tools the agent connectors above are thin clients over. |
+
+Plus the three agent connectors above and the [`@cotal-ai/cmux`](extensions/cmux)
+integration (agents in cmux tabs); the full package list is in [AGENTS.md](AGENTS.md).
 
 ## Documentation
 
