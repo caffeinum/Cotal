@@ -20,6 +20,7 @@ import {
   provisionAgent,
   registry,
   saveAgentFile,
+  subjectMatches,
   CONTROL_PRIVILEGED,
   CONTROL_SELF_SERVICE,
   CONTROL_ADMIN,
@@ -318,6 +319,12 @@ export class Manager {
       return { ok: false, error: `durableJoin: "${channel}" must be a concrete channel (durable membership is per-concrete-channel, not wildcard)` };
     if (!channelInAllow(target.allowSubscribe, channel))
       return { ok: false, error: `channel "${channel}" is not within allowSubscribe [${target.allowSubscribe.join(", ")}]` };
+    // Boot/runtime disjoint guard: refuse a Plane-3 durable membership for a channel the caller's
+    // legacy boot durable already delivers (would double-deliver during coexistence). A no-op once
+    // Stage 5 removes the legacy boot durable (legacyCoveredChannelsFor → []).
+    const legacyCovered = await this.ep.legacyCoveredChannelsFor(callerId);
+    if (legacyCovered.some((c) => subjectMatches(c, channel)))
+      return { ok: false, error: `durableJoin: "${channel}" is already covered by your legacy boot durable — refused to avoid double-delivery during migration` };
     try {
       return { ok: true, data: await this.ep.durableJoinFor(callerId, channel) };
     } catch (e) {
@@ -327,15 +334,27 @@ export class Manager {
 
   /** Plane-3 durable LEAVE (SPEC §7 leave = hard read boundary for the backstop): tombstone the
    *  caller's membership at the leave cursor. A pre-leave entry stays deliverable; `seq > leaveCursor`
-   *  is denied at the trusted reader. Idempotent — leaving a channel with no record is a no-op. */
+   *  is denied at the trusted reader. Fail-closed: same validation as join, and a finite `generation`
+   *  (the caller's join epoch) is REQUIRED — a leave omitting it could otherwise tombstone a newer
+   *  rejoin via the exposed self-service op (the stale-leave primitive). */
   private async opDurableLeave(callerId: string, args: Record<string, unknown>): Promise<ControlReply> {
     const target = [...this.agents.values()].find((a) => a.id === callerId);
     if (!target) return { ok: false, error: `durableLeave: caller ${callerId} is not an agent this manager spawned` };
     const channel = typeof args.channel === "string" ? args.channel.trim() : "";
     if (!channel) return { ok: false, error: "durableLeave: channel must be a non-blank string" };
-    const generation = typeof args.generation === "number" ? args.generation : undefined;
     try {
-      await this.ep.durableLeaveFor(callerId, channel, generation);
+      assertValidChannel(channel);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    if (!isConcreteChannel(channel))
+      return { ok: false, error: `durableLeave: "${channel}" must be a concrete channel` };
+    if (!channelInAllow(target.allowSubscribe, channel))
+      return { ok: false, error: `channel "${channel}" is not within allowSubscribe [${target.allowSubscribe.join(", ")}]` };
+    if (typeof args.generation !== "number" || !Number.isFinite(args.generation))
+      return { ok: false, error: "durableLeave: a finite generation is required (fail-closed stale-leave guard)" };
+    try {
+      await this.ep.durableLeaveFor(callerId, channel, args.generation);
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }

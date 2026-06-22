@@ -161,11 +161,13 @@ export async function listMembers(
  *  L355-356) so they can't drift. State must be `durable-active` (a `live-confirmed` record has no
  *  Plane-3 backstop). */
 export function durableEligible(rec: MembershipRecord, seq: number): boolean {
-  // A tombstone (leaveCursor set, written only after a durable-active join) stays interval-eligible
-  // for its PRE-leave window — "leave is a hard read boundary" is the leaveCursor cutoff, NOT a drop
-  // of in-interval pending entries (SPEC §7). A plain live-confirmed record (boot/legacy, no
-  // leaveCursor) is NOT a durable recipient.
-  if (rec.state !== "durable-active" && rec.leaveCursor === undefined) return false;
+  // Only a fully-ACTIVATED record carries a backstop: a `durable-active` record whose activation
+  // catch-up has not completed (`activated` false) is NON-routing — fan-out + the reader skip it, so a
+  // join reported `durable:false` never gets routed (panel honesty gate). A tombstone keeps its
+  // `activated` and stays interval-eligible for its PRE-leave window (`seq <= leaveCursor`) — "leave is
+  // a hard read boundary" is the leaveCursor cutoff, not a drop of in-interval entries (SPEC §7). A
+  // plain live-confirmed/boot record (never activated) is not a durable recipient.
+  if (!rec.activated) return false;
   if (seq <= rec.joinCursor) return false;
   if (rec.leaveCursor !== undefined && seq > rec.leaveCursor) return false;
   return true;

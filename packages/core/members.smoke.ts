@@ -46,6 +46,7 @@ const check = (name: string, cond: boolean, extra?: unknown) => {
 };
 const rec = (over: Partial<MembershipRecord> & Pick<MembershipRecord, "channel" | "owner">): MembershipRecord => ({
   state: "durable-active",
+  activated: true, // most test records are fully-activated durable members; live-confirmed sets false
   joinCursor: 0,
   generation: 1,
   writerIdentity: W,
@@ -120,8 +121,11 @@ async function main() {
   check("interval: seq == leaveCursor eligible (inclusive)", durableEligible(left, 200));
   check("interval: seq > leaveCursor NOT eligible (hard cut)", !durableEligible(left, 201));
   check("interval: mid-interval eligible", durableEligible(left, 150));
-  const liveConf = rec({ channel: "x", owner: "Z", state: "live-confirmed", joinCursor: 0 });
+  const liveConf = rec({ channel: "x", owner: "Z", state: "live-confirmed", activated: false, joinCursor: 0 });
   check("live-confirmed record is NOT a durable recipient (no Plane-3 backstop)", !durableEligible(liveConf, 99999));
+  // A durable-active record whose activation catch-up has NOT completed is non-routing (panel honesty).
+  const notActivated = rec({ channel: "x", owner: "Z", state: "durable-active", activated: false, joinCursor: 100 });
+  check("durable-active but NOT activated is NOT a durable recipient (non-routing until catch-up)", !durableEligible(notActivated, 150));
   // HIGH-1 regression: a TOMBSTONE (live-confirmed + leaveCursor — exactly what tombstoneMember writes)
   // stays interval-eligible for its PRE-leave window. This previously dropped ALL pre-leave entries
   // because durableEligible required state===durable-active and the leaveCursor branch was dead code.

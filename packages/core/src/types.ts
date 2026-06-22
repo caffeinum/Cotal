@@ -147,6 +147,12 @@ export interface MembershipRecord {
   state: MembershipState;
   /** CHAT stream seq captured at join — durable eligibility is `seq > joinCursor`. */
   joinCursor: number;
+  /** True only once activation catch-up has COMPLETED. A `durable-active` record with `activated`
+   *  false/absent is **non-routing** (fan-out + the reader skip it via {@link durableEligible}) — it
+   *  exists so fan-out can be made to cover it once activated, but until then the join is reported
+   *  `durable:false` and a retry RE-RUNS catch-up rather than treating the leftover record as success.
+   *  A tombstone preserves the `activated` it had at leave. */
+  activated?: boolean;
   /** CHAT stream seq captured at leave — eligibility upper bound `seq <= leaveCursor`. Present ⇒
    *  tombstone. Absent ⇒ open membership (no upper bound). */
   leaveCursor?: number;

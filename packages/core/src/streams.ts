@@ -43,11 +43,16 @@ const PRESENCE_TTL_MS = 6_000;
  *  recall: only the last {@link MAX_MSGS_PER_SUBJECT} per sender-subject are recallable. */
 export const MAX_MSGS_PER_SUBJECT = 1000;
 
-/** JetStream message-dedup window on the Plane-3 streams: a `Nats-Msg-Id` repeated within this window
- *  is collapsed. Sized generous (2h) so an activation-catch-up copy and a racing fan-out copy of the
- *  same message dedup even for a slow/backlogged owner. This is the CHEAP backstop only — the
- *  AUTHORITATIVE exactly-once is the connector's commit-aware id-cache (`MeshAgent.ingest`); a copy
- *  separated by more than this window is still collapsed there by `CotalMessage.id`. */
+/** JetStream message-dedup window on the Plane-3 streams: a `Nats-Msg-Id`
+ *  (`<msgId>:<owner>:<generation>`) repeated within this window is collapsed. Sized generous (2h) so
+ *  an activation-catch-up copy and a racing fan-out copy of the same message dedup even for a slow/
+ *  backlogged owner. **This window IS the cross-path exactly-once correctness horizon** — two writes
+ *  of the same logical copy separated by more than it (e.g. a manager crash after a DLV publish, the
+ *  dinbox ack lost, the window expiring, then a re-transfer after restart) are NOT collapsed at the
+ *  stream. The connector's commit-aware id-cache (`MeshAgent.ingest`) coalesces live↔durable and
+ *  redelivery duplicates within a SESSION, but it is in-memory and reset on agent restart, so it is
+ *  NOT a cross-restart guarantee. A persistent per-owner delivery ledger would lift the bound; not
+ *  built (the 2h horizon covers the realistic crash/redelivery lag). Keep the window ≥ worst-case lag. */
 export const PLANE3_DEDUP_WINDOW_MS = 2 * 60 * 60 * 1000;
 
 /** Bound on the trusted reader's in-flight (un-acked) entries per owner — an offline owner with a large

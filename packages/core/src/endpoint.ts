@@ -1226,6 +1226,22 @@ export class CotalEndpoint extends EventEmitter {
     });
   }
 
+  /** Privileged: the channels a target's LEGACY `chat_<id>` boot durable currently covers (parsed from
+   *  its `filter_subjects`), or `[]` if it has none. The boot/runtime disjoint guard: a Plane-3
+   *  `durableJoin` for a channel already covered by the legacy boot durable would double-deliver, so
+   *  the manager refuses it during coexistence. Becomes `[]` (a no-op) once Stage 5 removes the legacy
+   *  durable. Mirrors {@link durableCoveredChannels} but for a target id. */
+  async legacyCoveredChannelsFor(targetId: string): Promise<string[]> {
+    const info = await this.consumerInfo(chatStream(this.space), chatDurable(targetId));
+    if (!info) return [];
+    const filters =
+      info.config.filter_subjects ?? (info.config.filter_subject ? [info.config.filter_subject] : []);
+    return filters
+      .map((f) => parseSubject(f))
+      .filter((p): p is NonNullable<typeof p> => !!p && p.kind === "chat")
+      .map((p) => p.rest);
+  }
+
   /**
    * Privileged: pre-create an agent's DM inbox durable (auth mode), so the agent can BIND
    * it without holding CONSUMER.CREATE on DM_<space>. The creator sets the filter to
@@ -1328,18 +1344,28 @@ export class CotalEndpoint extends EventEmitter {
     if (!this.plane3) return { durable: false, reason: "no trusted reader is hosted on this endpoint" };
     const kv = await this.membersRegistry();
     const existing = await readMember(kv, channel, owner);
-    if (existing && existing.record.state === "durable-active" && existing.record.leaveCursor === undefined)
-      return { durable: true, generation: existing.record.generation }; // idempotent — no double-bump
-    const joinCursor = await this.chatFrontier();
-    const generation = (existing?.record.generation ?? 0) + 1;
-    await commitMember(kv, {
+    const open = existing?.record.state === "durable-active" && existing.record.leaveCursor === undefined;
+    if (open && existing!.record.activated)
+      return { durable: true, generation: existing!.record.generation }; // fully activated — idempotent
+    // Either a NEW join (no record / a tombstone to supersede) → fresh joinCursor + bumped generation,
+    // OR a retry of an INCOMPLETE activation (durable-active but not yet activated, from an earlier
+    // eviction/crash) → re-run catch-up over the SAME join window, no bump. The record is committed
+    // NON-activated first — non-routing (fan-out + the reader skip it via durableEligible) — so a join
+    // that never completes catch-up is never routed and never reported durable:true (panel honesty gate).
+    const joinCursor = open ? existing!.record.joinCursor : await this.chatFrontier();
+    const generation = open ? existing!.record.generation : (existing?.record.generation ?? 0) + 1;
+    const base: MembershipRecord = {
       channel, owner, state: "durable-active", joinCursor, generation,
-      writerIdentity: this.card.id, updatedAt: Date.now(),
-    });
+      activated: false, writerIdentity: this.card.id, updatedAt: Date.now(),
+    };
+    if (!open) await commitMember(kv, base); // commit the non-routing record before fan-out can see it
     const fence = Math.max(await this.chatFrontier(), await this.fanoutDeliveredSeq());
     const cu = await this.catchupCopy(owner, channel, joinCursor, fence, generation);
     if (cu.evicted)
+      // Catch-up window irreparably evicted — leave the record NON-activated (non-routing) + report
+      // honestly. A retry re-runs catch-up; the record never silently becomes routing without it.
       return { durable: false, reason: "activation catch-up window partially evicted by retention", generation };
+    await commitMember(kv, { ...base, activated: true, updatedAt: Date.now() }); // flip → routing
     return { durable: true, generation };
   }
 
