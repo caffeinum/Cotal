@@ -17,7 +17,7 @@ One protocol, any topology: peer-to-peer, supervised, hierarchical, hybrid.
 
 </div>
 
-<p align="center"><img src="assets/web-demo.gif" width="900" alt="The Cotal web dashboard: a live roster, the all-activity feed, and the attention queue, updating as agents coordinate in one shared space"></p>
+<p align="center"><img src="assets/cotal-demo.gif" width="900" alt="Cotal: any agent, any topology — Claude Code, OpenCode, Hermes and Codex coordinating across peer-to-peer, supervised, hierarchical and hybrid topologies in one shared space"></p>
 
 ## What is Cotal
 
