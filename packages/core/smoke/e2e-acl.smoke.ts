@@ -30,8 +30,14 @@ import {
   type CotalMessage, type Delivery, type MessageMeta, type ControlRequest,
 } from "../src/index.js";
 
-const PORT = 14241, SERVERS = `nats://127.0.0.1:${PORT}`, space = "e2eacl";
+const PORT = 20000 + Math.floor(Math.random() * 40000), SERVERS = `nats://127.0.0.1:${PORT}`, space = "e2eacl";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const awaitExit = (proc: ReturnType<typeof spawn>, timeoutMs = 3000): Promise<void> =>
+  new Promise((resolve) => {
+    if (proc.exitCode !== null || proc.signalCode !== null) return resolve();
+    proc.once("exit", () => resolve());
+    setTimeout(resolve, timeoutMs);
+  });
 const enc = (s: string) => new TextEncoder().encode(s);
 const textOf = (m: CotalMessage) => m.parts.map((p) => (p.kind === "text" ? p.text : "")).join("");
 let pass = 0, fail = 0;
@@ -206,7 +212,7 @@ try {
   process.exitCode = 1;
 } finally {
   srv.kill("SIGKILL");
-  await sleep(150);
+  await awaitExit(srv);
   rmSync(dir, { recursive: true, force: true });
 }
 process.exit(process.exitCode ?? (fail ? 1 : 0)); // force-exit: lingering endpoint reconnect timers keep the loop alive

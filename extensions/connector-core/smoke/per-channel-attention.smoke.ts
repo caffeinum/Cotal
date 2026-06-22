@@ -18,10 +18,16 @@ import { MeshAgent } from "../src/agent.js";
 import type { AgentConfig } from "../src/config.js";
 import type { InboxItem } from "../src/agent.js";
 
-const PORT = 14241;
+const PORT = 20000 + Math.floor(Math.random() * 40000);
 const servers = `nats://127.0.0.1:${PORT}`;
 const space = "chanattnsmoke";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const awaitExit = (proc: ReturnType<typeof spawn>, timeoutMs = 3000): Promise<void> =>
+  new Promise((resolve) => {
+    if (proc.exitCode !== null || proc.signalCode !== null) return resolve();
+    proc.once("exit", () => resolve());
+    setTimeout(resolve, timeoutMs);
+  });
 
 const dir = mkdtempSync(join(tmpdir(), "cotal-chanattn-"));
 const srv = spawn("nats-server", ["-js", "-p", String(PORT), "-sd", join(dir, "js")], { stdio: "ignore" });
@@ -194,7 +200,7 @@ try {
   await pub.stop();
 } finally {
   srv.kill("SIGKILL");
-  await sleep(150);
+  await awaitExit(srv);
   rmSync(dir, { recursive: true, force: true });
 }
 process.exit(0);
