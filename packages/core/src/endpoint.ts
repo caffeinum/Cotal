@@ -52,6 +52,7 @@ import {
   openMembersRegistry,
   commitMember,
   tombstoneMember,
+  activateMember,
   readMember,
   listMembers,
   durableEligible,
@@ -1259,7 +1260,12 @@ export class CotalEndpoint extends EventEmitter {
       }
       return { durable: false, reason: "activation catch-up window partially evicted by retention", generation };
     }
-    await commitMember(kv, { ...base, activated: true, updatedAt: Date.now() }); // flip → reported durable
+    // Flip → reported durable, ATOMICALLY: refuse if a concurrent SAME-generation leave (tombstone) or a
+    // rejoin superseded this pending join while catch-up ran. A blind same-gen commit would clobber the
+    // tombstone (clear leaveCursor) and resurrect the membership, reopening §7 (review-general-2 BLOCKER).
+    const activated = await activateMember(kv, channel, owner, generation, joinCursor);
+    if (!activated)
+      return { durable: false, reason: "activation superseded by a concurrent leave or rejoin", generation };
     return { durable: true, generation };
   }
 

@@ -124,6 +124,44 @@ export async function tombstoneMember(
   return commitMember(kv, next);
 }
 
+/**
+ * Complete an activation: flip a pending join (generation `expectedGeneration`, `joinCursor` =
+ * `expectedJoinCursor`, `activated:false`, open) to `activated:true`. ATOMIC via revision CAS, and
+ * REFUSES (returns undefined) if the record is no longer that exact open pending join — a concurrent
+ * SAME-generation LEAVE (tombstone) or a rejoin could have superseded it while catch-up ran. This is the
+ * guard {@link commitMember}'s generation check can't provide: a same-generation activation write would
+ * otherwise CLOBBER a same-generation tombstone (clear its `leaveCursor`, resurrect the membership) and
+ * reopen the SPEC §7 leave boundary. Idempotent: an already-activated open record at the same generation
+ * is returned unchanged.
+ */
+export async function activateMember(
+  kv: KV,
+  channel: string,
+  owner: string,
+  expectedGeneration: number,
+  expectedJoinCursor: number,
+): Promise<MembershipRecord | undefined> {
+  const key = memberKey(channel, owner);
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const cur = await readMember(kv, channel, owner);
+    if (!cur) return undefined; // record gone
+    const r = cur.record;
+    // Only flip OUR exact open pending join. A different generation (rejoin), a different joinCursor, or
+    // a set leaveCursor (a SAME-generation leave that tombstoned while catch-up ran) ⇒ superseded: refuse.
+    if (r.generation !== expectedGeneration || r.joinCursor !== expectedJoinCursor || r.leaveCursor !== undefined)
+      return undefined;
+    if (r.activated) return r; // already flipped — idempotent
+    const next: MembershipRecord = { ...r, activated: true, updatedAt: Date.now() };
+    try {
+      await kv.update(key, new TextEncoder().encode(JSON.stringify(next)), cur.revision);
+      return next;
+    } catch {
+      continue; // revision moved under us (a concurrent leave/rejoin) — re-read and re-check
+    }
+  }
+  return undefined; // CAS kept losing to concurrent writes — treat as superseded (honest degrade)
+}
+
 /** Permanently remove a membership record (GC / footprint deletion — revocation deletes the footprint
  *  AFTER invalidating creds). Distinct from {@link tombstoneMember}, which keeps the record so late
  *  durable entries are denied by the cursor; only call this past the retention horizon. */

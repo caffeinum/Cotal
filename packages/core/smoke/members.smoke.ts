@@ -23,6 +23,7 @@ import {
   commitMember,
   readMember,
   tombstoneMember,
+  activateMember,
   deleteMember,
   listMembers,
   durableEligible,
@@ -147,6 +148,23 @@ async function main() {
   check("stale leave via tombstoneMember (expectedGen=1) refused — gen2 rejoin survives durable-active", staleTombThrew && eve?.record.generation === 2 && eve.record.leaveCursor === undefined && eve.record.state === "durable-active");
   await tombstoneMember(kv, "team.api", "EVE", 120, W, 2); // a CURRENT leave (matching gen) succeeds
   check("current leave via tombstoneMember (expectedGen=2) tombstones at leaveCursor", (await readMember(kv, "team.api", "EVE"))?.record.leaveCursor === 120);
+
+  // ---- activation completing AFTER a same-generation leave must NOT resurrect the membership (reopen §7)
+  // (review-general-2 BLOCKER: commitMember allows same-generation updates, so a blind activation flip
+  //  would CLOBBER a same-gen tombstone — clear its leaveCursor. activateMember refuses via CAS unless the
+  //  record is still the exact open pending join.) ----
+  await commitMember(kv, rec({ channel: "race", owner: "AL", state: "durable-active", joinCursor: 50, generation: 1, activated: false }));
+  await tombstoneMember(kv, "race", "AL", 60, W); // a same-gen leave lands while activation is "in flight"
+  const resurrect = await activateMember(kv, "race", "AL", 1, 50); // the in-flight flip tries to complete
+  const raceRec = await readMember(kv, "race", "AL");
+  check("activateMember REFUSES to flip a same-gen tombstoned record — no §7 resurrection (leaveCursor survives)", resurrect === undefined && raceRec?.record.leaveCursor === 60 && raceRec.record.activated !== true, raceRec?.record);
+  // happy path: a clean open pending join flips, idempotently
+  await commitMember(kv, rec({ channel: "race2", owner: "BO", state: "durable-active", joinCursor: 10, generation: 1, activated: false }));
+  check("activateMember flips a clean open pending join → activated:true", (await activateMember(kv, "race2", "BO", 1, 10))?.activated === true);
+  check("activateMember is idempotent on an already-activated record", (await activateMember(kv, "race2", "BO", 1, 10))?.activated === true);
+  // rejoin: a stale-generation activation is refused (a newer generation won)
+  await commitMember(kv, rec({ channel: "race3", owner: "CY", state: "durable-active", joinCursor: 30, generation: 2, activated: false }));
+  check("activateMember REFUSES a stale-generation flip (rejoin won)", (await activateMember(kv, "race3", "CY", 1, 5)) === undefined);
 
   // ---- scans: by channel, by owner; concrete-only; tombstones included ----
   await commitMember(kv, rec({ channel: "review", owner: "DAVE", joinCursor: 0 }));
