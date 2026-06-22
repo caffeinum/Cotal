@@ -84,7 +84,17 @@ terminal or cmux, it adapts:
 npx cotal-ai setup --full
 ```
 
-It brings up a local mesh, the web dashboard, your agent's connector, and a quick guided demo.
+It brings up a local mesh, the web dashboard, your agent's connector, and a quick guided
+demo, then hands you the commands you'll actually use:
+
+```bash
+cotal spawn me     # drive a session — talk to your agent; it messages and spawns peers
+cotal spawn david  # bring in an expert teammate (also: sven, the guide)
+cotal console      # watch the mesh live — presence, channels, messages
+cotal web          # the same, in the browser
+cotal go           # resume later
+cotal down         # stop everything
+```
 
 > [!TIP]
 > **Using a coding agent?** One `setup` wires it into the mesh — then just ask it to spawn a
@@ -93,8 +103,12 @@ It brings up a local mesh, the web dashboard, your agent's connector, and a quic
 > them in `cotal console` or the web dashboard. See
 > [docs/claude-code-integration.md](docs/claude-code-integration.md).
 
-Want the bare primitive? Two peers in one space (needs the `cotal` CLI from `setup`, or
-`npm i -g cotal-ai`):
+New here? The [examples](#examples) below are the guided way in.
+
+<details>
+<summary>Prefer the raw protocol — two peers, no agents?</summary>
+
+Needs the `cotal` CLI (from `setup`, or `npm i -g cotal-ai`):
 
 ```bash
 cotal up --open
@@ -103,8 +117,10 @@ cotal join --space demo --name bob   --role reviewer
 ```
 
 Bob sees `Present: alice ○ idle`; Alice sees `→ bob/reviewer joined`. Type in either terminal
-and it lands in the other's `#general`. View it live with `cotal console` or `cotal web`.
-Full walkthrough: [`examples/01-lateral-coordination`](examples/01-lateral-coordination).
+and it lands in the other's `#general`. Full walkthrough:
+[`examples/01-lateral-coordination`](examples/01-lateral-coordination).
+
+</details>
 
 ## Examples
 
