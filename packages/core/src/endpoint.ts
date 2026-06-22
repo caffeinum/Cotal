@@ -398,7 +398,7 @@ export class CotalEndpoint extends EventEmitter {
       await this.startConsumers();
     }
 
-    // Re-arm Plane-3 (manager-hosted fan-out + trusted reader) on every (re)connect — no-op unless this
+    // Re-arm Plane-3 (delivery-daemon-hosted fan-out + trusted reader + ctl.delivery) on every (re)connect — no-op unless this
     // endpoint hosts it. The first arm comes from startPlane3 (after start()); this re-binds the loops
     // a reconnect's clearConnectionScoped() tore down, so a broker blip doesn't silently kill the backstop.
     await this.armPlane3();
@@ -917,7 +917,7 @@ export class CotalEndpoint extends EventEmitter {
     }
     this.channels.push(channel);
     // Durable backstop. The live core-sub above already delivers (manager-free). For a `durable`-class
-    // channel, request a Plane-3 per-member backstop from the manager (durableJoin) so a post reaches a
+    // channel, request a Plane-3 per-member backstop from the server-side delivery daemon (durableJoin via ctl.delivery) so a post reaches a
     // busy/offline turn — the core-sub stays as the live wake-hint, dedup-coalesced with the Plane-3
     // copy by id-dedup. No manager (open dev / manager-less) ⇒ joined LIVE only, surfaced via `reason`
     // (never silent). A `live`-class channel takes no backstop (joined live is the contract).
@@ -953,7 +953,7 @@ export class CotalEndpoint extends EventEmitter {
     if (!this.channels.includes(channel)) return { left: false };
     // Auth + durable-class ⇒ a Plane-3 membership may exist; tombstone it BEFORE touching local state.
     // The join generation comes from the local mirror, but a BOOT membership whose hydration was missed
-    // (transient manager error at connect) is NOT in the mirror — so re-resolve it from the manager on
+    // (daemon down at connect) is NOT in the mirror — so re-resolve it from the delivery service on
     // demand. FAIL-CLOSED: fetchMemberships throws on a responder-present error, so a leave whose
     // tombstone can't be confirmed propagates (live sub stays up, mirror intact) for the caller to retry
     // — reporting `left` while the trusted reader keeps transferring to DLV is the fail-open leak. A
@@ -1157,26 +1157,10 @@ export class CotalEndpoint extends EventEmitter {
     await createSpaceStreams(this.jsm, this.space);
   }
 
-  /**
-   * Privileged: write an agent's BOOT durable membership — each `durable`-class channel in its boot
-   * subscribe set gets a Plane-3 durable-active record (via {@link durableJoinFor}: cursor capture +
-   * activation catch-up), so it receives durable backstop copies from boot exactly like a runtime
-   * `durableJoin`. `live`-class (and non-concrete) channels are skipped. Idempotent.
-   *
-   * Writes the durable RECORDS with the caller's privileged creds — it does NOT require this endpoint
-   * to host the runtime fan-out/reader loops (a space-level manager service), so EVERY auth launcher
-   * provisions identically: the manager AND the short-lived `cotal spawn` provisioner both write boot
-   * records, which the space's manager then delivers (no silent no-op — that would hide a boot
-   * membership; AGENTS.md "no fallbacks"). A space running no manager is live-only for everyone (the
-   * records exist; nothing delivers them until a manager hosts the loops).
-   */
-  async provisionMembership(targetId: string, channels: string[]): Promise<void> {
-    for (const ch of channels) {
-      if (!isConcreteChannel(ch)) continue; // durable membership is per-concrete-channel
-      if ((await this.deliveryClassFresh(ch)) !== "durable") continue;
-      await this.durableJoinFor(targetId, ch);
-    }
-  }
+  // (v3) The old `provisionMembership` — manager/provisioner-written boot membership at spawn — is GONE.
+  // Boot durable membership is now the AGENT self-joining its durable boot channels via the daemon's
+  // `ctl.delivery` op at connect ({@link armBootDurableMemberships}), reconciled on outage. The
+  // primitive it wrapped, {@link durableJoinFor}, is now driven by the daemon's `ctl.delivery` handler.
 
   /**
    * Privileged: pre-create an agent's DM inbox durable (auth mode), so the agent can BIND
@@ -1683,7 +1667,7 @@ export class CotalEndpoint extends EventEmitter {
   }
 
   /** Agent-side: bind + pump our pre-created Plane-3 DELIVER durable (`dlv_<id>`). Every message here is
-   *  manager-written (DLV is manager-write-only, broker-enforced) and is a CHANNEL message by contract
+   *  delivery-daemon-written (DLV is delivery-write-only, broker-enforced) and is a CHANNEL message by contract
    *  (the backstop never carries DMs), so `kind=channel` is path-derived (SPEC §4) and the body is
    *  trusted (no spoof-guard). `durable:true` — real JetStream ack, coalesced with the core-sub live
    *  copy by `MeshAgent.ingest`. No-op when the durable isn't present (open mode / not provisioned). */
@@ -1705,7 +1689,7 @@ export class CotalEndpoint extends EventEmitter {
     })().catch((e) => { if (!this.stopped) this.emit("error", e as Error); });
   }
 
-  /** Agent-side: request a Plane-3 durable backstop for a channel via the manager (ctl.self). Throws
+  /** Agent-side: request a Plane-3 durable backstop for a channel via the server-side delivery daemon (ctl.delivery). Throws
    *  when no privileged writer is present (open / manager-less). 30s timeout — activation catch-up may
    *  run before the reply (the window is small, but a busy channel can take more than the 5s default). */
   async durableJoinChannel(channel: string): Promise<{ durable: boolean; reason?: string; generation?: number }> {
@@ -1875,9 +1859,10 @@ export class CotalEndpoint extends EventEmitter {
 
     // Multicast: open a native CORE subscription for each channel (live, manager-free, broker-enforced
     // by sub.allow) — boot + runtime joins use the SAME path; there is no per-instance chat durable.
-    // The durable backstop (a busy/offline turn) is Plane-3 (auth: membership written at provision, the
-    // manager's fan-out writer + trusted reader deliver via the `dlv_<id>` pump above; open dev mode is
-    // live-only — the durable plane needs the manager's trusted reader, the security boundary). Per-
+    // The durable backstop (a busy/offline turn) is Plane-3 (auth: membership established by the agent's
+    // self-join, the delivery daemon's fan-out writer + trusted reader deliver via the `dlv_<id>` pump
+    // above; open dev mode is live-only — the durable plane needs the daemon's trusted reader, the
+    // security boundary). Per-
     // channel history is the explicit replay-gated backfill, on FIRST connect only; a reconnect reopens
     // the subs without re-backfilling (the durable backstop redelivers any missed window via dlv).
     if (this.channels.length) {
