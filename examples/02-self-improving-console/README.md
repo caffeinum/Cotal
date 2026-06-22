@@ -1,4 +1,4 @@
-# Example 04 — the self-improving console
+# Example 02 — the self-improving console
 
 **A Cotal swarm rebuilds Cotal's own console.** Four real Claude Code agents join one
 mesh space and coordinate **as lateral peers** to ship a polished, lazygit-style

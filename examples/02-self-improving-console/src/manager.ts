@@ -1,5 +1,5 @@
 /**
- * Composition root for example 04 — the self-improving console demo.
+ * Composition root for example 02 — the self-improving console demo.
  *
  * Runs a manager that spawns teammates via `run-agent.sh <role>` (a real Claude
  * Code coder cd'd into its part of the repo, wired to the cotal MCP server/hooks).
