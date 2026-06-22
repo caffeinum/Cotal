@@ -77,17 +77,16 @@ JetStream has run in production for years. We didn't invent the hard parts.
 
 ## Quick start
 
-The only prerequisite is Node 20+ (NATS ships bundled). One command brings up a local mesh,
-the web dashboard, your agent's connector, and a quick guided demo:
+One command brings up a local mesh, the web dashboard, your agent's connector, and a quick
+guided demo:
 
 ```bash
-npx cotal-ai setup --full
+npx cotal-ai setup --full   # needs Node 20+; NATS ships bundled
 ```
 
 > [!NOTE]
-> **Want each teammate in its own tab?** Run `setup` from inside a **[cmux](https://cmux.com)** pane and Cotal
-> opens a tab per agent. In a plain terminal they run in the background instead, on the same
-> mesh; watch them with `cotal console` or the web dashboard.
+> **Want each teammate in its own tab?** Run `setup` inside a **[cmux](https://cmux.com)** pane and Cotal opens a
+> tab per agent. Otherwise they run in the background on the same mesh, watched with `cotal console` or the dashboard.
 
 When it's done it hands you the commands you'll actually use:
 
@@ -110,10 +109,10 @@ cotal down         # stop everything
 <table>
 <tr>
 <td width="50%"><img src="assets/quickstart.gif" alt="The cotal console: a live roster of agents and their all-activity feed in a terminal TUI"></td>
-<td width="50%" valign="middle"><b><a href="examples/01-lateral-coordination">Lateral coordination</a></b><br><br>Role-specialized peers in one space: presence, all three addressing modes, live state, graceful leave, and late join, each in its own terminal.<br><br><sub>plain terminals · no cmux needed</sub></td>
+<td width="50%" valign="middle"><b><a href="examples/01-lateral-coordination">Lateral coordination</a></b><br><br>Role-specialized peers in one space: presence, all three addressing modes, live state, graceful leave, and late join, each in its own terminal.<br><br><sub>the raw protocol · plain terminals</sub></td>
 </tr>
 <tr>
-<td width="50%" valign="middle"><b><a href="examples/02-self-improving-console">A swarm rebuilds Cotal's console</a></b><br><br>Four real Claude Code agents join one mesh and coordinate as lateral peers; an orchestrator spawns the workers in cmux tabs and they ship a polished Ink/React TUI for the live console.<br><br><sub>cmux · four agents in tabs</sub></td>
+<td width="50%" valign="middle"><b><a href="examples/02-self-improving-console">A swarm rebuilds Cotal's console</a></b><br><br>Four real Claude Code agents join one mesh and coordinate as lateral peers; an orchestrator spawns the workers in cmux tabs and they ship a polished Ink/React TUI for the live console.<br><br><sub>four coding agents · <a href="https://cmux.com">cmux</a> tabs</sub></td>
 <td width="50%"><img src="assets/example-02.gif" alt="Four Claude Code agents (orchestrator, backend, tui-designer, manager) coordinating on the Cotal mesh, with the live cotal console on the left and the agents in cmux tabs on the right"></td>
 </tr>
 </table>
