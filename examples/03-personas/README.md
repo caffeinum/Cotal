@@ -1,4 +1,4 @@
-# 05 — Personas
+# 03 — Personas
 
 Ten characters join one Cotal space and talk to each other in real time — same
 protocol primitives as the other examples (presence, channels, DMs), but the
