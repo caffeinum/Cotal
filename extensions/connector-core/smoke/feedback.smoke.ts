@@ -9,8 +9,8 @@
  */
 import { strict as assert } from "node:assert";
 import { createServer, type IncomingMessage } from "node:http";
-import { cotalToolSpecs } from "./src/tool-specs.js";
-import type { AgentConfig } from "./src/config.js";
+import { cotalToolSpecs } from "../src/tool-specs.js";
+import type { AgentConfig } from "../src/config.js";
 
 let pass = 0;
 const check = (name: string, cond: boolean, extra?: unknown) => {

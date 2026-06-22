@@ -30,11 +30,17 @@ import {
   CONTROL_PRIVILEGED,
   CONTROL_SELF_SERVICE,
   CONTROL_ADMIN,
-} from "./src/index.js";
+} from "../src/index.js";
 
-const PORT = 14226;
+const PORT = 20000 + Math.floor(Math.random() * 40000);
 const SERVERS = `nats://127.0.0.1:${PORT}`;
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const awaitExit = (proc: ReturnType<typeof spawn>, timeoutMs = 3000): Promise<void> =>
+  new Promise((resolve) => {
+    if (proc.exitCode !== null || proc.signalCode !== null) return resolve();
+    proc.once("exit", () => resolve());
+    setTimeout(resolve, timeoutMs);
+  });
 let pass = 0;
 let fail = 0;
 const check = (name: string, cond: boolean, extra?: unknown) => {
@@ -91,7 +97,7 @@ try {
   // Two agents: one without capabilities, one declaring spawn. The stub provisioner skips
   // durable pre-create (we only need the creds' publish allow-list, which is what nats-server
   // enforces).
-  const noop = { provisionChatDurable: async () => {}, provisionDmInbox: async () => {}, provisionTaskQueue: async () => {} };
+  const noop = { provisionMembership: async () => {}, provisionDmInbox: async () => {}, provisionDlvInbox: async () => {}, provisionTaskQueue: async () => {} };
   const plainId = newIdentity();
   const plainCreds = await provisionAgent(noop, auth, plainId, { subscribe: ["general"], allowPublish: ["general"] });
   const capId = newIdentity();
@@ -119,6 +125,6 @@ try {
   console.error("  ✗ scenario threw:", (e as Error).message);
 } finally {
   srv.kill("SIGKILL");
-  await wait(150);
+  await awaitExit(srv);
   rmSync(dir, { recursive: true, force: true });
 }

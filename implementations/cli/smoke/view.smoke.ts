@@ -6,7 +6,7 @@
  * status-sorted roster split, and the derived operator signals (counts + DM roll-up).
  */
 import { EventEmitter } from "node:events";
-import { MeshView } from "./src/view/mesh-view.js";
+import { MeshView } from "../src/view/mesh-view.js";
 import {
   chatSubject,
   unicastSubject,

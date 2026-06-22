@@ -1,10 +1,21 @@
 # Cotal Wire Specification
 
-> **Status:** Draft, v0.2. This document is the normative wire contract. Libraries
+> **Status:** Draft, v0.3. This document is the normative wire contract. Libraries
 > (including the reference TypeScript implementation) are thin clients over it; where a
 > client disagrees with this document, this document wins.
 >
-> **Editors:** Cotal maintainers. **Last updated:** 2026-06-14.
+> **Editors:** Cotal maintainers. **Last updated:** 2026-06-21.
+>
+> **v0.3 binding revision — channel live delivery.** Channel *live* delivery moves from a single
+> mediated JetStream live-tail durable (`chat_<id>`) to native core-NATS subscriptions bounded by
+> `sub.allow`, with durability provided by an explicit per-channel `live`/`durable` delivery class
+> (§4, §7, §8). Join/leave becomes a direct subscribe/unsubscribe with no privileged mediation,
+> and channel membership moves off consumer topology to a privileged-written registry (§7). This
+> supersedes the v0.2 single-durable live-tail. The reference implementation migrates additively —
+> the legacy durable and the new core-sub path coexist behind `id` dedup until the legacy path is
+> removed — but that migration path is not itself normative. The advertised wire `protocolVersion`
+> (§6, §11) stays `0.2` until the core-sub behaviour ships; this revision is the normative target the
+> migration converges to, and the additive `deliveryClass` field is backward-compatible meanwhile.
 
 The key words MUST, MUST NOT, REQUIRED, SHALL, SHOULD, SHOULD NOT, MAY, and OPTIONAL in
 this document are to be interpreted as described in [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119)
@@ -103,17 +114,47 @@ MUST NOT be read as a delivery. Reference implementation: `parseSubject` in
 
 Exactly one of `channel`, `to`, or `toService` MUST be set on a `CotalMessage` (§5).
 
-**Authenticated delivery class.** A receiver MUST derive "how was this addressed to me"
+**Authenticated delivery kind.** A receiver MUST derive "how was this addressed to me"
 from the delivering subject kind (`chat` -> `channel`, `inst` -> `dm`, `svc` ->
-`anycast`), not from payload routing fields, which are advisory. A peer can put your id in
+`anycast`), not from payload routing fields, which are advisory. ("Delivery kind" — the
+addressing axis — is distinct from a channel's `live`/`durable` **delivery class**, §7.) A peer can put your id in
 payload `to`, but cannot publish on your private unicast subject. Reference:
 `MessageMeta.kind`.
 
-**Delivery guarantee.** The NATS binding is at-least-once. A message remains pending for a
-consumer until it is acked. A crash or `ack_wait` expiry redelivers it. Receivers MUST
-tolerate duplicates and SHOULD deduplicate by `id` when acting on non-idempotent work.
-Malformed JSON, spoofed sender payloads, and unparseable delivery subjects are permanent
-anomalies and MUST be terminated, not retried.
+**Delivery guarantee — `live` and `durable` classes.** Channel delivery has two classes, fixed
+per channel and wire-observable (§7); the guarantee is defined here, its NATS realization is the
+binding in §8. A receiver MUST derive its effective class from channel config (§7), not from
+per-message metadata (`MessageMeta` need not carry it); it MUST NOT assume one class.
+
+- **`live`** is native broker-subscription delivery and is **at-most-once**: a message reaches
+  only the instances subscribed to the channel at publish time. An instance that is disconnected,
+  busy, or not yet joined does not receive that message live and has no claim to the live copy
+  later. There is no per-subscriber redelivery of the live copy.
+- **`durable`** is `live` plus a per-subscriber durable backstop and is **at-least-once for
+  current members within retention**: the message is also retained for each member and delivered on
+  that member's next connection or turn, remaining pending until acked. A crash or `ack_wait` expiry
+  redelivers the durable copy. At-least-once is bounded by the channel's retention / `replayWindow`
+  (§7): a message evicted by retention before ack may be lost — the guarantee is not unbounded.
+
+Unicast (`to`) and anycast (`toService`) are at-least-once via their own DM/TASK consumers (§8);
+they have no channel membership and are not subject to the per-channel delivery-class mechanism. An
+`@mention` (§5) on a `live` channel additionally writes a durable copy to each mentioned target
+**authorized to read that channel** (its `allowSubscribe` covers the channel), so an authorized but
+offline target still receives it; an `@mention` MUST NOT deliver channel content to a target outside
+its read ACL. Durable mention routing resolves each lowercased name to a unique current instance id
+from presence at publish time; an ambiguous (multiple live matches) or unresolvable name yields no
+durable copy, and authorization is checked against the resolved id's current `allowSubscribe`. A
+target authorized for a channel is **mention-reachable** there whether or not it is currently joined — this is intentional (an `@mention` can pull an authorized peer in) and is distinct
+from membership; a client SHOULD distinguish "joined" (actively subscribed) from "readable /
+mention-reachable" (in `allowSubscribe`) so an unjoined channel is not treated as "cannot reach me
+here."
+
+A message delivered both live and durable is **one logical delivery**: receivers MUST deduplicate
+by `id` across classes (§8); the durable copy owns ack/commit; and a previously seen `id` MUST NOT
+be treated as authorization for a later durable copy (for example one that arrives after a leave).
+Receivers MUST tolerate the `live` gap and rely on the `durable` backstop for catch-up on
+`durable` channels. Malformed JSON, spoofed sender payloads, and unparseable delivery subjects are
+permanent anomalies and MUST be terminated, not retried.
 
 **Ordering.** Cotal does not define global ordering across modes, channels, or consumers.
 Implementations MUST NOT depend on cross-subject ordering. Per-consumer delivery is ordered
@@ -135,7 +176,7 @@ Delivery messages are UTF-8 JSON objects with this shape (`CotalMessage`):
 | `channel` | string | one-of | multicast target |
 | `to` | string | one-of | unicast target instance id |
 | `toService` | string | one-of | anycast target role |
-| `mentions` | string[] | MAY | lowercased peer names; wake hint on a `channel` message, not routing |
+| `mentions` | string[] | MAY | lowercased peer names; wakes the mentioned peer. On a `live` channel it also routes a durable copy to each mentioned target authorized to read that channel (§4); it never delivers content outside the target's read ACL and is not a routing substitute for `channel`/`to` |
 | `parts` | `Part[]` | MUST | content |
 | `replyTo` | string | MAY | id of the message replied to |
 | `contextId` | string | MAY | thread/conversation correlation id |
@@ -238,39 +279,91 @@ token.
 | --- | --- | --- |
 | `replay` | boolean | history replay-on-join; overrides the space default |
 | `replayWindow` | string | backfill horizon matching `^\d+(s|m|h|d)$`, e.g. `"24h"` |
+| `deliveryClass` | `live` \| `durable` | per-channel delivery class (§4); overrides the space default |
 | `description` | string | one-line purpose; max 200 chars |
 | `instructions` | string | advisory usage text; max 2000 chars |
 
-Space-wide defaults (`ChannelDefaults`: `replay?`, `replayWindow?`) live under the reserved
-key `=defaults`. Effective replay is `channel.replay ?? defaults.replay ?? true`.
+Space-wide defaults (`ChannelDefaults`: `replay?`, `replayWindow?`, `deliveryClass?`) live under
+the reserved key `=defaults`. Effective replay is `channel.replay ?? defaults.replay ?? true`.
+Effective delivery class is `channel.deliveryClass ?? defaults.deliveryClass ?? "durable"`.
+`defaults.deliveryClass` MUST be written at space creation from the deployment profile —
+local/self-hosted ⇒ `durable` (persistence on by default), public/web-scale ⇒ `live` (durability
+opt-in per channel) — so the effective default is always discoverable on the wire, never inferred
+from out-of-band context. The same effective config MUST be the single source of truth for live
+join, durable fan-out, history read, and membership surfacing; an implementation MUST NOT resolve
+the class differently in different paths.
 
-Join adds the channel to the instance's multicast subscription; leave removes it. A join
-target MUST be within the instance's read ACL (`allowSubscribe`, §9); a join outside it MUST
-be refused. A client MUST NOT publish to wildcard channels. The active read set MUST NOT
-become an empty filter that would accidentally subscribe to all chat subjects; a leave of the
-last channel MUST be refused. In auth mode an agent has no grant to create or update its own
-chat durable, so a join/leave is a mediated control op: a privileged service validates the
-target set against `allowSubscribe` and moves the durable's `filter_subjects`. In open mode
-the client updates its own durable directly.
+Join subscribes the instance to the channel; leave unsubscribes it. A join target MUST be within
+the instance's read ACL (`allowSubscribe`, §9); a join outside it MUST be refused by the broker on
+subscribe. A client MUST NOT publish to wildcard channels, but a wildcard read ACL (`team.>`)
+authorizes subscribing to any one concrete channel under it **without enumerating channels in
+advance**. In the NATS binding, join is a native `sub.allow`-bounded core subscription to the
+channel subject and leave is the corresponding unsubscribe; **no privileged mediation is
+required** — the broker enforces every subscribe against `sub.allow`, so an instance whose ACL
+permits a channel joins and leaves it on its own, with no manager present. Open mode behaves the
+same (the client subscribes directly). Leaving the last channel is permitted: under the core-sub
+binding an empty subscription set subscribes to nothing (the v0.2 "empty filter subscribes to all"
+hazard and its last-channel-leave refusal were artifacts of the multi-filter durable and no longer
+apply). On a `durable` channel, join additionally establishes durable membership — a separate
+**privileged** step: the instance requests durable membership from the provisioner (a `ctl.<manager>`
+durable-join op carrying the channel and its captured join cursor) and the provisioner writes the
+membership record. This is decoupled from the live subscribe, so a self-serve live join never depends
+on it: a `durable` channel still delivers live with no privileged writer present, and only its
+durable backstop requires one. A locally created subscription that the
+broker later refuses (the permission violation is asynchronous in the NATS binding) is NOT a
+successful join: an instance MUST treat a join as effective only once the broker has accepted the
+subscribe, and MUST drop the channel from its joined set on a late refusal (§12). Leave removes the
+membership (see membership below).
 
-Replay on join is channel-global, not per-subscriber:
+Replay / catch-up on join:
 
-1. Capture the CHAT stream frontier before enabling the new channel filter.
-2. Move the chat durable's `filter_subjects` to include the channel subject (mediated in auth
-   mode; self-served in open mode).
-3. If effective replay is on, read retained messages for that channel up to the frontier —
-   through a consumer scoped to a single channel filter, optionally bounded by `replayWindow`.
+1. Record the channel join watermark (the CHAT frontier) before the subscription is active, so
+   live tail and backfill do not double-deliver.
+2. Subscribe to the channel subject (`sub.allow`-bounded; §8). The live copy now flows.
+3. If effective replay is on, read retained messages for that channel up to the watermark —
+   through a single-channel history read bounded by the current read ACL (`allowSubscribe`, §8),
+   optionally limited by `replayWindow`. History is ACL-bounded, not membership-gated: an ACL-holder
+   may read a channel's retained content whether or not it is a current member (it could self-join
+   and read regardless), so the confidentiality boundary here is the ACL, consistent with the live
+   read.
 4. Surface backfilled messages with `MessageMeta.historical = true`.
-5. Ack-drop live-tail messages at or below the join watermark so backfill and tail do not
-   double-deliver.
+5. Deduplicate by `id` across the live tail, the backfill, and (on `durable` channels) the durable
+   backstop, so a message surfaces once.
 
 `replay=false` is noise control, not confidentiality. CHAT history is readable only within an
 instance's read ACL (`allowSubscribe`, §9); confidential content MUST use DM or anycast.
 
-Channel membership is broker-known, not self-reported. In the NATS binding, membership is
-the set of `chat_<id>` live-tail consumers and their `filter_subjects`, joined with presence
-for liveness; the transient `chathist_<id>` history consumers are NOT membership. Membership
-is observability data and MUST NOT be used as a send authorization gate.
+Channel membership governs **durable-delivery inclusion** — who receives fan-out copies into their
+per-subscriber backstop — and is broker-known, not self-reported. It is NOT a confidentiality
+boundary tighter than the read ACL: `allowSubscribe` bounds what content an instance may read (live
+and history, §9), and an ACL-holder can self-join, so membership adds delivery semantics, not read
+confinement. In the NATS binding, membership is a privileged-written record in the space registry
+plane under a key the agent's profile cannot write (NOT the agent's presence key), carrying per-member
+join/leave cursors so a publish concurrent with a join or leave orders deterministically; it is NOT
+derived from consumer topology, and an agent MUST NOT self-assert its own membership. It is written by
+the provisioner in response to a `ctl.<manager>` durable-join request (§8, Appendix B), distinct from
+and not required by the self-serve live subscribe. The implementation MUST re-authorize every
+**durable-backstop** read of `(instance, channel, message)` against the instance's current read ACL
+and membership before surfacing content, so a channel dropped from the ACL or **left** is no longer
+surfaced from the backstop — **leave is a hard read boundary for the durable backstop** (it does not
+revoke the ACL: an instance may still re-subscribe live, or read ACL-bounded history, within
+`allowSubscribe`). Membership remains observability data for liveness/roster purposes and MUST NOT be
+used as a send authorization gate.
+
+On a `durable` channel, membership carries the member's **join cursor** — the CHAT frontier captured
+at join, the same watermark used to deconflict the live tail and the backfill — and, on leave, a
+**leave cursor/tombstone**. The durable backstop is at-least-once (within retention)
+for messages whose stream sequence is **> the member's join cursor and ≤ its leave cursor**, where each
+cursor is the CHAT frontier (the last sequence) captured at that transition; messages published before a
+join or after a leave are not redelivered as durable and are reachable only via an ACL-bounded history
+read (within `allowSubscribe`). A rejoin takes a new join cursor, so messages published during the gap are not durably
+redelivered. A `durable` join is atomic across its two effects: the instance is durable-joined only
+once BOTH the broker-confirmed live subscribe AND the membership write have succeeded, and on a late
+subscribe refusal the membership record MUST be removed. If the live subscribe succeeds but durable
+membership cannot be established (for example no privileged writer is present), the instance is
+**`joined live` with the durable backstop unestablished**: it MUST NOT be reported as `joined durable`,
+the live subscription remains active, and the durable shortfall MUST be surfaced as an exceptional
+delivery state (e.g. `durable backstop unavailable`), never silently.
 
 ---
 
@@ -285,24 +378,59 @@ mode.
 | `DM_<space>` | `cotal.<space>.inst.>` | Limits | file storage, no Direct Get |
 | `TASK_<space>` | `cotal.<space>.svc.>` | WorkQueue | file storage, no Direct Get |
 
+Channel **live** delivery is a native core-NATS subscription to `cotal.<space>.chat.*.<channel>`
+bounded by `sub.allow` (§9), not a durable consumer; join/leave is the subscribe/unsubscribe and
+needs no privileged mediation. The legacy v0.2 `chat_<id>` live-tail durable is removed from this
+binding (it MAY coexist transiently during migration behind `id` dedup, but is not part of the
+contract).
+
 Durable consumers:
 
 | Durable | Stream | Filter | Policy |
 | --- | --- | --- | --- |
-| `chat_<id>` | CHAT | active read set as `cotal.<space>.chat.*.<channel>` (⊆ `allowSubscribe`) | provisioner-created bind-only in auth mode (filter moved only by the mediated join/leave op); self-created in open mode; `DeliverPolicy.New`; `AckExplicit`; `ack_wait=60000ms`; `inactive_threshold=600000ms` (open mode only) |
-| `chathist_<id>` | CHAT | one `cotal.<space>.chat.*.<channel>` per read | transient single-filter consumer for history reads (join-backfill / focus-recall); created per read scoped to one channel in `allowSubscribe`, then deleted; `AckNone` |
+| `chathist_<id>` | CHAT | one `cotal.<space>.chat.*.<channel>` per read | transient single-filter consumer for history reads (join-backfill / focus-recall); created per read scoped to one channel in `allowSubscribe`, then deleted; `AckNone`. History is ACL-bounded by the pinned filter, not membership-gated (§7, §9) |
 | `dm_<id>` | DM | `cotal.<space>.inst.<id>.*` | provisioner-created in auth mode; bind only; `DeliverPolicy.All`; `AckExplicit`; `ack_wait=60000ms` |
 | `svc_<role>` | TASK | `cotal.<space>.svc.<role>.*` | provisioner-created in auth mode; bind only; `AckExplicit`; `ack_wait=60000ms` |
 
 Durable names use sanitized tokens. For authenticated ids this does not change the nkey.
 
-Publishers MUST publish delivery messages through JetStream and set the JetStream message id
-to `CotalMessage.id` (`Nats-Msg-Id` on the wire). Receivers MUST ack only after the message
-has actually been surfaced or handled. Receivers MAY nak transient failures. Receivers MUST
-term permanently invalid messages.
+**Durable backstop (§4).** The per-subscriber durable copy is a delivery contract, not a pinned
+layout: each member has a private durable store, written on publish for a `durable` channel's current
+members — and, for an `@mention` on a `live` channel, for each mentioned target authorized to read that
+channel (its `allowSubscribe` covers it), so an authorized but offline target still receives it. The
+agent holds **no content-bearing read** on this mixed store. A **trusted reader** (the privileged
+provisioner) pulls each pending entry, re-authorizes `(instance, channel, message)` against the
+member's **current read ACL** — and, for `durable`-channel fan-out entries, its **membership interval**
+(the message's CHAT sequence is `> joinCursor` and `≤ leaveCursor`; §7), not a current-member boolean,
+so a pre-leave entry stays deliverable and a post-`leaveCursor` one does not —
+and delivers each authorized copy to the member over an **at-least-once** handoff (e.g. its `inbox`,
+carrying the same ack semantics — not a fire-and-forget publish). The trusted reader MUST NOT ack or
+delete the backstop entry until the member has confirmed the copy was surfaced or handled (or it has
+been transferred to an equivalent per-member at-least-once mechanism with the same ack semantics); on a
+downstream nak, timeout, or crash before that confirmation, the entry remains pending and redelivers — so
+a crash between the inbox publish and the member surfacing the message cannot lose it, and `durable`
+stays at-least-once end-to-end, not maybe-once. Content
+for a channel dropped from the ACL, or (for a durable channel) left, is never surfaced (at-least-once for
+the member within retention; **leave is a hard read boundary for the backstop**); a `live`-channel
+`@mention` copy is delivered and `id`-deduped the same way. The read MUST run in this trusted component
+the agent cannot bypass, because a self-bound consumer has no server-side per-message ACL/membership
+filter. The store's stream/subject layout, the fan-out writer, the trusted reader, and the membership
+registry are reference-implementation, not normative; a conformant deployment MAY realize the backstop
+differently as long as the §4 guarantee and the §9 checks hold.
 
-History on join uses Direct Get on CHAT only. DM and TASK MUST NOT enable Direct Get because
-it would bypass the consumer-create deny that is part of the confidentiality boundary.
+Publishers MUST publish channel, unicast, and anycast delivery messages through JetStream and set
+the JetStream message id to `CotalMessage.id` (`Nats-Msg-Id` on the wire). A JetStream publish is
+an ordinary subject publish that the stream also captures, so the same message reaches core
+subscribers live (§4 `live`) and is retained for history and the durable backstop in one publish —
+the publish path is unchanged from v0.2; only the live *read* moves to a core subscription.
+Ack/nak/term semantics apply to JetStream-consumed copies (history, DM, anycast, and the durable
+backstop): receivers MUST ack only after a message has actually been surfaced or handled, MAY nak
+transient failures, and MUST term permanently invalid messages. The at-most-once `live` copy is not
+acked.
+
+History on join uses the pinned single-filter `chathist_<id>` consumer create above, bounded to
+`allowSubscribe`; agents are not granted unfiltered Direct Get. DM and TASK MUST NOT enable Direct Get
+because it would bypass the consumer-create deny that is part of the confidentiality boundary.
 
 KV buckets are also streams and are pre-created:
 
@@ -323,37 +451,65 @@ dev mode is available but out of scope for the security claims here.
 - **Profiles are default-deny allow-lists.** Subject, stream, durable, and KV names are built
   from the same builders as §3 and §8. Exact profile shapes are in Appendix B.
 - **An agent's channel scope is three concepts**, each a list of channel names or wildcard
-  subtrees (`team.>`): `subscribe` — the active read set, the channels it actually subscribes
-  to at boot (the `chat_<id>` filter; mutable at runtime via the mediated join/leave); it MUST
-  be a subset of `allowSubscribe`. `allowSubscribe` — the read **ACL**, the channels it MAY read
-  (default = `subscribe`), enforced as the per-channel history-consumer create grants above.
-  `allowPublish` — the post **ACL**, the channels it may publish to; **default-deny** (a chat
-  publish grant is minted only for a declared channel).
+  subtrees (`team.>`): `subscribe` — the active read set, the channels it subscribes to at boot
+  (now native core subscriptions; mutable at runtime by direct subscribe/unsubscribe with no
+  mediation); it MUST be a subset of `allowSubscribe`. `allowSubscribe` — the read **ACL**, the
+  channels it MAY read (default = `subscribe`), minted as native `sub.allow` subscribe grants over
+  `cotal.<space>.chat.*.<channel>` (wildcards preserved, so an open ACL needs no enumeration) and
+  as the matching per-channel history-consumer create grants. `allowPublish` — the post **ACL**,
+  the channels it may publish to; **default-deny** (a chat publish grant is minted only for a
+  declared channel).
 
 | Profile | Application publish | Read surface | Notes |
 | --- | --- | --- | --- |
-| `agent` | own `chat.<id>.<ch>` for each `allowPublish` channel (post ACL, default-deny), `inst.*.<id>`, `svc.*.<id>`, `ctl.<manager>.<id>`; own presence key | own `_INBOX_<id>.>`; CHAT live tail via bind-only `chat_<id>` (no create/update); CHAT history via single-filter `chathist_<id>` creates, one per `allowSubscribe` channel; own `dm_<id>` and `svc_<role>` bind-only | read bounded by `allowSubscribe`; no Direct Get; DM/TASK create denied |
+| `agent` | own `chat.<id>.<ch>` for each `allowPublish` channel (post ACL, default-deny), `inst.*.<id>`, `svc.*.<id>`, `ctl.<manager>.<id>`; own presence key | own `_INBOX_<id>.>`; channel live tail via native `sub.allow` subscriptions to `chat.*.<channel>` per `allowSubscribe` (wildcards preserved); CHAT history via single-filter `chathist_<id>` creates, one per `allowSubscribe` channel (ACL-bounded); own `dm_<id>` and `svc_<role>` bind-only; **no** backstop read grant — durable copies arrive via a trusted reader on `_INBOX_<id>` | read bounded by `allowSubscribe`; durable copies re-checked by the trusted reader (current ACL + membership) before delivery; no Direct Get; DM/TASK/backstop create denied |
 | `observer` | none | chat, CHAT history, presence, channel registry | DMs invisible |
 | `admin` | none | whole space live tap plus DM history | plaintext god-view, opt-in |
 | `manager` | broad | broad | provisioner host; SHOULD be scoped in a future version |
 
 DM and TASK confidentiality, and the CHAT read boundary, close the leak paths:
 
-1. Delivery rides a per-identity inbox prefix, `_INBOX_<id>.>`, and `sub.allow` permits only
-   that prefix.
-2. A consumer create on the bare/multi-filter subject is not ACL-constrainable, so the
-   provisioner pre-creates `dm_<id>`, `svc_<role>`, and the multi-channel `chat_<id>` live tail,
-   and agents bind only. All such create forms on `DM_<space>`, `TASK_<space>`, and `CHAT_<space>`
-   are denied to agents.
-3. CHAT reads are bounded to `allowSubscribe`: a consumer create on the extended subject
-   `$JS.API.CONSUMER.CREATE.<stream>.<name>.<filter>` carries a single filter the
-   server pins to the request body, so an agent is granted exactly one such create-subject per
-   `allowSubscribe` channel and can read history of no other channel. The unfiltered Direct Get
-   grant is not given to agents.
+1. Replies, pull responses, and trusted-reader durable copies (§8) ride a per-identity inbox prefix,
+   `_INBOX_<id>.>`, which `sub.allow` permits alongside the agent's channel read grants (next item)
+   and nothing else.
+2. **Channel live reads are bounded by `sub.allow`.** `allowSubscribe` is minted as native subscribe
+   grants over `cotal.<space>.chat.*.<channel>` (wildcards preserved); the broker refuses, per
+   subscribe, any channel subject outside the ACL. There is no per-channel consumer name to confine,
+   so an open ACL (`team.>`, `>`) grants selective single-channel join with no enumeration and no
+   read-breakout. A `>` grant is read-all chat in the space by design — credential compromise reads
+   all chat — so it suits trusted/local deployments, not least privilege.
+3. A consumer create on the bare/multi-filter subject is not ACL-constrainable, so the provisioner
+   pre-creates `dm_<id>`, `svc_<role>`, and the per-subscriber durable backstop. Agents bind
+   `dm_<id>`/`svc_<role>` only; the backstop is read by a trusted reader, not the agent (§8, item 5).
+   Those bare/multi-filter create forms are not granted to agents (default-deny), with explicit
+   create-denies on `DM_<space>`, `TASK_<space>`, and the backstop stream; on `CHAT_<space>` the only
+   consumer-create an agent holds is the pinned single-filter history create (next item), so a broad
+   CHAT create-deny is intentionally absent — it would also deny that pinned create.
+4. CHAT history reads are bounded to `allowSubscribe`: a consumer create on the extended subject
+   `$JS.API.CONSUMER.CREATE.<stream>.<name>.<filter>` carries a single filter the server pins to the
+   request body, so an agent is granted exactly one such create-subject per `allowSubscribe` channel
+   and can read history of no other channel. The unfiltered Direct Get grant is not given to agents.
+5. **The durable backstop is read by a trusted reader, not the agent.** The agent holds no
+   content-bearing read on the mixed backstop store; a trusted reader (the provisioner) MUST
+   re-authorize `(instance, channel, message)` against the member's current read ACL — and, for
+   `durable`-channel fan-out entries, its current membership — before delivering content to the member:
+   broker ownership of an inbox ("this is agent A's") is not authorization, since the store can hold
+   messages for channels A has since dropped from its ACL or left, and a self-bound consumer cannot
+   filter per-message on membership. Fan-out-on-write is routing, not an authorization check; for a
+   durable channel a `leave` is a hard read boundary on the backstop. History/backfill reads are instead
+   self-served and bounded by the current read ACL (the pinned single-filter create above), consistent
+   with the live read. An `@mention` durable copy is written only to a target authorized to read the
+   channel, so `mentions` cannot carry content outside a target's read ACL.
+6. **"Current read ACL" is the effective broker-accepted credential.** An ACL narrowing takes effect
+   when the credential/permissions are updated and enforced by the broker (re-mint / reconnect /
+   revocation), not as an instantaneous global value; until then an existing broad credential remains
+   broad. Both the broker `sub.allow` checks and the trusted-reader re-checks are evaluated against that
+   effective credential.
 
 This binding provides containment and authenticity under a single trusted broker: an agent
 can emit only as itself and only to its declared `allowPublish` channels, and read only its own
-DMs and chat *content* within `allowSubscribe`, enforced by the server. It does not provide
+DMs and chat *content* within `allowSubscribe` (and, for `durable` content, its current
+membership), enforced by the server. It does not provide
 non-repudiation, does not survive an untrusted relay, and DMs are plaintext to the broker and
 to `admin`. The read bound is on **content**, not metadata: agents hold `STREAM.INFO` on CHAT
 (for the join watermark, the recall drop-marker, and channel-list counts), so a `subjects_filter`
@@ -433,11 +589,24 @@ A conformant authenticated NATS client MUST:
 4. Set exactly one routing field on each delivery message (§5).
 5. Reject any received delivery message whose `from.id` does not match the subject sender
    (§5).
-6. Derive delivery class from the subject, not payload routing fields (§4).
+6. Derive delivery kind (channel/dm/anycast) from the subject, not payload routing fields (§4).
 7. Ack only surfaced/handled messages and terminate permanent anomalies (§4, §8).
 8. Write only its own presence key on the heartbeat interval (§6).
 9. Set the per-instance inbox prefix before transport operations (§10).
 10. Treat unknown fields as ignorable (§11).
+11. Resolve a channel's effective delivery class (`live`/`durable`) from channel config, not from a
+    deployment assumption, and use one resolution across live join, durable fan-out, history read,
+    and membership surfacing (§4, §7).
+12. On a `durable` channel, tolerate the at-most-once `live` gap and catch up via the durable
+    backstop; deduplicate by `id` across the live, backfill, and durable copies (§4, §8).
+13. Join and leave a channel's **live** subscription by subscribing/unsubscribing under `sub.allow`
+    with no privileged mediation; treat a live join as effective only once the broker accepts the
+    subscribe, and drop it on a late permission refusal. On a `durable` channel, additionally establish
+    durable membership via the privileged provisioner; if it cannot be established, report `joined live`
+    with the durable backstop unestablished, never `joined durable` (§7, §9).
+14. Bound history/backfill reads by the current read ACL, and re-authorize every durable-backstop read
+    against the current read ACL (and, for `durable`-channel entries, membership) before surfacing
+    content, treating a leave as a hard read boundary on the backstop (§7, §9).
 
 Test vectors use these sample ids:
 
@@ -519,12 +688,12 @@ Interop scenario:
 This appendix is normative for the NATS binding. Names below use these placeholders:
 
 - `P = cotal.<space>`
-- `CHAT = CHAT_<space>`, `DM = DM_<space>`, `TASK = TASK_<space>`
+- `CHAT = CHAT_<space>`, `DM = DM_<space>`, `TASK = TASK_<space>`, `BSTOP = INBOX_<space>` (durable backstop stream; reference name, §8)
 - `KV = KV_cotal_presence_<space>`
 - `CHKV = KV_cotal_channels_<space>`
 - `id = authenticated instance id`
 - `role = authenticated agent role`
-- `chatD = chat_<id>`, `chatHistD = chathist_<id>`, `dmD = dm_<id>`, `svcD = svc_<role>`
+- `chatHistD = chathist_<id>`, `dmD = dm_<id>`, `svcD = svc_<role>` (the per-subscriber durable backstop `chatinbox_<id>` is read by the trusted reader, not the agent, so it has no agent-profile placeholder; §8)
 - `inbox = _INBOX_<id>.>`
 
 Grouped placeholders such as `<CHAT|DM|TASK>` mean one concrete subject per listed token.
@@ -534,6 +703,7 @@ Grouped placeholders such as `<CHAT|DM|TASK>` mean one concrete subject per list
 `sub.allow`:
 
 - `inbox`
+- `P.chat.*.<ch>` for every `allowSubscribe` channel — the **live read boundary**: native core-sub join/leave is a `sub.allow`-bounded subscribe to this subject, so an agent whose ACL permits a channel joins it alone with no manager. Wildcards preserved (e.g. `P.chat.*.team.>` for `allowSubscribe: team.>`); a `team.>` grant matches strictly deeper channels, not the bare `team`; a `>` grant is read-all chat in the space on credential compromise
 
 `pub.allow`:
 
@@ -543,16 +713,14 @@ Grouped placeholders such as `<CHAT|DM|TASK>` mean one concrete subject per list
 - `P.ctl.<manager>.<id>`
 - `$JS.API.INFO`
 - `$JS.API.STREAM.INFO.<CHAT|DM|TASK|KV|CHKV>`
-- `$JS.API.CONSUMER.INFO.<CHAT>.<chatD>` (live tail; bind only — no create/update)
-- `$JS.API.CONSUMER.MSG.NEXT.<CHAT>.<chatD>`
-- `$JS.ACK.<CHAT>.<chatD>.>`
-- `$JS.API.CONSUMER.CREATE.<CHAT>.<chatHistD>.<P.chat.*.<ch>>` for every `allowSubscribe` channel (history reads; the single filter the server pins to the body)
+- `$JS.API.CONSUMER.CREATE.<CHAT>.<chatHistD>.<P.chat.*.<ch>>` for every `allowSubscribe` channel (history reads; the single filter the server pins to the body — the agent's only CHAT consumer create. The live tail is the core `sub.allow` subscription above, not a JetStream consumer)
 - `$JS.API.CONSUMER.INFO.<CHAT>.<chatHistD>`
 - `$JS.API.CONSUMER.MSG.NEXT.<CHAT>.<chatHistD>`
 - `$JS.API.CONSUMER.DELETE.<CHAT>.<chatHistD>`
 - `$JS.API.CONSUMER.INFO.<DM>.<dmD>`
 - `$JS.API.CONSUMER.MSG.NEXT.<DM>.<dmD>`
 - `$JS.ACK.<DM>.<dmD>.>`
+- (no durable-backstop read grant: the agent does NOT bind the mixed backstop store; a trusted reader re-checks each entry and delivers authorized durable copies to the agent's `inbox`, §8)
 - `$JS.API.CONSUMER.CREATE.<KV>.>`
 - `$JS.API.CONSUMER.INFO.<KV>.>`
 - `$JS.FC.>`
@@ -563,7 +731,7 @@ Grouped placeholders such as `<CHAT|DM|TASK>` mean one concrete subject per list
 - if `role` is set: `$JS.API.CONSUMER.INFO.<TASK>.<svcD>`,
   `$JS.API.CONSUMER.MSG.NEXT.<TASK>.<svcD>`, `$JS.ACK.<TASK>.<svcD>.>`
 
-`pub.deny`:
+`pub.deny` (the agent binds these consumers, never creates them; its only consumer-create grant is the pinned per-channel `chatHistD` history create):
 
 - `$JS.API.CONSUMER.CREATE.<DM>`
 - `$JS.API.CONSUMER.CREATE.<DM>.>`
@@ -571,6 +739,13 @@ Grouped placeholders such as `<CHAT|DM|TASK>` mean one concrete subject per list
 - `$JS.API.CONSUMER.CREATE.<TASK>`
 - `$JS.API.CONSUMER.CREATE.<TASK>.>`
 - `$JS.API.CONSUMER.DURABLE.CREATE.<TASK>.>`
+- `$JS.API.CONSUMER.CREATE.<BSTOP>`
+- `$JS.API.CONSUMER.CREATE.<BSTOP>.>`
+- `$JS.API.CONSUMER.DURABLE.CREATE.<BSTOP>.>`
+
+A bare/multi-filter consumer create on `CHAT` is **not** explicitly denied — that would also deny the
+pinned `chatHistD` create the agent needs — so it is default-denied (the agent holds no such allow),
+leaving the single-filter history consumer above as the agent's only CHAT consumer.
 
 ### Observer
 
@@ -615,8 +790,12 @@ Admin still has no application publish grants.
 ### Manager
 
 Manager is allow-all in v0. It is the provisioner host and is responsible for pre-creating
-`dm_<id>` and `svc_<role>` durables and minting scoped credentials. It MUST NOT be issued to
-ordinary agents.
+`dm_<id>`, `svc_<role>`, and per-subscriber durable-backstop (`chatinbox_<id>`) durables, for
+writing the privileged channel-membership records the durable backstop authorizes against (§7),
+and for minting scoped credentials. The live channel subscribe does not depend on the manager — it
+is broker-enforced via `sub.allow` — so self-serve live join works with no manager present; only
+the durable backstop and its membership writes require this privileged host. It MUST NOT be issued
+to ordinary agents.
 
 ## Appendix C: Normative references
 

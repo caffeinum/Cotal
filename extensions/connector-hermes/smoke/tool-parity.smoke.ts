@@ -11,7 +11,7 @@
  */
 import { strict as assert } from "node:assert";
 import { configFromEnv, cotalToolSpecs } from "@cotal-ai/connector-core";
-import { hermesToolDescriptors } from "./src/tool-schema.js";
+import { hermesToolDescriptors } from "../src/tool-schema.js";
 
 process.env.COTAL_SPACE ||= "parity";
 process.env.COTAL_NAME ||= "hermes-1";

@@ -10,7 +10,7 @@
 import { Kvm, type KV } from "@nats-io/kv";
 import { connect, credsAuthenticator, type NatsConnection } from "@nats-io/transport-node";
 import { channelBucket, CHANNEL_DEFAULTS_KEY } from "./subjects.js";
-import type { ChannelConfig, ChannelDefaults } from "./types.js";
+import type { ChannelConfig, ChannelDefaults, DeliveryClass } from "./types.js";
 
 /** The declarative channel-config file read at `cotal up` to seed the registry. */
 export interface ChannelRegistryFile {
@@ -36,6 +36,21 @@ export function validateChannelConfig(cfg: ChannelConfig): void {
       `channel instructions too long (${cfg.instructions.length} > ${MAX_CHANNEL_INSTRUCTIONS} chars)`,
     );
   if (cfg.replayWindow !== undefined) parseDuration(cfg.replayWindow); // throws if unparseable
+  if (
+    cfg.deliveryClass !== undefined &&
+    cfg.deliveryClass !== "live" &&
+    cfg.deliveryClass !== "durable"
+  )
+    throw new Error(`invalid deliveryClass "${cfg.deliveryClass}" — expected "live" or "durable"`);
+}
+
+/** Validate a defaults patch the same way per-channel config is — the space default feeds
+ *  {@link effectiveDeliveryClass} as a co-equal input, so a bad value must fail loud here, not
+ *  silently become the space-wide effective class. */
+export function validateChannelDefaults(d: ChannelDefaults): void {
+  if (d.replayWindow !== undefined) parseDuration(d.replayWindow); // throws if unparseable
+  if (d.deliveryClass !== undefined && d.deliveryClass !== "live" && d.deliveryClass !== "durable")
+    throw new Error(`invalid deliveryClass "${d.deliveryClass}" — expected "live" or "durable"`);
 }
 
 /** Parse a duration like `"24h"`, `"30m"`, `"7d"`, `"90s"` into milliseconds. Throws on a bad
@@ -65,6 +80,18 @@ export function effectiveReplayWindowMs(
 ): number | undefined {
   const w = cfg?.replayWindow ?? defaults?.replayWindow;
   return w === undefined ? undefined : parseDuration(w);
+}
+
+/** Effective delivery class for a channel (SPEC §4): per-channel override ?? space default ??
+ *  `"durable"`. Default-durable keeps persistence on when a space declares no default — the safe
+ *  fallback; a space sets `defaults.deliveryClass` at creation per deployment profile. The SAME
+ *  resolution MUST drive live join, durable fan-out, history read, and membership surfacing, so
+ *  every path agrees on a channel's class. */
+export function effectiveDeliveryClass(
+  cfg: ChannelConfig | undefined,
+  defaults: ChannelDefaults | undefined,
+): DeliveryClass {
+  return cfg?.deliveryClass ?? defaults?.deliveryClass ?? "durable";
 }
 
 /** Open the channels registry bucket. Auth mode (creds present) OPENs the bucket pre-created
@@ -104,8 +131,10 @@ export async function writeChannelConfig(
   await kv.put(channel, JSON.stringify(merged));
 }
 
-/** Privileged write of the space-wide defaults (merged over any existing). */
+/** Privileged write of the space-wide defaults (merged over any existing). Validated before the
+ *  put — a bad default would otherwise feed {@link effectiveDeliveryClass} silently. */
 export async function writeChannelDefaults(kv: KV, patch: ChannelDefaults): Promise<void> {
+  validateChannelDefaults(patch);
   const merged: ChannelDefaults = { ...(await readChannelDefaults(kv)), ...patch };
   await kv.put(CHANNEL_DEFAULTS_KEY, JSON.stringify(merged));
 }

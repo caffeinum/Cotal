@@ -3,8 +3,8 @@
  * Asserts the deterministic, fail-loud rules in src/resolve.ts.
  */
 import assert from "node:assert/strict";
-import { resolvePeer, AmbiguousPeerError, assertValidName } from "./src/resolve.js";
-import type { Presence, PresenceStatus } from "./src/types.js";
+import { resolvePeer, AmbiguousPeerError, assertValidName } from "../src/resolve.js";
+import type { Presence, PresenceStatus } from "../src/types.js";
 
 let seq = 0;
 function p(name: string, status: PresenceStatus = "idle", id = `id-${++seq}`): Presence {

@@ -18,7 +18,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CotalEndpoint, seedChannelRegistry, isReachable } from "@cotal-ai/core";
-import { cotal } from "./src/plugin.js";
+import { cotal } from "../src/plugin.js";
 
 const PORT = 14238;
 const servers = `nats://127.0.0.1:${PORT}`;

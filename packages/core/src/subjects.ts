@@ -252,6 +252,31 @@ export function channelBucket(space: string): string {
  *  outside `[A-Za-z0-9_-]` to `_`), so this key can never collide with a real channel. */
 export const CHANNEL_DEFAULTS_KEY = "=defaults";
 
+/** Name of the KV bucket holding the durable-membership registry (Plane-3) for a space — a
+ *  privileged-write sibling of the channels/presence buckets. One record per (concrete channel,
+ *  owner) under {@link memberKey}; the source of truth for `channelMembers()` and the fan-out's
+ *  member list, moved off JetStream consumer topology (which core-sub joins don't create). */
+export function membersBucket(space: string): string {
+  return `cotal_members_${token(space)}`;
+}
+
+/** KV key for one membership record: `<channel>/<owner>`. The channel is concrete (no `*`/`>`,
+ *  validated at the write path) so it is dotted-but-`/`-free, and an owner id is an nkey
+ *  (`[A-Z0-9]`, also `/`-free), so the single `/` separates them unambiguously — both halves
+ *  recover via {@link parseMemberKey}. `/`, `.`, and `[A-Za-z0-9_-]` are all legal KV-key chars
+ *  (`/^[-/=.\w]+$/`), so no encoding is needed. */
+export function memberKey(channel: string, owner: string): string {
+  return `${channel}/${owner}`;
+}
+
+/** Inverse of {@link memberKey}: split a member key back into `{ channel, owner }`, or `null` if
+ *  it isn't one (no `/`). Splits on the single separator — channels and owner ids are both `/`-free. */
+export function parseMemberKey(key: string): { channel: string; owner: string } | null {
+  const i = key.indexOf("/");
+  if (i <= 0 || i >= key.length - 1) return null;
+  return { channel: key.slice(0, i), owner: key.slice(i + 1) };
+}
+
 // ---- JetStream streams (the durable backing for the three delivery modes) ----
 
 /** Stream capturing `chat.>` — multicast backlog + history. */
@@ -269,15 +294,67 @@ export function taskStream(space: string): string {
   return `TASK_${token(space)}`;
 }
 
-/** Durable consumer name for an instance's view of the chat stream — its live tail. */
+// ---- Plane-3 (durable backstop, SPEC §8) — two per-space streams ----
+//
+// `dinbox.<owner>` is the MIXED pre-auth store (fan-out target): the agent holds NO grant on
+// {@link inboxStream} and the trusted reader (manager) is its only consumer. `dlv.<owner>` is the
+// per-member POST-auth handoff: the reader transfers each re-authorized copy here and the agent binds
+// {@link dlvDurable} bind-only and acks it via native JetStream (§8 "an equivalent per-member
+// at-least-once mechanism with the same ack semantics"). `dlv` carries channel messages only, so the
+// receiver derives `kind=channel` from the delivery path — no payload/header kind (SPEC §4).
+
+/** Stream capturing `dinbox.>` — the per-owner mixed durable inbox (fan-out target; agent unreadable). */
+export function inboxStream(space: string): string {
+  return `INBOX_${token(space)}`;
+}
+
+/** Stream capturing `dlv.>` — the per-member post-auth delivery store (agent binds + acks). */
+export function dlvStream(space: string): string {
+  return `DLV_${token(space)}`;
+}
+
+/** Subject of an owner's mixed durable inbox: `cotal.<space>.dinbox.<owner>` (one per owner). */
+export function dinboxSubject(space: string, owner: string): string {
+  return `${spacePrefix(space)}.dinbox.${routeToken(owner)}`;
+}
+
+/** Subject of an owner's post-auth delivery: `cotal.<space>.dlv.<owner>` (one per owner). */
+export function dlvSubject(space: string, owner: string): string {
+  return `${spacePrefix(space)}.dlv.${routeToken(owner)}`;
+}
+
+/** Parse the owner id out of an owner's mixed-inbox subject `cotal.<space>.dinbox.<owner>`, or null.
+ *  The trusted reader is a SINGLE consumer over `dinbox.>` (all owners), so it recovers the per-message
+ *  owner from the subject (the routing token is `routeToken(owner)` — an nkey, a `token()` no-op). */
+export function parseDinboxOwner(subject: string): string | null {
+  const parts = subject.split(".");
+  // cotal.<space>.dinbox.<owner>
+  return parts.length === 4 && parts[0] === ROOT && parts[2] === "dinbox" ? parts[3] : null;
+}
+
+/** An agent's bind-only per-owner consumer on {@link dlvStream} (filter `dlv.<owner>`). */
+export function dlvDurable(owner: string): string {
+  return `dlv_${token(owner)}`;
+}
+
+/** The single privileged fan-out consumer on the CHAT stream (manager-pumped; routing, not auth). */
+export const FANOUT_DURABLE = "fanout" as const;
+
+/** The single privileged trusted-reader consumer on {@link inboxStream} (filter `dinbox.>`,
+ *  manager-pumped). It re-authorizes each entry and transfers the authorized copy to `dlv.<owner>`. */
+export const INBOX_READER_DURABLE = "reader" as const;
+
+/** Name of the REMOVED per-instance chat live-tail durable. Retained only as the canonical name the
+ *  read-ACL conformance test asserts an agent can NOT create — it has no live callers, the live read is
+ *  now a native core subscription. */
 export function chatDurable(instance: string): string {
   return `chat_${token(instance)}`;
 }
 
 /** Consumer name for an instance's short-lived chat **history** reads (join-backfill, focus-recall,
- *  drop-marker). A single per-instance name (not the live `chat_<id>`) so its create/info/fetch/
- *  delete grants are name-scoped to the agent's own id — a peer can never bind it — while the
- *  per-read single `filter_subject` is what the create-time ACL pins to `allowSubscribe`. */
+ *  drop-marker). A single per-instance name, scoped to the agent's own id so its create/info/fetch/
+ *  delete grants name-scope to that id — a peer can never bind it — while the per-read single
+ *  `filter_subject` is what the create-time ACL pins to `allowSubscribe`. */
 export function chatHistDurable(instance: string): string {
   return `chathist_${token(instance)}`;
 }
