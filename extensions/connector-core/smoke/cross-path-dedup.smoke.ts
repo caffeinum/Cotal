@@ -160,6 +160,27 @@ try {
     check("rotation: prev-window id X (live) is dropped without an ack", lc.n === 0, { lc }); // catches a spurious ack on the no-op live path
   }
 
+  // ── Pending durable-leave SURFACING (ux/security): a channel in refused-sub durable cleanup can have
+  //    NO traffic and no registry entry, so endpoint.listChannels() omits it. cotal_channels must STILL
+  //    show it as `durableUnclosed`, never ordinary absence — MeshAgent.listChannels() unions it in. ──
+  {
+    const a2 = new MeshAgent({ ...cfg, id: "surf_agent" });
+    a2.on("error", () => {});
+    // Fake endpoint: "ghost" is pending durable cleanup but absent from listChannels() (no traffic/config);
+    // "seen" is a normal listed channel.
+    (a2 as unknown as { ep: Record<string, unknown> }).ep = {
+      joinedChannels: () => [],
+      pendingDurableLeaves: () => ["ghost"],
+      listChannels: async () => [{ channel: "seen", messages: 3, config: undefined }],
+      channelReplay: () => false,
+    };
+    const rows = await a2.listChannels();
+    const ghost = rows.find((r) => r.channel === "ghost");
+    check("pending durable-leave on an UNSEEN channel is surfaced in cotal_channels (not omitted)", ghost !== undefined, rows.map((r) => r.channel));
+    check("...as durableUnclosed + not joined + messages 0", ghost?.durableUnclosed === true && ghost?.joined === false && ghost?.messages === 0, ghost);
+    check("a normal listed channel is NOT marked durableUnclosed", rows.find((r) => r.channel === "seen")?.durableUnclosed === false, rows);
+  }
+
   console.log(`\nCROSS-PATH DEDUP SMOKE OK ✅  (${pass} passed, 0 failed)`);
   process.exit(0);
 } catch (e) {

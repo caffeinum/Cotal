@@ -1733,9 +1733,9 @@ export class CotalEndpoint extends EventEmitter {
             this.joinSeq.delete(channel);
             // A late sub.allow refusal forces this agent out of the channel (the broker revoked its live
             // read). If it held a Plane-3 durable membership, the §7 boundary must close too. This sub
-            // callback can't await, so a fail-closed async helper RETRIES the tombstone (backoff) and
-            // clears the mirror ONLY on success; on ultimate failure it retains the generation + emits
-            // loudly that the boundary may remain open — never a silent drop, and never lost retry state.
+            // callback can't await, so a fail-closed async helper RETRIES the tombstone (backoff) UNTIL it
+            // succeeds, clearing the mirror only then; while pending it is surfaced via cotal_channels —
+            // never a silent drop, never lost retry state.
             const gen = this.plane3Channels.get(channel);
             if (gen !== undefined) void this.closeRefusedMembership(channel, gen);
             this.emit(

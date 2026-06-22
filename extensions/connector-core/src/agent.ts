@@ -619,8 +619,12 @@ export class MeshAgent extends EventEmitter {
     }[]
   > {
     const mine = this.ep.joinedChannels();
-    const unclosed = new Set(this.ep.pendingDurableLeaves());
-    return (await this.ep.listChannels()).map((c) => ({
+    const pending = this.ep.pendingDurableLeaves();
+    const unclosed = new Set(pending);
+    const rows: {
+      channel: string; description?: string; replay: boolean; joined: boolean;
+      durableUnclosed: boolean; messages: number; mode: ChannelMode | "normal";
+    }[] = (await this.ep.listChannels()).map((c) => ({
       channel: c.channel,
       description: c.config?.description,
       replay: this.ep.channelReplay(c.channel),
@@ -631,6 +635,22 @@ export class MeshAgent extends EventEmitter {
       messages: c.messages,
       mode: this.channelMode(c.channel) ?? "normal",
     }));
+    // A channel in refused-sub durable cleanup can have NO traffic AND no registry entry, so listChannels()
+    // omits it — UNION it in so the durable-unclosed state can never disappear by omission (ux/security).
+    const present = new Set(rows.map((r) => r.channel));
+    for (const ch of pending) {
+      if (present.has(ch)) continue;
+      rows.push({
+        channel: ch,
+        description: undefined,
+        replay: this.ep.channelReplay(ch),
+        joined: false,
+        durableUnclosed: true,
+        messages: 0,
+        mode: this.channelMode(ch) ?? "normal",
+      });
+    }
+    return rows;
   }
 
   /** Join a channel mid-session (backfills history if replay is on; idempotent). `durable` reports
