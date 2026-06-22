@@ -131,6 +131,14 @@ try {
     !reviewPending.some((m) => m.id === aId.id),
     reviewPending,
   );
+  // ...but leave-discovery (ownerMemberships) DOES return it, so leaveChannel can close a non-activated
+  // record that still routes under the pure-interval predicate (critic BLOCKER-1 leave-discovery gap).
+  const pendingOwned = await mgr.ownerMemberships(aId.id);
+  check(
+    "ownerMemberships INCLUDES the activation-pending record (leaveChannel can discover + close it)",
+    pendingOwned.some((m) => m.channel === "review" && m.activated === false),
+    pendingOwned,
+  );
 
   await mgr.multicast("activation-pending-delivers", { channel: "review" });
   check(

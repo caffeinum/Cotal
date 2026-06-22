@@ -1150,14 +1150,16 @@ export class CotalEndpoint extends EventEmitter {
     return this.membersKv;
   }
 
-  /** Privileged: the current (activated, non-tombstoned) durable memberships of one owner, as
-   *  `{channel, generation}` — the manager serves this to a connecting agent (via the `listMemberships`
-   *  self-service op) so it can hydrate its leave-generation mirror without reading the privileged KV. */
-  async ownerMemberships(owner: string): Promise<{ channel: string; generation: number }[]> {
+  /** Privileged: one owner's NON-TOMBSTONED durable memberships as `{channel, generation, activated}` —
+   *  the manager serves this to a connecting agent (via the `listMemberships` self-service op). The agent
+   *  hydrates its leave mirror from the ACTIVATED ones (the confirmed backstops), but the non-activated
+   *  ones are returned too so `leaveChannel` can discover + close a record that still routes under the
+   *  pure-interval predicate (a crash-stuck pending activation) — without reading the privileged KV. */
+  async ownerMemberships(owner: string): Promise<{ channel: string; generation: number; activated: boolean }[]> {
     const recs = await listMembers(await this.membersRegistry(), { owner });
     return recs
-      .filter((r) => r.leaveCursor === undefined && r.activated === true)
-      .map((r) => ({ channel: r.channel, generation: r.generation }));
+      .filter((r) => r.leaveCursor === undefined)
+      .map((r) => ({ channel: r.channel, generation: r.generation, activated: r.activated === true }));
   }
 
   /** Effective delivery class read AUTHORITATIVELY from the registry KV (not the watch cache) — so a
@@ -1235,11 +1237,15 @@ export class CotalEndpoint extends EventEmitter {
     if (!open) await commitMember(kv, base);
     const fence = Math.max(await this.chatFrontier(), await this.fanoutDeliveredSeq());
     const cu = await this.catchupCopy(owner, channel, joinCursor, fence, generation);
-    if (cu.evicted)
-      // Catch-up window irreparably evicted — leave the record `activated:false` (unreported, hidden
-      // from channelMembers) + degrade honestly. A retry re-runs catch-up; durable:true is never
-      // reported without a confirmed catch-up window.
+    if (cu.evicted) {
+      // Catch-up window irreparably evicted (the oldest in-window message aged out) — this join can never
+      // be a complete backstop. TOMBSTONE the just-committed record at `fence` so it does NOT route:
+      // pure-interval durableEligible would otherwise keep delivering to a record the agent was told is
+      // durable:false AND can't discover to leave (critic BLOCKER-1). Then degrade honestly — a retry is a
+      // fresh join (no longer `open`, so a current joinCursor is captured).
+      await tombstoneMember(kv, channel, owner, fence, this.card.id);
       return { durable: false, reason: "activation catch-up window partially evicted by retention", generation };
+    }
     await commitMember(kv, { ...base, activated: true, updatedAt: Date.now() }); // flip → reported durable
     return { durable: true, generation };
   }
@@ -1486,7 +1492,7 @@ export class CotalEndpoint extends EventEmitter {
    *  manager — the agent holds no read on the privileged members KV. `undefined` ⇒ NO control responder
    *  (open / manager-less, so there is no Plane-3 and no memberships). THROWS on a responder-present RPC
    *  failure, so a caller can FAIL-CLOSED rather than mistaking a transient error for "no membership". */
-  private async fetchMemberships(): Promise<{ channel: string; generation: number }[] | undefined> {
+  private async fetchMemberships(): Promise<{ channel: string; generation: number; activated: boolean }[] | undefined> {
     let reply: ControlReply;
     try {
       reply = await this.requestControl(CONTROL_SELF_SERVICE, { op: "listMemberships", args: {} }, 5_000);
@@ -1495,7 +1501,7 @@ export class CotalEndpoint extends EventEmitter {
       throw e; // responder present but errored — surface it (leaveChannel fails closed)
     }
     if (!reply.ok) throw new Error(reply.error ?? "listMemberships failed");
-    return (reply.data as { memberships?: { channel: string; generation: number }[] } | undefined)?.memberships ?? [];
+    return (reply.data as { memberships?: { channel: string; generation: number; activated: boolean }[] } | undefined)?.memberships ?? [];
   }
 
   /** Agent-side: seed `plane3Channels` with this session's boot durable memberships + generations on
@@ -1504,15 +1510,17 @@ export class CotalEndpoint extends EventEmitter {
    *  error), {@link leaveChannel} re-resolves the generation on demand and fails closed there — so a
    *  missed hydration never silently leaves a boot durable channel untombstonable. */
   private async hydrateMemberships(): Promise<void> {
-    let memberships: { channel: string; generation: number }[] | undefined;
+    let memberships: { channel: string; generation: number; activated: boolean }[] | undefined;
     try {
       memberships = await this.fetchMemberships();
     } catch {
       return; // transient manager error at boot — leaveChannel re-resolves on demand (fail-closed there)
     }
     if (!memberships) return; // no manager — live-only
+    // Seed the mirror (+ durable-state surface) with CONFIRMED backstops only; leaveChannel re-resolves a
+    // non-activated record on demand if it ever needs to close one.
     for (const m of memberships)
-      if (this.channels.includes(m.channel)) this.plane3Channels.set(m.channel, m.generation);
+      if (m.activated && this.channels.includes(m.channel)) this.plane3Channels.set(m.channel, m.generation);
   }
 
   /** Lazily obtain a JetStream manager — so a non-consuming endpoint (e.g. the supervisor,
@@ -1676,19 +1684,22 @@ export class CotalEndpoint extends EventEmitter {
           if (i >= 0) {
             this.channels.splice(i, 1);
             this.joinSeq.delete(channel);
-            // A late sub.allow refusal forces this agent out of the channel. If it held a Plane-3 durable
-            // membership, the §7 boundary must close too: best-effort tombstone (this sub callback can't
-            // await) and EMIT on failure — never silently drop the mirror and leave the backstop
-            // transferring post-departure (same class as the fail-open leave).
+            // A late sub.allow refusal forces this agent out of the channel (the broker revoked its live
+            // read). If it held a Plane-3 durable membership, the §7 boundary must close too. This sub
+            // callback can't await, so attempt the tombstone async and clear the mirror ONLY once it
+            // confirms; on failure RETAIN the generation (don't forget the stale-leave guard) and EMIT
+            // loudly that the boundary may remain OPEN — never silently imply closure. Authoritative
+            // closure of a revoked membership is the manager's job (revocation = cred-kill + tombstone).
             const gen = this.plane3Channels.get(channel);
             if (gen !== undefined) {
-              this.plane3Channels.delete(channel);
-              void this.durableLeaveChannel(channel, gen).catch((e) =>
-                this.emit(
-                  "error",
-                  new Error(`channel "${channel}": durable membership not tombstoned after a refused live sub (${(e as Error).message})`),
-                ),
-              );
+              void this.durableLeaveChannel(channel, gen)
+                .then(() => this.plane3Channels.delete(channel))
+                .catch((e) =>
+                  this.emit(
+                    "error",
+                    new Error(`channel "${channel}": Plane-3 durable membership (generation ${gen}) NOT tombstoned after a refused live sub — §7 boundary may remain OPEN, close it via the manager (${(e as Error).message})`),
+                  ),
+                );
             }
             this.emit(
               "error",
