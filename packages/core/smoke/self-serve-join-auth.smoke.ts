@@ -202,7 +202,7 @@ try {
   await wait(300);
   check("after leaving the boot channel, no delivery", !got.some((g) => g.includes("after general leave")), got);
 
-  // ───────────── Phase 2 — a real Plane-3 manager (fan-out + trusted reader + durableJoin/Leave) ─────────────
+  // ───────────── Phase 2 — a real Plane-3 host: the delivery daemon (fan-out + trusted reader + ctl.delivery join/leave) ─────────────
   // Host Plane-3 on `pub` and serve the durableJoin/Leave ctl ops that joinChannel/leaveChannel now use
   // for a `durable`-class channel (the legacy filter-move is no longer the runtime durable path). The
   // trusted reader re-authorizes against the caller's current ACL (its allowSubscribe), supplied here.

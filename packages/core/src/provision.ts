@@ -166,8 +166,8 @@ export interface MintOpts {
 /** Options for {@link provisionAgent} — {@link MintOpts} plus the active read set. */
 export interface ProvisionOpts extends MintOpts {
   /** The active read set: the channels the agent subscribes to (live core-sub) at boot, and whose
-   *  `durable`-class members get a boot Plane-3 membership. Must be ⊆ `allowSubscribe`. Defaults to
-   *  `["general"]`. */
+   *  `durable`-class ones the agent self-joins for a Plane-3 backstop at connect (via the delivery
+   *  daemon). Must be ⊆ `allowSubscribe`. Defaults to `["general"]`. */
   subscribe?: string[];
   /** Record this agent's read ACL so it can participate in durable delivery (default true). A durable
    *  backstop needs the agent's read ACL in the registry — the server-side delivery daemon re-authorizes
