@@ -403,11 +403,15 @@ export function cotalToolSpecs(config: AgentConfig, source = "connector"): Cotal
             r.backfilled > 0
               ? `\nBackfilled ${r.backfilled} earlier message${r.backfilled === 1 ? "" : "s"} into your inbox (marked "history" — they pre-date your join; read with cotal_inbox).`
               : "";
-          // `durable:false` = joined the LIVE feed only (no provisioner moved the durable backstop), so
-          // messages sent while you're offline won't be replayed to you. Say so — don't hide it.
+          // Delivery-state surface (SPEC §7): `durable:true` = a Plane-3 durable backstop is active
+          // (offline posts replay on your next turn). `durable:false` with a `reason` = a backstop was
+          // expected but is unavailable (e.g. no provisioner) — joined LIVE only; say so, never hide it.
+          // `durable:false` with no reason = a `live`-class channel (joined live is the contract).
           const headline = r.durable
-            ? `Joined #${channel}.`
-            : `Joined #${channel} (live only — durable backstop unavailable in this session, so messages sent while you're offline won't be replayed).`;
+            ? `Joined #${channel} (durable backstop active — messages sent while you're offline replay on your next turn).`
+            : r.reason
+              ? `Joined #${channel} (LIVE only — ${r.reason}; messages sent while you're offline won't be replayed).`
+              : `Joined #${channel} (live).`;
           return ok(`${headline}\n${info}${caught}`);
         } catch (e) {
           return err(`Couldn't join #${channel}: ${(e as Error).message}`);

@@ -26,6 +26,7 @@
     "smoke:view": "tsx implementations/cli/view.smoke.ts",
     "smoke:members": "tsx packages/core/members.smoke.ts",
     "smoke:plane3:auth": "tsx packages/core/plane3-auth.smoke.ts",
+    "smoke:plane3-gate:auth": "tsx packages/core/plane3-gate-auth.smoke.ts",
     "smoke:membership": "tsx packages/core/membership.smoke.ts",
     "smoke:membership:auth": "tsx packages/core/membership-auth.smoke.ts",
     "smoke:channels": "tsx packages/core/channels.smoke.ts",

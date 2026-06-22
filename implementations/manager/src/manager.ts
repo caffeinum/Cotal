@@ -333,8 +333,9 @@ export class Manager {
     if (!target) return { ok: false, error: `durableLeave: caller ${callerId} is not an agent this manager spawned` };
     const channel = typeof args.channel === "string" ? args.channel.trim() : "";
     if (!channel) return { ok: false, error: "durableLeave: channel must be a non-blank string" };
+    const generation = typeof args.generation === "number" ? args.generation : undefined;
     try {
-      await this.ep.durableLeaveFor(callerId, channel);
+      await this.ep.durableLeaveFor(callerId, channel, generation);
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }

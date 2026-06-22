@@ -101,9 +101,17 @@ export async function tombstoneMember(
   owner: string,
   leaveCursor: number,
   writerIdentity: string,
+  expectedGeneration?: number,
 ): Promise<MembershipRecord | undefined> {
   const cur = await readMember(kv, channel, owner);
   if (!cur) return undefined;
+  // Stale-leave guard: a leave is for the generation the agent joined with (`expectedGeneration`,
+  // captured at durableJoin). If the record has since moved to a NEWER generation — the agent left
+  // and REJOINED — this stale leave must NOT tombstone the rejoin (it would durable-disable a live
+  // membership). Refuse it. (Same intent as the generation guard in commitMember, but a leave reads
+  // the current record so it needs the caller's expected generation to detect the rejoin.)
+  if (expectedGeneration !== undefined && cur.record.generation !== expectedGeneration)
+    throw new StaleMembershipWrite(channel, owner, expectedGeneration, cur.record.generation);
   if (cur.record.leaveCursor !== undefined && cur.record.leaveCursor <= leaveCursor)
     return cur.record; // already left at/before this cursor
   const next: MembershipRecord = {
@@ -153,7 +161,11 @@ export async function listMembers(
  *  L355-356) so they can't drift. State must be `durable-active` (a `live-confirmed` record has no
  *  Plane-3 backstop). */
 export function durableEligible(rec: MembershipRecord, seq: number): boolean {
-  if (rec.state !== "durable-active") return false;
+  // A tombstone (leaveCursor set, written only after a durable-active join) stays interval-eligible
+  // for its PRE-leave window — "leave is a hard read boundary" is the leaveCursor cutoff, NOT a drop
+  // of in-interval pending entries (SPEC §7). A plain live-confirmed record (boot/legacy, no
+  // leaveCursor) is NOT a durable recipient.
+  if (rec.state !== "durable-active" && rec.leaveCursor === undefined) return false;
   if (seq <= rec.joinCursor) return false;
   if (rec.leaveCursor !== undefined && seq > rec.leaveCursor) return false;
   return true;

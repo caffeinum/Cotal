@@ -629,9 +629,14 @@ export class MeshAgent extends EventEmitter {
   }
 
   /** Join a channel mid-session (backfills history if replay is on; idempotent). `durable` reports
-   *  whether the durable backstop was established (a privileged provisioner moved the legacy filter) —
-   *  `false` means joined LIVE only, so messages sent while this session is offline won't be replayed. */
-  async joinChannel(channel: string): Promise<{ joined: boolean; backfilled: number; durable: boolean }> {
+   *  whether a durable backstop is active (Plane-3, SPEC §8, for a `durable`-class channel when a
+   *  manager is present) — `false` means joined LIVE only, so messages sent while this session is
+   *  offline won't be replayed. `reason` explains a `durable:false` on a channel that EXPECTED a
+   *  backstop (e.g. no privileged provisioner); absent on a `live`-class channel (joined live is the
+   *  contract there). */
+  async joinChannel(
+    channel: string,
+  ): Promise<{ joined: boolean; backfilled: number; durable: boolean; reason?: string }> {
     this.assertConnected();
     return this.ep.joinChannel(channel);
   }

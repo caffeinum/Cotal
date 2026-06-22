@@ -122,6 +122,24 @@ async function main() {
   check("interval: mid-interval eligible", durableEligible(left, 150));
   const liveConf = rec({ channel: "x", owner: "Z", state: "live-confirmed", joinCursor: 0 });
   check("live-confirmed record is NOT a durable recipient (no Plane-3 backstop)", !durableEligible(liveConf, 99999));
+  // HIGH-1 regression: a TOMBSTONE (live-confirmed + leaveCursor — exactly what tombstoneMember writes)
+  // stays interval-eligible for its PRE-leave window. This previously dropped ALL pre-leave entries
+  // because durableEligible required state===durable-active and the leaveCursor branch was dead code.
+  const tombstoned = rec({ channel: "x", owner: "Z", state: "live-confirmed", joinCursor: 100, leaveCursor: 200 });
+  check("tombstone (live-confirmed+leaveCursor): pre-leave seq IS eligible (HIGH-1)", durableEligible(tombstoned, 150));
+  check("tombstone: seq == leaveCursor eligible", durableEligible(tombstoned, 200));
+  check("tombstone: post-leave seq NOT eligible (hard cut)", !durableEligible(tombstoned, 201));
+
+  // ---- stale leave through the REAL tombstoneMember helper must not tombstone a newer rejoin ----
+  // (panel BLOCKER: the helper takes an expected generation; join gen1 → rejoin gen2 → stale leave gen1.)
+  await commitMember(kv, rec({ channel: "team.api", owner: "EVE", state: "durable-active", joinCursor: 10, generation: 1 }));
+  await commitMember(kv, rec({ channel: "team.api", owner: "EVE", state: "durable-active", joinCursor: 99, generation: 2 }));
+  let staleTombThrew = false;
+  try { await tombstoneMember(kv, "team.api", "EVE", 50, W, 1); } catch (e) { staleTombThrew = e instanceof StaleMembershipWrite; }
+  const eve = await readMember(kv, "team.api", "EVE");
+  check("stale leave via tombstoneMember (expectedGen=1) refused — gen2 rejoin survives durable-active", staleTombThrew && eve?.record.generation === 2 && eve.record.leaveCursor === undefined && eve.record.state === "durable-active");
+  await tombstoneMember(kv, "team.api", "EVE", 120, W, 2); // a CURRENT leave (matching gen) succeeds
+  check("current leave via tombstoneMember (expectedGen=2) tombstones at leaveCursor", (await readMember(kv, "team.api", "EVE"))?.record.leaveCursor === 120);
 
   // ---- scans: by channel, by owner; concrete-only; tombstones included ----
   await commitMember(kv, rec({ channel: "review", owner: "DAVE", joinCursor: 0 }));

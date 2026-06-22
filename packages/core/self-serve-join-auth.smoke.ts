@@ -27,6 +27,7 @@ import {
   serverConfig,
   newIdentity,
   setupSpaceStreams,
+  channelInAllow,
   CONTROL_SELF_SERVICE,
   type Delivery,
 } from "./src/index.js";
@@ -38,6 +39,11 @@ import {
 const PORT = 20000 + Math.floor(Math.random() * 40000);
 const SERVERS = `nats://127.0.0.1:${PORT}`;
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const until = async (cond: () => boolean, timeoutMs = 8000, stepMs = 50): Promise<boolean> => {
+  const deadline = Date.now() + timeoutMs;
+  while (!cond() && Date.now() < deadline) await wait(stepMs);
+  return cond();
+};
 const awaitExit = (proc: ReturnType<typeof spawn>, timeoutMs = 3000): Promise<void> =>
   new Promise((resolve) => {
     if (proc.exitCode !== null || proc.signalCode !== null) return resolve();
@@ -109,8 +115,11 @@ try {
     ttlMs: 2000,
   });
   const got: string[] = [];
+  const gotDurable: string[] = []; // keys delivered with durable:true (the Plane-3 backstop copy)
   a.on("message", (m, d: Delivery) => {
-    got.push(`#${m.channel}:${m.parts.map((p) => (p.kind === "text" ? p.text : "")).join("")}`);
+    const key = `#${m.channel}:${m.parts.map((p) => (p.kind === "text" ? p.text : "")).join("")}`;
+    got.push(key);
+    if (d.durable) gotDurable.push(key);
     d.ack();
   });
   a.on("error", (e: Error) => console.error("  ! alice:", e.message));
@@ -190,36 +199,52 @@ try {
   await wait(300);
   check("refused leave means the channel still delivers (no false 'left')", got.some((g) => g.includes("general still flows")), got);
 
-  // ───────────────────── Phase 2 — control responder present (manager) ─────────────────────
-  // Wire a minimal manager: serve ctl.self setChannels by moving the caller's durable filter.
+  // ───────────── Phase 2 — a real Plane-3 manager (fan-out + trusted reader + durableJoin/Leave) ─────────────
+  // Host Plane-3 on `pub` and serve the durableJoin/Leave ctl ops that joinChannel/leaveChannel now use
+  // for a `durable`-class channel (the legacy filter-move is no longer the runtime durable path). The
+  // trusted reader re-authorizes against the caller's current ACL (its allowSubscribe), supplied here.
+  const aliceAcl = ["general", "ops", "review.>"];
+  await pub.startPlane3((id) => (id === aId.id ? aliceAcl : undefined));
   pub.serveControl(CONTROL_SELF_SERVICE, async (req) => {
-    if (req.op === "setChannels" && Array.isArray((req.args as { channels?: unknown })?.channels)) {
-      await pub.setChatFilterFor(req.from.id, (req.args as { channels: string[] }).channels);
-      return { ok: true };
+    const ch =
+      typeof (req.args as { channel?: unknown })?.channel === "string" ? (req.args as { channel: string }).channel : "";
+    if (req.op === "durableJoin") {
+      if (!ch || !channelInAllow(aliceAcl, ch)) return { ok: false, error: `not in ACL: ${ch}` };
+      return { ok: true, data: await pub.durableJoinFor(req.from.id, ch) };
     }
-    return { ok: false, error: "unknown op" };
+    if (req.op === "durableLeave") {
+      await pub.durableLeaveFor(req.from.id, ch);
+      return { ok: true, data: { channel: ch } };
+    }
+    return { ok: false, error: `unknown op: ${req.op}` };
   });
   await wait(200);
 
   got.length = 0;
+  gotDurable.length = 0;
   const r2 = await a.joinChannel("review.db");
   check("manager-present joinChannel(review.db) succeeds", r2.joined === true, r2);
-  check("manager-present join reports durable:true (backstop established)", r2.durable === true, r2);
+  check("manager-present join reports durable:true (Plane-3 backstop active)", r2.durable === true, r2);
 
   await pub.multicast("dual-path once", { channel: "review.db" });
-  await wait(500);
   check(
-    "manager-present join delivers EXACTLY ONCE (no double across core-sub + durable)",
-    got.filter((g) => g === "#review.db:dual-path once").length === 1,
-    got,
+    "the Plane-3 durable backstop delivers the durable copy (next-turn, durable:true)",
+    await until(() => gotDurable.includes("#review.db:dual-path once")),
+    { got, gotDurable },
   );
+  // The channel ALSO arrives live via the core-sub (durable:false) — Plane-3 channels are dual-path at
+  // the endpoint; the CONNECTOR's commit-aware id-dedup (MeshAgent.ingest) collapses the two emits to
+  // one. That exactly-once coalescing is proven in cross-path-dedup.smoke (a raw endpoint can't dedup).
+  check("...and the live wake-hint copy arrives too (dual-path)", got.filter((g) => g === "#review.db:dual-path once").length >= 1, got);
 
-  // With a provisioner present, leaving a durable-covered channel succeeds and stops delivery.
+  // Plane-3 leave tombstones membership at the leave cursor: a post AFTER leave is denied by the
+  // backstop (seq > leaveCursor) AND the core-sub is closed — nothing arrives by either path.
   await a.leaveChannel("review.db");
   got.length = 0;
+  gotDurable.length = 0;
   await pub.multicast("gone", { channel: "review.db" });
-  await wait(400);
-  check("manager-present leave stops delivery", !got.some((g) => g.includes("gone")), got);
+  await wait(900);
+  check("manager-present leave stops delivery (core-sub closed + backstop tombstoned)", !got.some((g) => g.includes("gone")), got);
 
   await a.stop();
   await pub.stop();
