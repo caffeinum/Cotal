@@ -26,9 +26,9 @@ import {
   newIdentity,
   setupSpaceStreams,
 } from "@cotal-ai/core";
-import { MeshAgent } from "./src/agent.js";
-import type { AgentConfig } from "./src/config.js";
-import type { InboxItem } from "./src/agent.js";
+import { MeshAgent } from "../src/agent.js";
+import type { AgentConfig } from "../src/config.js";
+import type { InboxItem } from "../src/agent.js";
 
 const PORT = 14238;
 const servers = `nats://127.0.0.1:${PORT}`;

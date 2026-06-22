@@ -6,7 +6,7 @@ import {
   setupSpaceStreams, seedChannelRegistry, provisionAgent, CotalEndpoint,
   CONTROL_SELF_SERVICE, channelInAllow,
   type CotalMessage, type Delivery, type MessageMeta, type ControlRequest,
-} from "./src/index.js";
+} from "../src/index.js";
 
 // Auth-mode end-to-end test of the broker-enforced read-ACL path: proves the SCOPED agent creds
 // carry exactly the grants the bind-only mechanism needs and nothing more —

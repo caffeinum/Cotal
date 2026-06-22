@@ -30,7 +30,7 @@ import {
   CONTROL_PRIVILEGED,
   CONTROL_SELF_SERVICE,
   CONTROL_ADMIN,
-} from "./src/index.js";
+} from "../src/index.js";
 
 const PORT = 14226;
 const SERVERS = `nats://127.0.0.1:${PORT}`;

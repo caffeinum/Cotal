@@ -20,7 +20,7 @@ import {
   presenceBucket,
   chatSubject,
   type ChannelMember,
-} from "./src/index.js";
+} from "../src/index.js";
 
 const SERVERS = process.env.COTAL_SMOKE_SERVERS ?? "nats://127.0.0.1:4222";
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));

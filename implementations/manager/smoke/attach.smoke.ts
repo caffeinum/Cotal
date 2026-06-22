@@ -8,7 +8,7 @@
  * needs no claude/mesh; tmux/cmux are skipped (logged) when not present on the machine.
  */
 import { execFileSync } from "node:child_process";
-import { createRuntime } from "./src/index.js";
+import { createRuntime } from "../src/index.js";
 import "@cotal-ai/cmux"; // registers the `cmux` runtime provider
 import type { LaunchSpec } from "@cotal-ai/core";
 

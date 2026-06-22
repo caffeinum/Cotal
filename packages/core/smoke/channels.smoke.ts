@@ -19,7 +19,7 @@ import { jetstream } from "@nats-io/jetstream";
 import {
   CotalEndpoint, seedChannelRegistry, readChannelRegistry, effectiveReplay, validateChannelConfig,
   isReachable, chatSubject, type CotalMessage, type Delivery, type MessageMeta,
-} from "./src/index.js";
+} from "../src/index.js";
 
 // Fresh random port per run: a fixed port means a single leaked broker (from a crashed/failed prior
 // run) collides with — or serves stale JetStream state to — every subsequent run, which reads as a

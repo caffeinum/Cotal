@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect } from "@nats-io/transport-node";
 import { Kvm } from "@nats-io/kv";
-import { CotalEndpoint, isReachable, presenceBucket, type Presence } from "./src/index.js";
+import { CotalEndpoint, isReachable, presenceBucket, type Presence } from "../src/index.js";
 
 const PORT = 14243;
 const servers = `nats://127.0.0.1:${PORT}`;

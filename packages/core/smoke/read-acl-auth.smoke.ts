@@ -36,7 +36,7 @@ import {
   chatSubject,
   chatDurable,
   chatHistDurable,
-} from "./src/index.js";
+} from "../src/index.js";
 
 const PORT = 14231;
 const SERVERS = `nats://127.0.0.1:${PORT}`;

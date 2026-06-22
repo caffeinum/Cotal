@@ -24,7 +24,7 @@ import { join } from "node:path";
 import {
   CotalEndpoint, seedChannelRegistry, isReachable,
   type CotalMessage, type Delivery, type MessageMeta,
-} from "./src/index.js";
+} from "../src/index.js";
 
 // Fresh random port per run: a fixed port lets a leaked broker from a crashed prior run serve stale
 // JetStream state to the next run (reads as a flaky gate). Randomizing isolates each run even if

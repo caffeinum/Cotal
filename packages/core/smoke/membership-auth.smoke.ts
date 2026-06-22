@@ -23,7 +23,7 @@ import {
   newIdentity,
   setupSpaceStreams,
   chatStream,
-} from "./src/index.js";
+} from "../src/index.js";
 
 const PORT = 14223;
 const SERVERS = `nats://127.0.0.1:${PORT}`;

@@ -30,7 +30,7 @@ import {
   channelInAllow,
   CONTROL_SELF_SERVICE,
   type Delivery,
-} from "./src/index.js";
+} from "../src/index.js";
 
 // Fresh random port per run + await-exit on every broker kill (below): a fixed port plus a SIGKILL
 // that doesn't await the child's exit leaks the broker, and the next run collides with the squatter

@@ -28,7 +28,7 @@ import {
   setupSpaceStreams, seedChannelRegistry, provisionAgent, CotalEndpoint,
   CONTROL_SELF_SERVICE, channelInAllow, chatStream, chatSubject, chatHistDurable,
   type CotalMessage, type Delivery, type MessageMeta, type ControlRequest,
-} from "./src/index.js";
+} from "../src/index.js";
 
 const PORT = 14241, SERVERS = `nats://127.0.0.1:${PORT}`, space = "e2eacl";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

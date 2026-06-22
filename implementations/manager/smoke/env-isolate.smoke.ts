@@ -9,7 +9,7 @@
  * tmux is exercised the same way when present (its `env -i` path); cmux needs a cmux surface.
  */
 import { execFileSync } from "node:child_process";
-import { createRuntime } from "./src/index.js";
+import { createRuntime } from "../src/index.js";
 import "@cotal-ai/cmux"; // registers the `cmux` runtime provider (skipped below if no surface)
 import { launchEnv } from "@cotal-ai/connector-core";
 import type { LaunchSpec } from "@cotal-ai/core";

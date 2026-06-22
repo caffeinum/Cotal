@@ -28,7 +28,7 @@ import {
   newIdentity,
   setupSpaceStreams,
   type Delivery,
-} from "./src/index.js";
+} from "../src/index.js";
 
 const PORT = 20000 + Math.floor(Math.random() * 40000);
 const SERVERS = `nats://127.0.0.1:${PORT}`;

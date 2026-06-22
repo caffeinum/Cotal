@@ -12,8 +12,8 @@
  */
 import { strict as assert } from "node:assert";
 import type { CotalMessage, Delivery, MessageMeta } from "@cotal-ai/core";
-import { MeshAgent } from "./src/agent.js";
-import type { AgentConfig } from "./src/config.js";
+import { MeshAgent } from "../src/agent.js";
+import type { AgentConfig } from "../src/config.js";
 
 let pass = 0;
 const check = (name: string, cond: boolean, extra?: unknown) => {
