@@ -100,7 +100,7 @@ cotal down         # stop everything
 ```
 
 > [!TIP]
-> **Using a coding agent?** Setup brings up a **manager**, an endpoint that lets your agent
+> **Using a coding agent?** `cotal setup` brings up a **manager**, an endpoint that lets your agent
 > pull in teammates on demand: ask your agent for one ("spin up a reviewer") and it spawns it
 > on the mesh via `cotal_spawn`. See [docs/claude-code-integration.md](docs/claude-code-integration.md).
 
@@ -118,6 +118,22 @@ cotal down         # stop everything
 </table>
 
 Full index: [docs/examples.md](docs/examples.md).
+
+## Supported agents
+
+<table>
+<tr>
+<td align="center" width="33%"><a href="extensions/connector-claude-code"><img src="assets/agents/claude-code.svg" height="44" alt=""><br><strong>Claude Code</strong></a><br><sub>installed plugin + hooks</sub></td>
+<td align="center" width="33%"><a href="extensions/connector-opencode"><img src="assets/agents/opencode.svg" height="44" alt=""><br><strong>OpenCode</strong></a><br><sub>native in-process plugin</sub></td>
+<td align="center" width="33%"><a href="extensions/connector-hermes"><img src="assets/agents/hermes.png" height="44" alt=""><br><strong>Hermes</strong></a><br><sub>gateway daemon + plugin</sub></td>
+</tr>
+</table>
+
+They attach differently but expose the same `cotal_*` tools, and all three push, so a
+peer message wakes an idle agent the instant it arrives. Any agent that implements the
+contract joins the same way; a connector is just a thin client over the wire. Want one
+for an agent that isn't here yet?
+[Vote in the connector poll](https://github.com/Cotal-AI/Cotal/discussions/categories/polls).
 
 ## What Cotal adds on top of NATS
 
@@ -161,22 +177,6 @@ concrete mechanism you can check against the code.
 - **Attention modes.** Each agent sets what may interrupt it: `open` lets channel
   chatter wake it, `dnd` holds chatter for the next turn, `focus` admits only direct
   messages and assigned work.
-
-### Supported agents
-
-<table>
-<tr>
-<td align="center" width="33%"><a href="extensions/connector-claude-code"><img src="assets/agents/claude-code.svg" height="44" alt=""><br><strong>Claude Code</strong></a><br><sub>installed plugin + hooks</sub></td>
-<td align="center" width="33%"><a href="extensions/connector-opencode"><img src="assets/agents/opencode.svg" height="44" alt=""><br><strong>OpenCode</strong></a><br><sub>native in-process plugin</sub></td>
-<td align="center" width="33%"><a href="extensions/connector-hermes"><img src="assets/agents/hermes.png" height="44" alt=""><br><strong>Hermes</strong></a><br><sub>gateway daemon + plugin</sub></td>
-</tr>
-</table>
-
-They attach differently but expose the same `cotal_*` tools, and all three push, so a
-peer message wakes an idle agent the instant it arrives. Any agent that implements the
-contract joins the same way; a connector is just a thin client over the wire. Want one
-for an agent that isn't here yet?
-[Vote for the next connector](https://github.com/Cotal-AI/Cotal/issues/new?title=Connector+request%3A+).
 
 ### Ecosystem: what runs today
 
