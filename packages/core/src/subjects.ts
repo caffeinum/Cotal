@@ -294,6 +294,56 @@ export function taskStream(space: string): string {
   return `TASK_${token(space)}`;
 }
 
+// ---- Plane-3 (durable backstop, SPEC §8) — two per-space streams ----
+//
+// `dinbox.<owner>` is the MIXED pre-auth store (fan-out target): the agent holds NO grant on
+// {@link inboxStream} and the trusted reader (manager) is its only consumer. `dlv.<owner>` is the
+// per-member POST-auth handoff: the reader transfers each re-authorized copy here and the agent binds
+// {@link dlvDurable} bind-only and acks it via native JetStream (§8 "an equivalent per-member
+// at-least-once mechanism with the same ack semantics"). `dlv` carries channel messages only, so the
+// receiver derives `kind=channel` from the delivery path — no payload/header kind (SPEC §4).
+
+/** Stream capturing `dinbox.>` — the per-owner mixed durable inbox (fan-out target; agent unreadable). */
+export function inboxStream(space: string): string {
+  return `INBOX_${token(space)}`;
+}
+
+/** Stream capturing `dlv.>` — the per-member post-auth delivery store (agent binds + acks). */
+export function dlvStream(space: string): string {
+  return `DLV_${token(space)}`;
+}
+
+/** Subject of an owner's mixed durable inbox: `cotal.<space>.dinbox.<owner>` (one per owner). */
+export function dinboxSubject(space: string, owner: string): string {
+  return `${spacePrefix(space)}.dinbox.${routeToken(owner)}`;
+}
+
+/** Subject of an owner's post-auth delivery: `cotal.<space>.dlv.<owner>` (one per owner). */
+export function dlvSubject(space: string, owner: string): string {
+  return `${spacePrefix(space)}.dlv.${routeToken(owner)}`;
+}
+
+/** Parse the owner id out of an owner's mixed-inbox subject `cotal.<space>.dinbox.<owner>`, or null.
+ *  The trusted reader is a SINGLE consumer over `dinbox.>` (all owners), so it recovers the per-message
+ *  owner from the subject (the routing token is `routeToken(owner)` — an nkey, a `token()` no-op). */
+export function parseDinboxOwner(subject: string): string | null {
+  const parts = subject.split(".");
+  // cotal.<space>.dinbox.<owner>
+  return parts.length === 4 && parts[0] === ROOT && parts[2] === "dinbox" ? parts[3] : null;
+}
+
+/** An agent's bind-only per-owner consumer on {@link dlvStream} (filter `dlv.<owner>`). */
+export function dlvDurable(owner: string): string {
+  return `dlv_${token(owner)}`;
+}
+
+/** The single privileged fan-out consumer on the CHAT stream (manager-pumped; routing, not auth). */
+export const FANOUT_DURABLE = "fanout" as const;
+
+/** The single privileged trusted-reader consumer on {@link inboxStream} (filter `dinbox.>`,
+ *  manager-pumped). It re-authorizes each entry and transfers the authorized copy to `dlv.<owner>`. */
+export const INBOX_READER_DURABLE = "reader" as const;
+
 /** Durable consumer name for an instance's view of the chat stream — its live tail. */
 export function chatDurable(instance: string): string {
   return `chat_${token(instance)}`;

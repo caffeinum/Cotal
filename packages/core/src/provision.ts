@@ -37,10 +37,12 @@ import {
   chatStream,
   dmStream,
   taskStream,
+  dlvStream,
   chatDurable,
   chatHistDurable,
   dmDurable,
   taskDurable,
+  dlvDurable,
   presenceBucket,
   channelBucket,
 } from "./subjects.js";
@@ -164,6 +166,9 @@ export interface DurableProvisioner {
   /** Pre-create the agent's bind-only chat live-tail durable, filtered to `subscribe`. */
   provisionChatDurable(id: string, subscribe: string[]): Promise<void>;
   provisionDmInbox(id: string): Promise<void>;
+  /** Pre-create the agent's bind-only Plane-3 DELIVER durable (`dlv_<id>`, filtered to `dlv.<id>`) so
+   *  it can BIND its per-member durable handoff without holding CONSUMER.CREATE on the DLV stream. */
+  provisionDlvInbox(id: string): Promise<void>;
   provisionTaskQueue(role: string): Promise<void>;
 }
 
@@ -190,6 +195,7 @@ export async function provisionAgent(
       );
   await provisioner.provisionChatDurable(identity.id, subscribe);
   await provisioner.provisionDmInbox(identity.id);
+  await provisioner.provisionDlvInbox(identity.id);
   if (opts.role) await provisioner.provisionTaskQueue(opts.role);
   return mintCreds(auth, identity, "agent", { ...opts, allowSubscribe });
 }
@@ -297,6 +303,7 @@ function permissionsFor(
   for (const ch of [...allowSubscribe, ...allowPublish]) assertValidChannel(ch);
   const manager = opts.manager ?? CONTROL_PRIVILEGED;
   const chatD = chatDurable(id), chatHistD = chatHistDurable(id), dmD = dmDurable(id);
+  const DLV = dlvStream(space), dlvD = dlvDurable(id); // Plane-3 per-member delivery (bind-only)
   const svcD = opts.role ? taskDurable(opts.role) : undefined;
   const pubAllow = [
     // peer publish — identity + channel scope, built from the real builders. Default-deny: ONLY the
@@ -337,6 +344,13 @@ function permissionsFor(
     `$JS.API.CONSUMER.INFO.${DM}.${dmD}`,
     `$JS.API.CONSUMER.MSG.NEXT.${DM}.${dmD}`,
     `$JS.ACK.${DM}.${dmD}.>`,
+    // Plane-3 DELIVER consumer (SPEC §8): BIND ONLY its own pre-created dlv_<id> — info/fetch/ack,
+    // never create (the provisioner pre-creates it filtered to dlv.<id>). The agent acks this via
+    // native JetStream — the re-authorized per-member handoff. It gets NO grant on the INBOX (mixed
+    // pre-auth) stream at all: default-deny keeps the fan-out target unreadable by the agent.
+    `$JS.API.CONSUMER.INFO.${DLV}.${dlvD}`,
+    `$JS.API.CONSUMER.MSG.NEXT.${DLV}.${dlvD}`,
+    `$JS.ACK.${DLV}.${dlvD}.>`,
     // Presence: watch (read, public roster) + flow control + PUT OWN KEY ONLY.
     `$JS.API.CONSUMER.CREATE.${KV}.>`,
     `$JS.API.CONSUMER.INFO.${KV}.>`,
@@ -377,6 +391,11 @@ function permissionsFor(
     `$JS.API.CONSUMER.CREATE.${TASK}`,
     `$JS.API.CONSUMER.CREATE.${TASK}.>`,
     `$JS.API.CONSUMER.DURABLE.CREATE.${TASK}.>`,
+    // Plane-3 DELIVER: bind-only, like DM — the create-time filter_subject is the attack surface, so
+    // no create path (the provisioner pre-creates dlv_<id> filtered to dlv.<id>).
+    `$JS.API.CONSUMER.CREATE.${DLV}`,
+    `$JS.API.CONSUMER.CREATE.${DLV}.>`,
+    `$JS.API.CONSUMER.DURABLE.CREATE.${DLV}.>`,
   ];
   // CHAT live read boundary (SPEC v0.3 §9 / Appendix B): mint the read ACL as a native `sub.allow`
   // over cotal.<space>.chat.*.<channel> — one per allowSubscribe channel, wildcards passed through

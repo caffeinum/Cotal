@@ -89,6 +89,7 @@ const srv = spawn("nats-server", ["-c", join(dir, "server.conf")], { stdio: "ign
 const noop = {
   provisionChatDurable: async () => {},
   provisionDmInbox: async () => {},
+  provisionDlvInbox: async () => {},
   provisionTaskQueue: async () => {},
 };
 

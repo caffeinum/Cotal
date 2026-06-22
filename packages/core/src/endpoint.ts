@@ -12,7 +12,7 @@ import {
 } from "@nats-io/transport-node";
 import { idFromCreds } from "./identity.js";
 import { assertValidName } from "./resolve.js";
-import { createSpaceStreams, chatDurableConfig, dmDurableConfig, taskDurableConfig, MAX_MSGS_PER_SUBJECT } from "./streams.js";
+import { createSpaceStreams, chatDurableConfig, dmDurableConfig, dlvDurableConfig, taskDurableConfig, fanoutDurableConfig, inboxReaderConfig, MAX_MSGS_PER_SUBJECT } from "./streams.js";
 import {
   jetstream,
   jetstreamManager,
@@ -42,11 +42,23 @@ import type {
   AttentionMode,
   ChannelMode,
   CotalMessage,
+  DeliveryClass,
+  MembershipRecord,
+  Plane3Entry,
 } from "./types.js";
+import {
+  openMembersRegistry,
+  commitMember,
+  tombstoneMember,
+  readMember,
+  listMembers,
+  durableEligible,
+} from "./members.js";
 import {
   openChannelRegistry,
   effectiveReplay,
   effectiveReplayWindowMs,
+  effectiveDeliveryClass,
   readChannelConfig,
   readChannelDefaults,
 } from "./channels.js";
@@ -62,6 +74,16 @@ import {
   CONTROL_SELF_SERVICE,
   dmStream,
   dmDurable,
+  dlvStream,
+  dlvDurable,
+  dlvSubject,
+  dinboxSubject,
+  inboxStream,
+  parseDinboxOwner,
+  FANOUT_DURABLE,
+  INBOX_READER_DURABLE,
+  chatWildcard,
+  channelInAllow,
   isConcreteChannel,
   normalizeMentions,
   parseSubject,
@@ -164,6 +186,11 @@ export class CotalEndpoint extends EventEmitter {
   private jsm?: JetStreamManager;
   private kv?: KV;
   private channelKv?: KV;
+  /** Plane-3 durable-membership registry KV — lazily opened by the privileged (manager) endpoint. */
+  private membersKv?: KV;
+  /** When set, this endpoint hosts the Plane-3 fan-out writer + trusted reader (the manager). `aclFor`
+   *  maps an owner id to its current read ACL (`allowSubscribe`) for the reader's re-authorization. */
+  private plane3?: { aclFor: (owner: string) => string[] | undefined };
   /** Live local cache of the channel registry (key = channel token), kept by a KV watch. */
   private readonly channelConfigs = new Map<string, ChannelConfig>();
   private channelDefaults: ChannelDefaults = {};
@@ -1124,6 +1151,18 @@ export class CotalEndpoint extends EventEmitter {
   }
 
   /**
+   * Privileged: pre-create an agent's bind-only Plane-3 DELIVER durable (`dlv_<id>`, filtered to
+   * `dlv.<id>`), so the agent can BIND its per-member durable handoff without holding CONSUMER.CREATE
+   * on the DLV stream. Same bind-only model as {@link provisionDmInbox}: the creator sets the filter,
+   * the agent never does. The trusted reader transfers re-authorized copies onto `dlv.<id>`; the agent
+   * acks them via native JetStream (SPEC §8). Idempotent. The caller must be permissive on DLV.
+   */
+  async provisionDlvInbox(targetId: string): Promise<void> {
+    const jsm = await this.manager();
+    await jsm.consumers.add(dlvStream(this.space), dlvDurableConfig(this.space, targetId));
+  }
+
+  /**
    * Privileged: pre-create a role's shared TASK work-queue durable (auth mode), so agents
    * of that role can BIND it without holding CONSUMER.CREATE on TASK_<space>. The creator
    * sets the filter to svc.<role>.* — agents never choose it, which stops cross-role drain.
@@ -1132,6 +1171,270 @@ export class CotalEndpoint extends EventEmitter {
   async provisionTaskQueue(role: string): Promise<void> {
     const jsm = await this.manager();
     await jsm.consumers.add(taskStream(this.space), taskDurableConfig(this.space, role));
+  }
+
+  // ---- Plane-3: durable backstop (SPEC §8) — privileged, manager-hosted ----------------------------
+  //
+  // Two manager loops + two privileged membership ops. The FAN-OUT writer (routing, not auth) reads
+  // every chat message and copies it into each eligible owner's MIXED inbox (`dinbox.<owner>`); the
+  // TRUSTED READER (the auth gate) re-authorizes each entry against the CURRENT ACL + membership
+  // interval and TRANSFERS the authorized copy to the owner's per-member DELIVER store
+  // (`dlv.<owner>`), which the agent binds + acks via native JetStream. The agent holds no read on the
+  // mixed store. See `.internal/research/stage4-impl-design.md`.
+
+  /** Lazily open the privileged members registry KV (manager / open-mode self). */
+  private async membersRegistry(): Promise<KV> {
+    if (!this.nc) throw new Error("endpoint not started");
+    this.membersKv ??= await openMembersRegistry(this.nc, this.space);
+    return this.membersKv;
+  }
+
+  /** Effective delivery class read AUTHORITATIVELY from the registry KV (not the watch cache) — so a
+   *  `live`→`durable` flip is seen by fan-out without a cache-propagation gap (red-team MED-3). */
+  private async deliveryClassFresh(channel: string): Promise<DeliveryClass> {
+    if (!this.channelKv) return effectiveDeliveryClass(undefined, undefined);
+    const [cfg, defaults] = await Promise.all([
+      isConcreteChannel(channel) ? readChannelConfig(this.channelKv, channel) : Promise.resolve(undefined),
+      readChannelDefaults(this.channelKv),
+    ]);
+    return effectiveDeliveryClass(cfg, defaults);
+  }
+
+  /** Collision-safe `@mention` → owner-id resolution: a name that resolves to exactly one present
+   *  peer wins; 0 or >1 matches drop (never fan a directed durable copy to an unrelated same-named
+   *  bystander — red-team LOW; SPEC §4 unique instance id). */
+  private resolveOwnerByName(name: string): string | undefined {
+    const matches = [...this.roster.values()].filter((p) => p.card.name.toLowerCase() === name.toLowerCase());
+    return matches.length === 1 ? matches[0].card.id : undefined;
+  }
+
+  /** Publish one fan-out entry into an owner's mixed inbox, idempotent via `Nats-Msg-Id`
+   *  (`<msgId>:<owner>:<generation>`) so a catch-up copy and a racing fan-out copy collapse. */
+  private async publishDinbox(owner: string, entry: Plane3Entry): Promise<void> {
+    if (!this.js) return;
+    await this.js.publish(dinboxSubject(this.space, owner), JSON.stringify(entry), {
+      msgID: `${entry.msg.id}:${owner}:${entry.generation}`,
+    });
+  }
+
+  /** The fan-out consumer's delivered stream-seq — the activation-fence upper bound (red-team
+   *  BLOCKER-1: the shared fan-out cursor advances independently of the stream frontier). */
+  private async fanoutDeliveredSeq(): Promise<number> {
+    const info = await this.consumerInfo(chatStream(this.space), FANOUT_DURABLE);
+    return info?.delivered?.stream_seq ?? 0;
+  }
+
+  /**
+   * Privileged durable-JOIN write (the manager calls this after validating channel ⊆ allowSubscribe):
+   * capture `joinCursor`, commit a `durable-active` record (CAS + generation bump), then ACTIVATION
+   * CATCH-UP idempotently copies `(joinCursor, fence]` into the owner inbox where
+   * `fence = max(frontier, fanoutDelivered)` — fan-out (which now sees the committed record) owns
+   * `seq > fence`. Idempotent against a timeout-retry (an already-active membership no-ops). Returns
+   * `{durable:false}` (honest degrade) if no reader is hosted or the catch-up window was evicted.
+   */
+  async durableJoinFor(owner: string, channel: string): Promise<{ durable: boolean; reason?: string }> {
+    if (!this.js) throw new Error("endpoint not started");
+    if (!this.plane3) return { durable: false, reason: "no trusted reader is hosted on this endpoint" };
+    const kv = await this.membersRegistry();
+    const existing = await readMember(kv, channel, owner);
+    if (existing && existing.record.state === "durable-active" && existing.record.leaveCursor === undefined)
+      return { durable: true }; // idempotent — don't double-bump generation on a retry
+    const joinCursor = await this.chatFrontier();
+    const generation = (existing?.record.generation ?? 0) + 1;
+    await commitMember(kv, {
+      channel, owner, state: "durable-active", joinCursor, generation,
+      writerIdentity: this.card.id, updatedAt: Date.now(),
+    });
+    const fence = Math.max(await this.chatFrontier(), await this.fanoutDeliveredSeq());
+    const cu = await this.catchupCopy(owner, channel, joinCursor, fence, generation);
+    if (cu.evicted)
+      return { durable: false, reason: "activation catch-up window partially evicted by retention" };
+    return { durable: true };
+  }
+
+  /** Privileged durable-LEAVE write: tombstone the membership at `leaveCursor = frontier` so the
+   *  backstop denies `seq > leaveCursor` while a pre-leave entry stays deliverable (SPEC §7 interval). */
+  async durableLeaveFor(owner: string, channel: string): Promise<void> {
+    const kv = await this.membersRegistry();
+    await tombstoneMember(kv, channel, owner, await this.chatFrontier(), this.card.id);
+  }
+
+  /** Idempotently copy the eligible chat messages in `(fromSeqExcl, toSeqIncl]` for `channel` into the
+   *  owner inbox, via a DEDICATED per-(owner,join) ephemeral consumer (NOT the agent-scoped
+   *  `chathist_<id>`/`histLock` — red-team HIGH-8). `evicted` ⇒ the oldest eligible seq aged out under
+   *  `discard=Old` (the start seq could not be served), a durable shortfall the caller surfaces. */
+  private async catchupCopy(
+    owner: string, channel: string, fromSeqExcl: number, toSeqIncl: number, generation: number,
+  ): Promise<{ copied: number; evicted: boolean }> {
+    if (!this.js || !this.jsm || toSeqIncl <= fromSeqExcl) return { copied: 0, evicted: false };
+    const subject = chatSubject(this.space, "*", channel);
+    const name = `cu_${token(owner)}_${generation}`;
+    try { await this.jsm.consumers.delete(chatStream(this.space), name); } catch { /* none */ }
+    await this.jsm.consumers.add(chatStream(this.space), {
+      name, filter_subject: subject, ack_policy: AckPolicy.None, mem_storage: true,
+      inactive_threshold: nanos(30_000), deliver_policy: DeliverPolicy.StartSequence, opt_start_seq: fromSeqExcl + 1,
+    });
+    let copied = 0, evicted = false, first = true;
+    try {
+      const consumer = await this.js.consumers.get(chatStream(this.space), name);
+      let pending = (await consumer.info()).num_pending;
+      while (pending > 0) {
+        const want = Math.min(pending, 256);
+        const iter = await consumer.fetch({ max_messages: want, expires: 5_000 });
+        let got = 0;
+        for await (const m of iter) {
+          got++;
+          if (m.seq > toSeqIncl) return { copied, evicted };
+          if (first) { evicted = m.seq > fromSeqExcl + 1; first = false; }
+          let msg: CotalMessage;
+          try { msg = m.json<CotalMessage>(); } catch { continue; }
+          const parsed = parseSubject(m.subject);
+          if (!parsed || msg.from?.id !== parsed.sender || msg.from.id === owner) continue;
+          await this.publishDinbox(owner, { msg, channel, seq: m.seq, reason: "durable-channel", generation });
+          copied++;
+        }
+        if (got < want) break;
+        pending -= got;
+      }
+    } finally {
+      try { await this.jsm.consumers.delete(chatStream(this.space), name); } catch { /* gone */ }
+    }
+    return { copied, evicted };
+  }
+
+  /** Start the Plane-3 fan-out writer + trusted reader on THIS (privileged) endpoint. `aclFor` maps an
+   *  owner id to its current read ACL for the reader's re-authorization (the manager passes its managed
+   *  set). Call once after connect; idempotent durable creation lets it resume on a manager restart. */
+  async startPlane3(aclFor: (owner: string) => string[] | undefined): Promise<void> {
+    if (!this.js) throw new Error("endpoint not started");
+    await this.manager(); // the manager runs consume:false, so this.jsm is lazy — ensure it
+    this.plane3 = { aclFor };
+    await this.runFanout();
+    await this.runReader();
+  }
+
+  /** Fan-out loop: bind the privileged `fanout` durable on CHAT and route each message (routing only —
+   *  the trusted reader is the auth gate). */
+  private async runFanout(): Promise<void> {
+    if (!this.js || !this.jsm) return;
+    try { await this.jsm.consumers.add(chatStream(this.space), fanoutDurableConfig(this.space, { ackWaitMs: this.ackWaitMs })); } catch { /* exists */ }
+    const consumer = await this.js.consumers.get(chatStream(this.space), FANOUT_DURABLE);
+    const msgs = await consumer.consume();
+    this.streamMsgs.push(msgs);
+    void (async () => {
+      for await (const m of msgs) {
+        try { await this.fanOutMessage(m); }
+        catch (e) { if (!this.stopped) this.emit("error", e as Error); try { m.nak(); } catch { /* draining */ } }
+      }
+    })().catch((e) => { if (!this.stopped) this.emit("error", e as Error); });
+  }
+
+  /** Route ONE chat message to eligible owners' mixed inboxes. `durable` channel → its `durable-active`
+   *  members within interval; `live` channel → `@mention` targets authorized to read it (ACL only).
+   *  Members KV is scanned FRESH per message (no cache — red-team BLOCKER-1 catch-up correctness). */
+  private async fanOutMessage(m: JsMsg): Promise<void> {
+    const parsed = parseSubject(m.subject);
+    if (!parsed || parsed.kind !== "chat") { m.ack(); return; }
+    const channel = parsed.rest;
+    let msg: CotalMessage;
+    try { msg = m.json<CotalMessage>(); } catch { m.ack(); return; }
+    if (!msg.from || msg.from.id !== parsed.sender) { m.ack(); return; } // authenticity
+    const seq = m.seq;
+    if ((await this.deliveryClassFresh(channel)) === "durable") {
+      for (const rec of await listMembers(await this.membersRegistry(), { channel })) {
+        if (rec.owner === msg.from.id) continue;      // never backstop the sender's own post
+        if (!durableEligible(rec, seq)) continue;     // routing fast-filter (reader re-checks)
+        await this.publishDinbox(rec.owner, { msg, channel, seq, reason: "durable-channel", generation: rec.generation });
+      }
+    } else {
+      for (const name of msg.mentions ?? []) {
+        const owner = this.resolveOwnerByName(name);
+        if (!owner || owner === msg.from.id) continue;
+        const acl = this.plane3?.aclFor(owner);
+        if (!acl || !channelInAllow(acl, channel)) continue; // @mention can't bypass the read ACL
+        await this.publishDinbox(owner, { msg, channel, seq, reason: "live-mention", generation: 0 });
+      }
+    }
+    m.ack();
+  }
+
+  /** Trusted-reader loop: bind the single privileged `reader` durable over `dinbox.>` and re-authorize
+   *  + transfer each entry. */
+  private async runReader(): Promise<void> {
+    if (!this.js || !this.jsm) return;
+    try { await this.jsm.consumers.add(inboxStream(this.space), inboxReaderConfig(this.space, { ackWaitMs: this.ackWaitMs })); } catch { /* exists */ }
+    const consumer = await this.js.consumers.get(inboxStream(this.space), INBOX_READER_DURABLE);
+    const msgs = await consumer.consume();
+    this.streamMsgs.push(msgs);
+    void (async () => {
+      for await (const m of msgs) {
+        try { await this.readerHandle(m); }
+        catch (e) { if (!this.stopped) this.emit("error", e as Error); try { m.nak(); } catch { /* draining */ } }
+      }
+    })().catch((e) => { if (!this.stopped) this.emit("error", e as Error); });
+  }
+
+  /** Re-authorize ONE mixed-inbox entry and transfer it to the owner's DELIVER store. Deny (drop) on a
+   *  revoked/narrowed ACL or out-of-interval seq; on transfer success, ack the mixed entry (durability
+   *  has moved to DLV — an §8 equivalent per-member at-least-once mechanism). The agent acks DLV. */
+  private async readerHandle(m: JsMsg): Promise<void> {
+    const owner = parseDinboxOwner(m.subject);
+    if (!owner) { m.ack(); return; }
+    let entry: Plane3Entry;
+    try { entry = m.json<Plane3Entry>(); } catch { m.ack(); return; }
+    const acl = this.plane3?.aclFor(owner);
+    // CURRENT read ACL — an ACL-revoked/narrowed or unmanaged owner fails even if the interval matched.
+    if (!acl || !channelInAllow(acl, entry.channel)) { m.ack(); return; }
+    if (entry.reason === "durable-channel") {
+      const rec = await readMember(await this.membersRegistry(), entry.channel, owner);
+      // INTERVAL re-auth (not a current-member boolean): a pre-leave entry (seq ≤ leaveCursor) stays
+      // deliverable; seq > leaveCursor (or after a rejoin's newer joinCursor) is the hard cut.
+      if (!rec || !durableEligible(rec.record, entry.seq)) { m.ack(); return; }
+    }
+    try {
+      await this.js!.publish(dlvSubject(this.space, owner), JSON.stringify(entry.msg), {
+        msgID: `${entry.msg.id}:${owner}:${entry.generation}`,
+      });
+    } catch { m.nak(); return; } // transfer failed — keep the entry pending, redeliver
+    m.ack();
+  }
+
+  /** Agent-side: bind + pump our pre-created Plane-3 DELIVER durable (`dlv_<id>`). Every message here is
+   *  manager-written (DLV is manager-write-only, broker-enforced) and is a CHANNEL message by contract
+   *  (the backstop never carries DMs), so `kind=channel` is path-derived (SPEC §4) and the body is
+   *  trusted (no spoof-guard). `durable:true` — real JetStream ack, coalesced with the core-sub live
+   *  copy by `MeshAgent.ingest`. No-op when the durable isn't present (open mode / not provisioned). */
+  private async pumpDlv(): Promise<void> {
+    if (!this.js) return;
+    let consumer;
+    try { consumer = await this.js.consumers.get(dlvStream(this.space), dlvDurable(this.card.id)); }
+    catch { return; } // no DLV durable — Plane-3 not active for us
+    const msgs = await consumer.consume();
+    this.streamMsgs.push(msgs);
+    void (async () => {
+      for await (const m of msgs) {
+        let msg: CotalMessage;
+        try { msg = m.json<CotalMessage>(); } catch (e) { this.emit("error", e as Error); try { m.term(); } catch { /* draining */ } continue; }
+        if (msg.from?.id === this.card.id) { m.ack(); continue; } // own echo (defensive)
+        const delivery: Delivery = { ack: () => m.ack(), nak: () => m.nak(), durable: true };
+        this.emit("message", msg, delivery, { historical: false, kind: "channel" } satisfies MessageMeta);
+      }
+    })().catch((e) => { if (!this.stopped) this.emit("error", e as Error); });
+  }
+
+  /** Agent-side: request a Plane-3 durable backstop for a channel via the manager (ctl.self). Throws
+   *  when no privileged writer is present (open / manager-less). 30s timeout — activation catch-up may
+   *  run before the reply (the window is small, but a busy channel can take more than the 5s default). */
+  async durableJoinChannel(channel: string): Promise<{ durable: boolean; reason?: string }> {
+    const reply = await this.requestControl(CONTROL_SELF_SERVICE, { op: "durableJoin", args: { channel } }, 30_000);
+    if (!reply.ok) throw new Error(reply.error ?? "durable join rejected");
+    return (reply.data as { durable: boolean; reason?: string }) ?? { durable: false };
+  }
+
+  /** Agent-side: release a Plane-3 durable backstop (tombstone membership at the leave cursor). */
+  async durableLeaveChannel(channel: string): Promise<void> {
+    const reply = await this.requestControl(CONTROL_SELF_SERVICE, { op: "durableLeave", args: { channel } });
+    if (!reply.ok) throw new Error(reply.error ?? "durable leave rejected");
   }
 
   /** Lazily obtain a JetStream manager — so a non-consuming endpoint (e.g. the supervisor,
@@ -1160,6 +1463,11 @@ export class CotalEndpoint extends EventEmitter {
       );
     }
     await this.pump(dmStream(this.space), dmDurable(id));
+
+    // Plane-3 (SPEC §8): bind + pump our per-member DELIVER durable (`dlv_<id>`) — the re-authorized
+    // durable-backstop channel copies the trusted reader transfers to us. No-op when it isn't present
+    // (open mode / un-provisioned). Auth-only feature; the pump self-guards on the durable's existence.
+    await this.pumpDlv();
 
     // Multicast: a DeliverPolicy.New *tail* of our channels. History is NOT a durable replay —
     // it's an explicit, per-channel backfill on join (replay-policy gated, below), the only

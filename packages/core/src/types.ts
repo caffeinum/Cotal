@@ -159,6 +159,26 @@ export interface MembershipRecord {
   updatedAt: number;
 }
 
+/**
+ * A fan-out entry in an owner's mixed pre-auth inbox (`dinbox.<owner>`, Plane-3). The fan-out writer
+ * copies one of these per eligible owner; the trusted reader re-authorizes it (`channel`+`seq` against
+ * the membership interval for `durable-channel`, ACL-only for `live-mention`) before transferring the
+ * embedded `msg` to the owner's DELIVER store. `seq`/`reason`/`generation` are the re-auth metadata;
+ * the agent never sees this envelope (it receives only `msg` on `dlv.<owner>`).
+ */
+export interface Plane3Entry {
+  msg: CotalMessage;
+  /** Concrete channel the message was published on (the re-auth subject). */
+  channel: string;
+  /** The message's CHAT stream sequence (membership-interval re-auth). */
+  seq: number;
+  /** Why this owner was fanned to: a `durable` channel's member (interval-gated) vs a `live` channel
+   *  `@mention` to an authorized target (ACL-only, no membership). */
+  reason: "durable-channel" | "live-mention";
+  /** The owner's membership generation at fan-out (idempotency-key component + diagnostics). */
+  generation: number;
+}
+
 /** Reverse-DNS extension part kind, e.g. `com.acme.snapshot`.
  * @pattern ^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$ */
 export type ExtensionPartKind = `${string}.${string}`;

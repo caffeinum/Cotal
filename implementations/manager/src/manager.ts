@@ -11,6 +11,7 @@ import {
   connectorServers,
   findCotalRoot,
   firstFreeName,
+  isConcreteChannel,
   loadAgentFile,
   loadCotalConfig,
   loadSpaceAuth,
@@ -173,6 +174,11 @@ export class Manager {
     this.ep.serveControl(CONTROL_PRIVILEGED, (req) => this.handle(req, CONTROL_PRIVILEGED));
     this.ep.serveControl(CONTROL_SELF_SERVICE, (req) => this.handle(req, CONTROL_SELF_SERVICE));
     this.ep.serveControl(CONTROL_ADMIN, (req) => this.handle(req, CONTROL_ADMIN));
+    // Plane-3 (SPEC §8): host the fan-out writer + trusted reader. The reader re-authorizes each
+    // durable-backstop entry against the owner's CURRENT read ACL — supplied from the managed set
+    // (the same `allowSubscribe` opSetChannels/opDurableJoin validate against). Auth mode only.
+    if (this.auth)
+      await this.ep.startPlane3((id) => [...this.agents.values()].find((a) => a.id === id)?.allowSubscribe);
   }
 
   async stop(): Promise<void> {
@@ -197,6 +203,8 @@ export class Manager {
       // join/leave — the caller moving its OWN chat read within its allowSubscribe). Anything else —
       // including a named stop (belongs on privileged/admin) — is a misroute and rejected.
       if (req.op === "setChannels") return this.opSetChannels(caller, args);
+      if (req.op === "durableJoin") return this.opDurableJoin(caller, args);
+      if (req.op === "durableLeave") return this.opDurableLeave(caller, args);
       if (req.op !== "stop") return { ok: false, error: `op "${req.op}" not allowed on self-service control subject` };
       if (name) return { ok: false, error: "named stop not allowed on self-service subject; send it on the privileged subject" };
       return this.opStopSelf(caller, args);
@@ -289,6 +297,48 @@ export class Manager {
       return { ok: false, error: (e as Error).message };
     }
     return { ok: true, data: { channels } };
+  }
+
+  /** Plane-3 durable JOIN (SPEC §8): privileged-write the caller's `durable-active` membership for ONE
+   *  concrete channel + run activation catch-up. Validation mirrors {@link opSetChannels}: managed
+   *  caller (non-forgeable id), valid + concrete channel, ⊆ allowSubscribe. Durable membership is
+   *  per-concrete-channel (a wildcard ACL grants live breadth + concrete-durable-opt-in, never
+   *  wildcard-durable). The KV write + cursors + catch-up run with the manager's privileged creds. */
+  private async opDurableJoin(callerId: string, args: Record<string, unknown>): Promise<ControlReply> {
+    const target = [...this.agents.values()].find((a) => a.id === callerId);
+    if (!target) return { ok: false, error: `durableJoin: caller ${callerId} is not an agent this manager spawned` };
+    const channel = typeof args.channel === "string" ? args.channel.trim() : "";
+    if (!channel) return { ok: false, error: "durableJoin: channel must be a non-blank string" };
+    try {
+      assertValidChannel(channel);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    if (!isConcreteChannel(channel))
+      return { ok: false, error: `durableJoin: "${channel}" must be a concrete channel (durable membership is per-concrete-channel, not wildcard)` };
+    if (!channelInAllow(target.allowSubscribe, channel))
+      return { ok: false, error: `channel "${channel}" is not within allowSubscribe [${target.allowSubscribe.join(", ")}]` };
+    try {
+      return { ok: true, data: await this.ep.durableJoinFor(callerId, channel) };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  }
+
+  /** Plane-3 durable LEAVE (SPEC §7 leave = hard read boundary for the backstop): tombstone the
+   *  caller's membership at the leave cursor. A pre-leave entry stays deliverable; `seq > leaveCursor`
+   *  is denied at the trusted reader. Idempotent — leaving a channel with no record is a no-op. */
+  private async opDurableLeave(callerId: string, args: Record<string, unknown>): Promise<ControlReply> {
+    const target = [...this.agents.values()].find((a) => a.id === callerId);
+    if (!target) return { ok: false, error: `durableLeave: caller ${callerId} is not an agent this manager spawned` };
+    const channel = typeof args.channel === "string" ? args.channel.trim() : "";
+    if (!channel) return { ok: false, error: "durableLeave: channel must be a non-blank string" };
+    try {
+      await this.ep.durableLeaveFor(callerId, channel);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    return { ok: true, data: { channel } };
   }
 
   /** Drop a live agent's slot. When `floor` is set and the agent died young (lived less than
