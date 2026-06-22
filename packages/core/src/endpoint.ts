@@ -55,6 +55,7 @@ import {
   readMember,
   listMembers,
   durableEligible,
+  StaleMembershipWrite,
 } from "./members.js";
 import {
   openChannelRegistry,
@@ -225,6 +226,12 @@ export class CotalEndpoint extends EventEmitter {
    *  the backstop survives a reconnect on its own; the agent can't re-read the privileged members KV,
    *  so this in-memory mirror is kept, not rebuilt. Cleared only on full stop. */
   private readonly plane3Channels = new Map<string, number>();
+  /** Channels whose live sub was REFUSED while they held a Plane-3 durable membership, whose §7
+   *  tombstone has not yet confirmed (channel → join generation). {@link closeRefusedMembership} retries
+   *  the tombstone until it lands; until then this is a `durable-unclosed` state surfaced via
+   *  {@link pendingDurableLeaves} (the connector shows it in `cotal_channels`, never as ordinary
+   *  absence). Persists across reconnect; cleared on tombstone success or full stop. */
+  private readonly pendingDurableLeave = new Map<string, number>();
   /** Chat-join subjects currently being broker-confirmed. An out-of-ACL subscribe among these trips an
    *  EXPECTED async permission violation that joinChannel turns into a clean throw, so watchStatus
    *  suppresses it rather than surfacing a spurious connection error. */
@@ -1241,9 +1248,15 @@ export class CotalEndpoint extends EventEmitter {
       // Catch-up window irreparably evicted (the oldest in-window message aged out) — this join can never
       // be a complete backstop. TOMBSTONE the just-committed record at `fence` so it does NOT route:
       // pure-interval durableEligible would otherwise keep delivering to a record the agent was told is
-      // durable:false AND can't discover to leave (critic BLOCKER-1). Then degrade honestly — a retry is a
-      // fresh join (no longer `open`, so a current joinCursor is captured).
-      await tombstoneMember(kv, channel, owner, fence, this.card.id);
+      // durable:false AND can't discover to leave (critic BLOCKER-1). Pass `generation` as the expected
+      // generation (ux stale-write guard) so this cleanup can't tombstone a concurrent NEWER rejoin — if
+      // one won, StaleMembershipWrite is the correct no-op (the rejoin is the live record). Then degrade
+      // honestly — a retry is a fresh join (no longer `open`, so a current joinCursor is captured).
+      try {
+        await tombstoneMember(kv, channel, owner, fence, this.card.id, generation);
+      } catch (e) {
+        if (!(e instanceof StaleMembershipWrite)) throw e;
+      }
       return { durable: false, reason: "activation catch-up window partially evicted by retention", generation };
     }
     await commitMember(kv, { ...base, activated: true, updatedAt: Date.now() }); // flip → reported durable
@@ -1482,28 +1495,37 @@ export class CotalEndpoint extends EventEmitter {
   }
 
   /** Fail-closed async cleanup for a channel forced out by a LATE sub.allow refusal (the broker revoked
-   *  the live read). The sync sub callback can't await, so this RETRIES the Plane-3 tombstone with backoff
-   *  and clears the generation mirror only on success; if it ultimately can't close, it EMITS loudly that
-   *  the §7 boundary may remain open and RETAINS the generation (never silently dropped). Authoritative
-   *  closure of a revoked membership is the manager's job (revocation = cred-kill + tombstone). */
+   *  the live read). The sync sub callback can't await, so this RETRIES the Plane-3 tombstone with capped
+   *  backoff UNTIL IT SUCCEEDS (or the endpoint stops) — the §7 boundary always closes once the manager
+   *  is reachable, never a silent give-up. While pending, the channel is tracked in
+   *  {@link pendingDurableLeave} and surfaced via {@link pendingDurableLeaves} (the connector shows it in
+   *  `cotal_channels` as `durable-unclosed`, never ordinary absence). The generation is kept the whole
+   *  time. Authoritative closure of a revoked membership is also the manager's job (revocation). */
   private async closeRefusedMembership(channel: string, generation: number): Promise<void> {
+    this.pendingDurableLeave.set(channel, generation);
     for (let attempt = 0; ; attempt++) {
       if (this.stopped) return;
       try {
         await this.durableLeaveChannel(channel, generation);
         this.plane3Channels.delete(channel);
+        this.pendingDurableLeave.delete(channel);
         return;
       } catch (e) {
-        if (attempt >= 4) {
+        if (attempt === 0)
           this.emit(
             "error",
-            new Error(`channel "${channel}": Plane-3 durable membership (generation ${generation}) could NOT be tombstoned after a refused live sub — §7 boundary may remain OPEN, close it via the manager (${(e as Error).message})`),
+            new Error(`channel "${channel}": Plane-3 durable membership (generation ${generation}) not yet tombstoned after a refused live sub — retrying; §7 boundary may be open until it succeeds (${(e as Error).message})`),
           );
-          return; // generation retained in plane3Channels for a later retry
-        }
-        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+        await new Promise((r) => setTimeout(r, Math.min(30_000, 1000 * 2 ** attempt)));
       }
     }
+  }
+
+  /** Channels with a Plane-3 durable membership whose §7 tombstone is still pending after a refused live
+   *  sub (see {@link closeRefusedMembership}) — surfaced by the connector as a `durable-unclosed` state so
+   *  it is never presented as ordinary "not subscribed". */
+  pendingDurableLeaves(): string[] {
+    return [...this.pendingDurableLeave.keys()];
   }
 
   /** A control request that found NO responder — open / manager-less (no privileged control plane),

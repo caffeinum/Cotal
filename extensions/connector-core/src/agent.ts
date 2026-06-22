@@ -613,16 +613,21 @@ export class MeshAgent extends EventEmitter {
       description?: string;
       replay: boolean;
       joined: boolean;
+      durableUnclosed: boolean;
       messages: number;
       mode: ChannelMode | "normal";
     }[]
   > {
     const mine = this.ep.joinedChannels();
+    const unclosed = new Set(this.ep.pendingDurableLeaves());
     return (await this.ep.listChannels()).map((c) => ({
       channel: c.channel,
       description: c.config?.description,
       replay: this.ep.channelReplay(c.channel),
       joined: mine.some((p) => subjectMatches(p, c.channel)),
+      // A live sub was refused while a Plane-3 durable membership stayed open; its §7 tombstone is still
+      // retrying. Surface it so the channel is never shown as ordinary "not subscribed" (ux requirement).
+      durableUnclosed: unclosed.has(c.channel),
       messages: c.messages,
       mode: this.channelMode(c.channel) ?? "normal",
     }));
