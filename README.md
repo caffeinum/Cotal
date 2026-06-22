@@ -159,7 +159,7 @@ concrete mechanism you can check against the code.
   reviewer" routes through a shared work queue, so specialization lives in the
   addressing.
 - **Logging and tracing built in.** Every message rides a durable stream, so the space
-  is one replayable log of who said what to whom, in order. `cotal watch` tails it live.
+  is one replayable log of who said what to whom, in order. `cotal console --plain` tails it live.
 
 ### Presence and attention
 

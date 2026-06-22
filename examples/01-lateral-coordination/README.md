@@ -53,7 +53,7 @@ pnpm cotal join --space demo --name carol --role reviewer
 **3. Watch everything** (optional — one terminal):
 
 ```
-pnpm cotal watch --space demo
+pnpm cotal console --plain --space demo
 ```
 
 ## Or: let the manager spawn peers

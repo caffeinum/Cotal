@@ -46,6 +46,7 @@ function parse(argv: string[]): Values {
       config: { type: "string" },
       roster: { type: "string" },
       creds: { type: "string" },
+      runtime: { type: "string" }, // supervise: force pty | tmux (default auto-detects)
       "console-port": { type: "string" },
       drive: { type: "boolean" },
       transcript: { type: "boolean" },
@@ -219,8 +220,23 @@ async function attach(argv: string[]): Promise<void> {
 /** Run a manager daemon in this process (the long-lived supervisor), then block.
  *  `pty`/`tmux` ship with the manager; `cmux` needs its integration imported by the
  *  composition root (the `cotal` binary does). Stays alive until SIGINT/SIGTERM. */
-async function runManager(argv: string[], runtime: RuntimeMode): Promise<void> {
+// `--runtime` overrides accepted only on the `supervise` path (whose default is auto-detect).
+// `cmux` is intentionally excluded: a cmux-tab manager is launched via `cotal cmux` only, so its
+// process-detection (cmuxManagerRunning / runDrive's pgrep) keeps recognizing it. Allowing
+// `supervise --runtime cmux` would introduce a second cmux-manager argv shape that detection
+// misses — fold it in here once that detection is migrated (the cmux-retirement follow-up).
+const RUNTIME_OVERRIDES: readonly RuntimeMode[] = ["pty", "tmux"];
+
+async function runManager(argv: string[], defaultRuntime: RuntimeMode): Promise<void> {
   const v = parse(argv);
+  let runtime = defaultRuntime;
+  if (defaultRuntime === "auto" && v.runtime) {
+    if (!RUNTIME_OVERRIDES.includes(v.runtime as RuntimeMode)) {
+      console.error(c.red(`unknown runtime "${v.runtime}" — expected ${RUNTIME_OVERRIDES.join(", ")}`));
+      process.exit(1);
+    }
+    runtime = v.runtime as RuntimeMode;
+  }
   const space = spaceFor(v);
   const server = v.server ?? DEFAULT_SERVER;
   // Parse the roster before touching the network — a malformed file should fail fast,
@@ -420,7 +436,7 @@ const managerCommands: Command[] = [
     name: "supervise",
     group: "Manager",
     summary:
-      "run a manager (terminal / pty runtime) — [--space <s>] [--server <url>] [--console-port <n>] [--roster <file>]",
+      "run a manager — [--runtime <pty|tmux>] (default auto-detect) [--space <s>] [--server <url>] [--console-port <n>] [--roster <file>]",
     run: (argv) => runManager(argv, "auto"),
   },
   {

@@ -3,7 +3,6 @@ import { up } from "./commands/up.js";
 import { down } from "./commands/down.js";
 import { setup, go } from "./commands/setup.js";
 import { join } from "./commands/join.js";
-import { watch } from "./commands/watch.js";
 import { console_ } from "./commands/console.js";
 import { demo } from "./commands/demo.js";
 import { web } from "./commands/web.js";
@@ -11,13 +10,12 @@ import { spawn, spawnComplete } from "./commands/spawn.js";
 import { personas, personasComplete } from "./commands/personas.js";
 import { completion, completionComplete, complete } from "./commands/completion.js";
 import { mint } from "./commands/mint.js";
-import { signer } from "./commands/signer.js";
 import { channels } from "./commands/channels.js";
 import { history } from "./commands/history.js";
 import { feedback } from "./commands/feedback.js";
 import { dm, msg, ask, msgComplete, askComplete } from "./commands/send.js";
 
-/** The minimal mesh CLI: thin NATS clients (up/join/watch), plus `spawn` — a
+/** The minimal mesh CLI: thin NATS clients (up/join/console), plus `spawn` — a
  *  foreground agent launch that reuses the connector's launch recipe. Self-registers
  *  on import; heavier surfaces (the manager's control plane) register the same way
  *  and are composed at a root. */
@@ -59,13 +57,6 @@ const baseCommands: Command[] = [
   },
   {
     kind: "command",
-    name: "watch",
-    group: "Mesh",
-    summary: "observe all activity in a space — --space <s>",
-    run: watch,
-  },
-  {
-    kind: "command",
     name: "dm",
     group: "Mesh",
     summary: "direct-message a peer by name",
@@ -101,6 +92,9 @@ const baseCommands: Command[] = [
     kind: "command",
     name: "demo",
     group: "Mesh",
+    // A dev/test traffic generator (see docs/protocol-view.md) — runnable, but kept off the
+    // top-level help so it doesn't clutter the user-facing surface.
+    hidden: true,
     summary: "replay a scripted multi-agent trace (all message types) to exercise the console/web — --space <s> [--interval <ms>] [--once]",
     run: demo,
   },
@@ -148,16 +142,9 @@ const baseCommands: Command[] = [
     kind: "command",
     name: "mint",
     group: "Mesh",
-    summary: "mint a creds file for a space (auth mode) — mint <name> --profile <agent|observer> [--out <path>]",
-    run: mint,
-  },
-  {
-    kind: "command",
-    name: "signer",
-    group: "Mesh",
     summary:
-      "emit a stripped signer file (account signing material only, no operator key) for a containerized manager — [--out <path>] [--force]",
-    run: signer,
+      "mint a creds file for a space (auth mode) — mint <name> --profile <agent|observer> [--out <path>]; --signer emits a stripped account-signing file (no operator key) for a containerized manager",
+    run: mint,
   },
   {
     kind: "command",

@@ -341,7 +341,7 @@ dependency on them). Selectable backends:
 - **`byo` (floor).** The manager does not own the process; a human runs `cotal claude --role …`
   in their own terminal and the manager just tracks it via presence.
 - **`host` (upgrade).** Headless via the Agent SDK for structured control plus true mid-turn
-  interrupt; no native TUI (rendered from the event stream), observed via `cotal watch`.
+  interrupt; no native TUI (rendered from the event stream), observed via `cotal console --plain`.
 
 **Running one.** `cotal supervise` starts a manager on the default terminal runtime (pty, or
 tmux inside tmux); `cotal cmux` starts one that spawns each teammate into its own cmux tab (run
@@ -421,7 +421,7 @@ install cotal@cotal-mesh` once, beforehand.)
   the channel plus deterministic hook injection.
 - **Host mode (upgrade path).** The manager runs the session headless via the Agent SDK
   (`@anthropic-ai/claude-agent-sdk`, streaming input) for true mid-turn interrupt; observed via
-  `cotal watch` rather than a native TUI. Documented, not built for the demo.
+  `cotal console --plain` rather than a native TUI. Documented, not built for the demo.
 
 **Constraints (accepted).** Channels are a **research preview** (Claude Code ≥ v2.1.80;
 permission relay ≥ v2.1.81). They require Anthropic auth (claude.ai or Console key, *not*
@@ -678,7 +678,7 @@ later).
     `sub.allow = [_INBOX_<ownId>.>]`.
   - **observer:** read-only. `sub.allow = [chat.>, _INBOX_<ownId>.>]`, pub = CHAT plus presence
     read verbs only. No chat/inst/svc publish (cannot post); DM streams are never named (DMs
-    invisible). `cotal watch/console/web` run `consume:false` and narrow their tap to `chat.>`.
+    invisible). `cotal console/web` run `consume:false` and narrow their tap to `chat.>`.
   - **admin:** elevated read-only (a "god-view" auditor). It has observer's pub allow plus
     DM-stream read verbs (still **write-nothing**, it cannot post), and `sub.allow` widened to the
     whole space (`cotal.<space>.>`), so its tap sees DMs (`inst.>`) and anycast (`svc.>`) *live*

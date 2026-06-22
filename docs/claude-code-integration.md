@@ -54,7 +54,7 @@ Under the hood it is the existing pieces, so you can also run them by hand:
 
 - `cotal setup` (one-time plugin install)
 - `cotal up --open`
-- `cotal cmux --space <s>` (the manager daemon; `cotal supervise` for the plain pty runtime)
+- `cotal cmux --space <s>` (the manager daemon, each teammate in its own cmux tab; `cotal supervise` runs the plain pty/tmux runtime)
 - `cotal spawn <name> --space <s>` (a foreground Claude on the mesh; a bare name with no
   agent file launches a personaless session)
 
@@ -526,7 +526,7 @@ To read submissions yourself:
 
 ```
 pnpm cotal mint feedback-observer --profile observer --out .cotal/auth/creds/feedback-observer.creds
-pnpm cotal watch --space beta-feedback --creds .cotal/auth/creds/feedback-observer.creds
+pnpm cotal console --plain --space beta-feedback --creds .cotal/auth/creds/feedback-observer.creds
 ```
 
 For the browser dashboard, run `pnpm cotal web --space beta-feedback --port 8788 --no-open` on

@@ -39,7 +39,7 @@ docker build -f deploy/docker/Dockerfile -t cotal-runner .
 **3. Emit the signer.** Account signing material only, no operator key:
 
 ```bash
-cotal signer            # writes ./signer.json
+cotal mint --signer     # writes ./signer.json
 ```
 
 **4. Describe the team:**
@@ -82,7 +82,7 @@ Expect `broker reachable`, `✓ manager up`, `✓ started scout (opencode)`.
 **6. Watch it join** (terminal B):
 
 ```bash
-cotal watch --space main
+cotal console --plain --space main
 ```
 
 You will see `join manager` and `join scout`. The agent connected out, authenticated with

@@ -120,7 +120,7 @@ export function pick<T>(path: T[], t: number): T {
 }
 
 // --- scrolling event ticker -------------------------------------------------
-// Mirrors a real `cotal watch` log line: time · verb · peer → target: text.
+// Mirrors a real `cotal console --plain` log line: time · verb · peer → target: text.
 
 type TSeg = { text: string; color: string };
 const EVENTS: TSeg[][] = [

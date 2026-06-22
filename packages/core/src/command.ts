@@ -31,6 +31,9 @@ export interface Command extends Extension {
   /** One-line usage shown by `cotal <cmd> --help` and on an invalid-argument error.
    *  Falls back to `summary` when unset. */
   readonly usage?: string;
+  /** Hide from the top-level help listing while keeping it runnable — for dev/test aids
+   *  (e.g. `demo`) that clutter the surface but stay documented and invocable. */
+  readonly hidden?: boolean;
   run(argv: string[]): Promise<void>;
   /** Optional shell-completion provider, owned by the command exactly as `run` is. Given the
    *  args typed so far (everything after the command name; the last element is the word being
