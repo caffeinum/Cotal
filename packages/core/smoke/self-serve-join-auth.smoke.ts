@@ -21,6 +21,7 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { connect, credsAuthenticator } from "@nats-io/transport-node";
 import {
   CotalEndpoint,
   isReachable,
@@ -31,6 +32,9 @@ import {
   newIdentity,
   setupSpaceStreams,
   channelInAllow,
+  openMembersRegistry,
+  commitMember,
+  readMember,
   CONTROL_SELF_SERVICE,
   type Delivery,
 } from "../src/index.js";
@@ -258,11 +262,25 @@ try {
   //    hydration is not a silent §7 fail-open (the red-team hole: hydrateMemberships swallowed errors).
   const aliceOpsBefore = await pub.channelMembers("ops");
   check("alice's boot 'ops' membership is present (provisioned, but NOT hydrated into alice's mirror)", aliceOpsBefore.some((m) => m.id === aId.id), aliceOpsBefore);
+
+  // Force alice's "ops" record to a crash-stuck PENDING activation (activated:false). It still routes
+  // (pure-interval durableEligible) but is hidden from channelMembers + the hydration mirror — so
+  // leaveChannel must still DISCOVER it via ownerMemberships (which returns non-activated records) and
+  // TOMBSTONE it (the engineer/critic BLOCKER-1 leave-discovery gap), exercised end-to-end.
+  const kvNc = await connect({ servers: SERVERS, authenticator: credsAuthenticator(new TextEncoder().encode(mgrCreds)), inboxPrefix: "_INBOX_kv", maxReconnectAttempts: 0 });
+  kvNc.on?.("error", () => {});
+  const kv = await openMembersRegistry(kvNc, space);
+  const opsRec = (await readMember(kv, "ops", aId.id))!.record;
+  await commitMember(kv, { ...opsRec, activated: false });
+  const hidden = await pub.channelMembers("ops");
+  check("an activation-pending (activated:false) member is HIDDEN from channelMembers", !hidden.some((m) => m.id === aId.id), hidden);
+
   const opsLeave = await a.leaveChannel("ops");
-  check("leaving an UN-hydrated boot durable channel succeeds (generation re-resolved on demand)", opsLeave.left === true, opsLeave);
+  check("leaving an UN-hydrated, activation-pending boot durable channel succeeds (generation re-resolved on demand)", opsLeave.left === true, opsLeave);
   await wait(150);
-  const aliceOpsAfter = await pub.channelMembers("ops");
-  check("the un-hydrated boot leave TOMBSTONES the membership (no silent fail-open)", !aliceOpsAfter.some((m) => m.id === aId.id), aliceOpsAfter);
+  const opsRecAfter = await readMember(kv, "ops", aId.id);
+  check("leave TOMBSTONES the activation-pending record (discovered despite activated:false — BLOCKER-1 leave-discovery)", opsRecAfter?.record.leaveCursor !== undefined, opsRecAfter?.record);
+  await kvNc.close();
   got.length = 0;
   await pub.multicast("after ops leave", { channel: "ops" });
   await wait(900); // settle: prove ABSENCE — both planes closed

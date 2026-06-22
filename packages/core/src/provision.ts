@@ -157,6 +157,14 @@ export interface ProvisionOpts extends MintOpts {
    *  `durable`-class members get a boot Plane-3 membership. Must be ⊆ `allowSubscribe`. Defaults to
    *  `["general"]`. */
   subscribe?: string[];
+  /** Write a DURABLE boot membership for each `durable`-class channel (default true). A durable backstop
+   *  needs a long-lived manager that hosts Plane-3 AND knows this agent's ACL — true only for an agent
+   *  launched UNDER a manager (`cotal start` / `cotal up`), which registers it in its `agents` ledger.
+   *  Set FALSE for a launcher with no such manager — direct foreground `cotal spawn` — so the agent is
+   *  LIVE-ONLY (no manager would know it, so its durable copies couldn't be authorized by the trusted
+   *  reader nor its membership leaved via self-service; its runtime joins are live-only for that reason
+   *  too). Writing a record nobody can deliver/leave is worse than none. */
+  durableMembership?: boolean;
 }
 
 /** The privileged onboarding ops a launcher needs — implemented by a connected, permissive
@@ -174,9 +182,10 @@ export interface DurableProvisioner {
 }
 
 /** Onboard an agent for launch (auth mode): pre-create its bind-only DM (+ Plane-3 DELIVER + role
- *  TASK) durables, write its boot durable membership (Plane-3), and mint its scoped creds. Live
- *  delivery is the agent's own core subscription — there is no per-instance chat durable. The single
- *  shared step so every launcher — the manager and `cotal spawn` alike — provisions identically. */
+ *  TASK) durables, write its boot durable membership (Plane-3, unless `durableMembership:false`), and
+ *  mint its scoped creds. Live delivery is the agent's own core subscription — there is no per-instance
+ *  chat durable. The single shared onboarding step; a launcher with no managing Plane-3 host (direct
+ *  `cotal spawn`) opts out of the durable membership and is live-only. */
 export async function provisionAgent(
   provisioner: DurableProvisioner,
   auth: SpaceAuth,
@@ -198,7 +207,10 @@ export async function provisionAgent(
   await provisioner.provisionDmInbox(identity.id);
   await provisioner.provisionDlvInbox(identity.id);
   // DELIVER durable exists before membership — the trusted reader transfers boot backstop copies onto it.
-  await provisioner.provisionMembership(identity.id, subscribe);
+  // Durable boot membership only for a launcher backed by a managing Plane-3 host (default). A live-only
+  // launcher (direct `cotal spawn`) opts out: no manager would know this agent, so a durable record could
+  // be neither authorized for reader delivery nor leaved via self-service — worse than none.
+  if (opts.durableMembership !== false) await provisioner.provisionMembership(identity.id, subscribe);
   if (opts.role) await provisioner.provisionTaskQueue(opts.role);
   return mintCreds(auth, identity, "agent", { ...opts, allowSubscribe });
 }

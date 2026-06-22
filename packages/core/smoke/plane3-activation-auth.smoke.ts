@@ -106,6 +106,16 @@ try {
     genMembers.some((m) => m.id === aId.id),
     genMembers,
   );
+  // ...but a LIVE-ONLY launcher (durableMembership:false — direct `cotal spawn`) writes NO durable record,
+  // so the agent never appears as a durable member (no manager could authorize/deliver/leave it).
+  const ghostId = newIdentity();
+  await provisionAgent(mgr, auth, ghostId, { subscribe: ["general"], allowSubscribe: ["general"], durableMembership: false });
+  const ghostMembers = await mgr.channelMembers("general");
+  check(
+    "a live-only launcher (durableMembership:false) writes NO boot durable record (direct cotal spawn is live-only)",
+    !ghostMembers.some((m) => m.id === ghostId.id),
+    ghostMembers,
+  );
 
   // ───────────── (1)+(2) ACTIVATION RACE + channelMembers honesty ─────────────
   // Plant an activation-PENDING record (durable-active, activated:false) for alice on "review", which

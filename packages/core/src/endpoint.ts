@@ -1481,6 +1481,31 @@ export class CotalEndpoint extends EventEmitter {
     if (!reply.ok) throw new Error(reply.error ?? "durable leave rejected");
   }
 
+  /** Fail-closed async cleanup for a channel forced out by a LATE sub.allow refusal (the broker revoked
+   *  the live read). The sync sub callback can't await, so this RETRIES the Plane-3 tombstone with backoff
+   *  and clears the generation mirror only on success; if it ultimately can't close, it EMITS loudly that
+   *  the §7 boundary may remain open and RETAINS the generation (never silently dropped). Authoritative
+   *  closure of a revoked membership is the manager's job (revocation = cred-kill + tombstone). */
+  private async closeRefusedMembership(channel: string, generation: number): Promise<void> {
+    for (let attempt = 0; ; attempt++) {
+      if (this.stopped) return;
+      try {
+        await this.durableLeaveChannel(channel, generation);
+        this.plane3Channels.delete(channel);
+        return;
+      } catch (e) {
+        if (attempt >= 4) {
+          this.emit(
+            "error",
+            new Error(`channel "${channel}": Plane-3 durable membership (generation ${generation}) could NOT be tombstoned after a refused live sub — §7 boundary may remain OPEN, close it via the manager (${(e as Error).message})`),
+          );
+          return; // generation retained in plane3Channels for a later retry
+        }
+        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+      }
+    }
+  }
+
   /** A control request that found NO responder — open / manager-less (no privileged control plane),
    *  distinct from a responder that errored. nats.js surfaces it as NoRespondersError, or a RequestError
    *  whose `isNoResponders()` is true. */
@@ -1686,21 +1711,11 @@ export class CotalEndpoint extends EventEmitter {
             this.joinSeq.delete(channel);
             // A late sub.allow refusal forces this agent out of the channel (the broker revoked its live
             // read). If it held a Plane-3 durable membership, the §7 boundary must close too. This sub
-            // callback can't await, so attempt the tombstone async and clear the mirror ONLY once it
-            // confirms; on failure RETAIN the generation (don't forget the stale-leave guard) and EMIT
-            // loudly that the boundary may remain OPEN — never silently imply closure. Authoritative
-            // closure of a revoked membership is the manager's job (revocation = cred-kill + tombstone).
+            // callback can't await, so a fail-closed async helper RETRIES the tombstone (backoff) and
+            // clears the mirror ONLY on success; on ultimate failure it retains the generation + emits
+            // loudly that the boundary may remain open — never a silent drop, and never lost retry state.
             const gen = this.plane3Channels.get(channel);
-            if (gen !== undefined) {
-              void this.durableLeaveChannel(channel, gen)
-                .then(() => this.plane3Channels.delete(channel))
-                .catch((e) =>
-                  this.emit(
-                    "error",
-                    new Error(`channel "${channel}": Plane-3 durable membership (generation ${gen}) NOT tombstoned after a refused live sub — §7 boundary may remain OPEN, close it via the manager (${(e as Error).message})`),
-                  ),
-                );
-            }
+            if (gen !== undefined) void this.closeRefusedMembership(channel, gen);
             this.emit(
               "error",
               new Error(`left channel "${channel}": its live subscription was refused by the broker`),
