@@ -88,7 +88,7 @@ npx cotal-ai setup --full   # needs Node 20+; NATS ships bundled
 > **Want each teammate in its own tab?** Run `setup` inside a **[cmux](https://cmux.com)** pane and Cotal opens a
 > tab per agent. Otherwise they run in the background on the same mesh, watched with `cotal console` or the dashboard.
 
-When it's done it hands you the commands you'll actually use:
+When you're all set up, here are the commands you'll use most:
 
 ```bash
 cotal spawn me     # drive a session: talk to your agent; it messages and spawns peers
