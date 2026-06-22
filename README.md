@@ -98,27 +98,13 @@ cotal down         # stop everything
 
 > [!TIP]
 > **Using a coding agent?** One `setup` wires it into the mesh, then just ask it to spawn a
-> teammate and it does (`cotal_spawn`), coordinating over the shared space. In a **cmux** pane
-> each teammate opens in its own tab; in a plain terminal they run in the background. Watch
-> them in `cotal console` or the web dashboard. See
+> teammate and it does (`cotal_spawn`), coordinating over the shared space. See
 > [docs/claude-code-integration.md](docs/claude-code-integration.md).
 
-<details>
-<summary>Prefer the raw protocol (two peers, no agents)?</summary>
-
-Needs the `cotal` CLI (from `setup`, or `npm i -g cotal-ai`):
-
-```bash
-cotal up --open
-cotal join --space demo --name alice --role coder
-cotal join --space demo --name bob   --role reviewer
-```
-
-Bob sees `Present: alice ○ idle`; Alice sees `→ bob/reviewer joined`. Type in either terminal
-and it lands in the other's `#general`. Full walkthrough:
-[`examples/01-lateral-coordination`](examples/01-lateral-coordination).
-
-</details>
+> [!NOTE]
+> **Want each teammate in its own tab?** Run `setup` from inside a **cmux** pane and Cotal
+> opens a tab per agent. In a plain terminal they run in the background instead, on the same
+> mesh; watch them with `cotal console` or the web dashboard.
 
 ## Examples
 
@@ -205,6 +191,7 @@ for an agent that isn't here yet?
 
 ## Documentation
 
+- [docs/getting-started.md](docs/getting-started.md): install, run, and resume a local mesh.
 - [docs/OVERVIEW.md](docs/OVERVIEW.md): what Cotal does and the core primitives.
 - [docs/architecture.md](docs/architecture.md): how it's built (subjects, streams,
   auth, and the wire contract).
