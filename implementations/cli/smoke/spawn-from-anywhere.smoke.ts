@@ -111,6 +111,17 @@ try {
   const local = resolveMeshTarget(sub);
   check("local project wins: source is 'local-space' on its own root", local.source === "local-space" && local.root === projA, local);
 
+  // Registry `mode` is authoritative for auth: an OPEN mesh resolves credlessly EVEN IF its root
+  // still has auth material on disk; an AUTH mesh loads it. Same root, opposite outcomes.
+  mkdirSync(join(projA, ".cotal", "auth"), { recursive: true });
+  writeFileSync(join(projA, ".cotal", "auth", "auth.json"), JSON.stringify({ space: "alpha" }));
+  recordMesh(entry("openmesh", projA, SERVER)); // entry() is mode:"open"
+  check("open mesh resolves with NO auth despite auth files in its root", resolveMeshTarget(neutral, { space: "openmesh" }).auth === undefined);
+  recordMesh({ ...entry("authmesh", projA, SERVER), mode: "auth" });
+  check("auth mesh resolves WITH auth from its root", Boolean(resolveMeshTarget(neutral, { space: "authmesh" }).auth));
+  removeMesh("openmesh");
+  removeMesh("authmesh");
+
   // Offline completion: lists the RESOLVED mesh's personas (current=teamB → projB), and is
   // synchronous — it cannot have awaited a network probe.
   const prevCwd = process.cwd();

@@ -67,7 +67,9 @@ export async function up(argv: string[]): Promise<void> {
     // user to free the port. (Hosting several spaces on one broker is the planned multi-space work.)
     const held = loadMeshes().find((m) => m.server === server);
     if (held && held.root === root && held.space === space) {
-      recordOurMesh({ space, server, root, mode: values.open ? "open" : "auth", ts: new Date().toISOString() });
+      // A refresh of the SAME already-running mesh — its mode is fixed by how the live broker was
+      // started; preserve `held.mode` rather than relabel it from this invocation's `--open`.
+      recordOurMesh({ space, server, root, mode: held.mode, ts: new Date().toISOString() });
       console.log(c.green(`✓ NATS already running at ${server}`));
       return;
     }

@@ -47,7 +47,10 @@ function targetFromEntry(m: MeshEntry, server: string, source: MeshTarget["sourc
     root: m.root,
     server,
     space: m.space,
-    auth: loadSpaceAuth(authDir(m.root)),
+    // Honor the recorded mode: an OPEN mesh connects credlessly even if its root still has auth
+    // material on disk (e.g. a root that once ran auth mode). Loading it would make `spawn` mint
+    // creds against a broker that takes none.
+    auth: m.mode === "auth" ? loadSpaceAuth(authDir(m.root)) : undefined,
     personaRoot: personaRoot(m.root),
     source,
   };
