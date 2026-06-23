@@ -51,6 +51,7 @@
     "smoke:attach": "tsx implementations/manager/smoke/attach.smoke.ts",
     "smoke:env-isolate": "tsx implementations/manager/smoke/env-isolate.smoke.ts",
     "smoke:start-model": "tsx implementations/manager/smoke/start-model-preflight.smoke.ts",
+    "smoke:persona-acl": "tsx implementations/manager/smoke/persona-identity-acl.smoke.ts",
     "smoke:spawn-args": "tsx extensions/connector-core/smoke/spawn-args.smoke.ts",
     "smoke:install": "tsx implementations/cli/smoke/install.smoke.ts",
     "smoke:send": "tsx implementations/cli/smoke/send.smoke.ts",
