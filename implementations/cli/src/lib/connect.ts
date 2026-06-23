@@ -21,8 +21,9 @@ import { pruneStaleMeshes } from "./meshes.js";
  * and confirms it's actually up — so `spawn`, `send`/`dm`/`msg`/`ask`, `console`, `join`, `web`,
  * `channels`, `history`, and `personas --running` all behave identically from any directory instead
  * of each re-deriving it from a cwd walk-up (which mistook `$HOME/.cotal` for a space and crashed
- * with a raw NATS auth violation). An explicit `--creds` is the escape hatch: a RAW off-registry
- * connection to `--server`, no registry lookup and no stale-prune.
+ * with a raw NATS auth violation). Two escape hatches take a RAW off-registry connection (no
+ * registry lookup, no stale-prune): explicit `--creds`, and `--server` + an unregistered `--space`
+ * (an open remote mesh that has no creds to pass).
  */
 
 export interface ConnectFlags {
@@ -47,7 +48,8 @@ export interface Connection {
   space: string;
   creds?: string;
   /** The mesh's trust material when resolved from the registry on an auth mesh — undefined for an
-   *  open mesh or a raw `--creds` connection. (web keeps it for its per-delete manager mint.) */
+   *  open mesh or a raw off-registry connection (`--creds` or `--server`+unregistered `--space`).
+   *  (web keeps it for its per-delete manager mint.) */
   auth?: SpaceAuth;
 }
 
