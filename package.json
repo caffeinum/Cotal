@@ -13,7 +13,7 @@
     "build": "pnpm -r build",
     "gen:schema": "node scripts/generate-cotal-schema.mjs",
     "test": "pnpm -r --if-present test",
-    "check": "pnpm typecheck && pnpm test && pnpm smoke:view",
+    "check": "pnpm typecheck && pnpm test && pnpm smoke:view && pnpm smoke:spawn-from-anywhere && pnpm smoke:connect",
     "clean:dry": "git clean -ndX -- node_modules .pnpm-store packages extensions implementations examples remotion",
     "clean": "git clean -fdX -- node_modules .pnpm-store packages extensions implementations examples remotion",
     "cotal": "tsx bin/cotal.ts",
