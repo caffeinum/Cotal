@@ -30,10 +30,6 @@ import {
 
 const DURATION = 150;
 
-// phase boundaries (frames). glide happens across the ~12f straddling each edge.
-const P2: [number, number] = [40, 78];
-const P3: [number, number] = [78, 115];
-
 // glide windows (where node positions interpolate between layouts)
 const G12: [number, number] = [30, 48];
 const G23: [number, number] = [68, 86];
