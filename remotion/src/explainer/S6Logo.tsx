@@ -23,8 +23,6 @@ import {
   useCurrentFrame,
 } from "../header/shared";
 
-const DURATION = 120;
-
 export const S6Logo: React.FC = () => {
   const frame = useCurrentFrame();
 
