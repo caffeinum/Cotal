@@ -67,6 +67,14 @@ export async function connectOrExit(flags: ConnectFlags, role: Profile): Promise
     await reachableOrExit(server, { creds });
     return { server, space, creds };
   }
+  // A raw OPEN remote mesh: explicit `--server` + a `--space` that isn't locally registered. Naming
+  // both is as deliberate as `--creds`, but an open broker has no creds to pass — connect bare,
+  // off-registry (no registry lookup, no prune). A registered `--space` still goes through the
+  // resolver below (which honors `--server` as an override); `--server` alone resolves there too.
+  if (flags.server && flags.space && !findMesh(flags.space)) {
+    await reachableOrExit(flags.server, {});
+    return { server: flags.server, space: flags.space };
+  }
   const target = await resolveTargetOrExit({ server: flags.server, space: flags.space });
   const creds = target.auth ? await mintCreds(target.auth, newIdentity(), role) : undefined;
   await preflightOrExit(target, creds);

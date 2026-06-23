@@ -36,11 +36,16 @@ export async function channels(argv: string[]): Promise<void> {
       instructions: { type: "string" },
     },
   });
-  const { server, space, creds } = await connectOrExit(values, "manager"); // creds undefined ⇒ open mode
+  // Validate the subcommand BEFORE connecting, so a typo (or a bare `cotal channels`) prints usage,
+  // not "no mesh running" — the same validate-first order as `history`.
+  const sub = positionals[0];
+  if (sub !== "list" && sub !== "set" && sub !== "default") return usage();
+  if (sub === "set" && !positionals[1]) return usage(); // need a channel name before touching the mesh
   // Tri-state replay: --replay → true, --no-replay → false, neither → leave unchanged.
   const replay = values["no-replay"] ? false : values.replay ? true : undefined;
+  const { server, space, creds } = await connectOrExit(values, "manager"); // creds undefined ⇒ open mode
 
-  switch (positionals[0]) {
+  switch (sub) {
     case "list": {
       printRegistry(await readChannelRegistry({ servers: server, space, creds }));
       return;
