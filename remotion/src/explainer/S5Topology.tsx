@@ -31,7 +31,6 @@ import {
 const DURATION = 150;
 
 // phase boundaries (frames). glide happens across the ~12f straddling each edge.
-const P1: [number, number] = [0, 40];
 const P2: [number, number] = [40, 78];
 const P3: [number, number] = [78, 115];
 
