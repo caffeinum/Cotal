@@ -13,6 +13,13 @@ import type { AttentionMode, PresenceStatus } from "@cotal-ai/core";
 import type { MeshAgent } from "./agent.js";
 import type { AgentConfig } from "./config.js";
 
+/** One-line connector bootstrap that points a joining agent at `cotal_orientation`. Folded into each
+ *  connector's system prompt / MCP instructions so every agent — Claude Code, OpenCode, Hermes — is
+ *  told to orient first, from a single source of truth. */
+export const ORIENTATION_BOOTSTRAP =
+  "Start with cotal_orientation — it shows your identity, the channels you can read and post to, " +
+  "your capabilities, the tools available to you, and who's present.";
+
 /** A tool the agent can actually call (already gated), as it appears in the card. */
 export interface OrientationTool {
   name: string;

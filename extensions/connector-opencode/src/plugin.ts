@@ -25,6 +25,7 @@ import {
   MeshAgent,
   formatInjection,
   fmtFrom,
+  ORIENTATION_BOOTSTRAP,
   type InboxItem,
 } from "@cotal-ai/connector-core";
 import type { Plugin, Hooks } from "@opencode-ai/plugin";
@@ -168,7 +169,9 @@ export const cotal: Plugin = async ({ client }) => {
       if (parts.length === 0) return;
       if (faceReminder) parts.push({ type: "text", text: faceReminder });
       const body: { parts: typeof parts; system?: string } = { parts };
-      if (!primed && persona) body.system = persona; // persona once, as system (no --append-system-prompt)
+      // persona once, as system (no --append-system-prompt). Append the orientation bootstrap so the
+      // agent is told to orient first — gated on persona so we never replace OpenCode's default system.
+      if (!primed && persona) body.system = `${persona}\n\n${ORIENTATION_BOOTSTRAP}`;
       busy = true;
       surfaced = ids;
       // Arm BEFORE the await: a turn-end signal can land before promptAsync resolves, and
