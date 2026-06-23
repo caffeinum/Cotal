@@ -125,10 +125,15 @@ try {
   writeFileSync(join(projA, ".cotal", "auth", "auth.json"), JSON.stringify({ space: "alpha" }));
   recordMesh(entry("openmesh", projA, SERVER)); // entry() is mode:"open"
   check("open mesh resolves with NO auth despite auth files in its root", resolveMeshTarget(neutral, { space: "openmesh" }).auth === undefined);
-  recordMesh({ ...entry("authmesh", projA, SERVER), mode: "auth" });
-  check("auth mesh resolves WITH auth from its root", Boolean(resolveMeshTarget(neutral, { space: "authmesh" }).auth));
+  recordMesh({ ...entry("alpha", projA, SERVER), mode: "auth" }); // space matches projA's auth.json
+  check("auth mesh resolves WITH auth from its root", Boolean(resolveMeshTarget(neutral, { space: "alpha" }).auth));
+  // Defense in depth (mitnick): an AUTH entry whose recorded space ≠ the root's on-disk auth.space is
+  // stale — resolving it throws AND prunes the entry, rather than minting space-Y creds for space X.
+  recordMesh({ ...entry("mismatch", projA, SERVER), mode: "auth" }); // projA's auth.json says "alpha"
+  assert.throws(() => resolveMeshTarget(neutral, { space: "mismatch" }), /stale entry removed/);
+  check("auth entry whose space ≠ root's auth.space throws + prunes", !loadMeshes().some((m) => m.space === "mismatch"));
   removeMesh("openmesh");
-  removeMesh("authmesh");
+  removeMesh("alpha");
 
   // Fix A (HIGH): a local project whose mesh is in the registry resolves to the RECORDED server +
   // mode, not the hardcoded DEFAULT_SERVER — so `cotal up --server …:4333` then an in-project spawn
