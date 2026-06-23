@@ -1,22 +1,14 @@
 import { readFileSync } from "node:fs";
-import {
-  CotalEndpoint,
-  isReachable,
-  DEFAULT_SERVER,
-  DEFAULT_SPACE,
-  authDir,
-  loadSpaceAuth,
-  mintCreds,
-  newIdentity,
-} from "@cotal-ai/core";
+import { CotalEndpoint, mintCreds, newIdentity } from "@cotal-ai/core";
 import { c } from "../ui.js";
-import { cotalRoot } from "./paths.js";
+import { preflightOrExit, resolveTargetOrExit } from "./connect.js";
 
 /**
  * A one-shot, write-capable connection for the headless commands that touch the live mesh
- * (`dm`/`msg`/`ask`, and `personas list --running`). Resolve space/server/creds the same way
- * everywhere, open a transient endpoint that never joins the roster, do the one thing, stop.
- * Fail-loud throughout — an unreachable server or a space mismatch exits, never degrades.
+ * (`dm`/`msg`/`ask`, and `personas list --running`). Resolves WHICH mesh + creds via the shared
+ * `resolveMeshTarget` (so these work from any directory, not just inside the project), opens a
+ * transient endpoint that never joins the roster, does the one thing, stops. Fail-loud throughout —
+ * an unresolved/ambiguous registry or an unreachable/auth-mismatched broker exits, never degrades.
  */
 
 export interface ConnectValues {
@@ -26,33 +18,19 @@ export interface ConnectValues {
 }
 
 /** Resolve where to connect and with what credentials: an explicit `--creds` wins; else self-mint
- *  from `.cotal/auth` so an AUTH-mode mesh admits us; else connect bare on an open mesh. Exits with
- *  a clear message on a `--space` that contradicts the local auth, or an unreachable server. */
+ *  from the resolved mesh's `.cotal/auth` so an AUTH-mode mesh admits us; else connect bare on an
+ *  open mesh. Preflights the broker (one-sentence exit on unreachable / auth mismatch). */
 export async function resolveConnect(
   values: ConnectValues,
 ): Promise<{ server: string; space: string; creds?: string }> {
-  const server = values.server ?? DEFAULT_SERVER;
-  let creds = values.creds ? readFileSync(values.creds, "utf8") : undefined;
-  let space = values.space;
-  if (!creds) {
-    const auth = loadSpaceAuth(authDir(cotalRoot()));
-    if (auth) {
-      if (space && space !== auth.space) {
-        console.error(
-          c.red(`Auth here is for space "${auth.space}", not "${space}". Use --space ${auth.space} (or pass --creds).`),
-        );
-        process.exit(1);
-      }
-      space = auth.space;
-      creds = await mintCreds(auth, newIdentity(), "manager");
-    }
-  }
-  space = space ?? DEFAULT_SPACE;
-  if (!(await isReachable(server, { creds }))) {
-    console.error(c.red(`Can't reach NATS at ${server}. Run: cotal up`));
-    process.exit(1);
-  }
-  return { server, space, creds };
+  const target = await resolveTargetOrExit({ server: values.server, space: values.space });
+  const creds = values.creds
+    ? readFileSync(values.creds, "utf8")
+    : target.auth
+      ? await mintCreds(target.auth, newIdentity(), "manager")
+      : undefined;
+  await preflightOrExit(target, creds);
+  return { server: target.server, space: target.space, creds };
 }
 
 /** Open a transient endpoint: it watches presence (so name→id resolution and the live roster work)
