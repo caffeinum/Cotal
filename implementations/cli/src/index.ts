@@ -47,7 +47,7 @@ const baseCommands: Command[] = [
     kind: "command",
     name: "down",
     group: "Mesh",
-    summary: "stop a background mesh started with `up --detach`",
+    summary: "stop a background mesh started with `up --detach` (run from its project — local only)",
     run: down,
   },
   {

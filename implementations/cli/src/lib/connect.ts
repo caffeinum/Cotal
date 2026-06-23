@@ -1,4 +1,6 @@
 import {
+  findMesh,
+  getCurrent,
   mintCreds,
   newIdentity,
   probeConnect,
@@ -24,12 +26,20 @@ export async function resolveTargetOrExit(flags: {
   space?: string;
 }): Promise<MeshTarget> {
   await pruneStaleMeshes();
+  let target: MeshTarget;
   try {
-    return resolveMeshTarget(process.cwd(), flags);
+    target = resolveMeshTarget(process.cwd(), flags);
   } catch (e) {
     console.error(c.red(`✗ ${(e as Error).message}`));
     process.exit(1);
   }
+  // If a dangling `current` was silently bypassed — it named a mesh that's since gone and we fell
+  // back to the only live one — say so. The N>1 case errors loudly; this is the one spot that would
+  // otherwise quietly redirect a stale default.
+  const cur = getCurrent();
+  if (cur && !findMesh(cur) && target.source === "registry")
+    console.error(c.dim(`note: default mesh "${cur}" is down — using "${target.space}"`));
+  return target;
 }
 
 /** Confirm the resolved mesh is up and accepts these creds — replaces the raw NATS "Authorization

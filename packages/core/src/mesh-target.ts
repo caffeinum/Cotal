@@ -7,6 +7,7 @@ import {
   getCurrent,
   homeCotalDir,
   loadMeshes,
+  removeMesh,
   type MeshEntry,
 } from "./mesh-registry.js";
 
@@ -54,14 +55,27 @@ function personaRoot(root: string): string {
 }
 
 function targetFromEntry(m: MeshEntry, server: string, source: MeshTarget["source"]): MeshTarget {
+  // Honor the recorded mode: an OPEN mesh connects credlessly even if its root still has auth
+  // material on disk (e.g. a root that once ran auth mode). Loading it would make `spawn` mint
+  // creds against a broker that takes none.
+  let auth: SpaceAuth | undefined;
+  if (m.mode === "auth") {
+    auth = loadSpaceAuth(authDir(m.root));
+    // Defense in depth: the root's on-disk auth must still be for THIS space. A divergence (the root
+    // was re-`up`ed as a different space without re-recording) would otherwise mint mesh-A creds
+    // against the entry for space B. Prune the stale entry and fail loud rather than connect wrong.
+    if (auth && auth.space !== m.space) {
+      removeMesh(m.space);
+      throw new Error(
+        `registry entry "${m.space}" points at ${m.root}, whose auth is now for "${auth.space}" — stale entry removed; re-run \`cotal up\` or check \`cotal meshes\``,
+      );
+    }
+  }
   return {
     root: m.root,
     server,
     space: m.space,
-    // Honor the recorded mode: an OPEN mesh connects credlessly even if its root still has auth
-    // material on disk (e.g. a root that once ran auth mode). Loading it would make `spawn` mint
-    // creds against a broker that takes none.
-    auth: m.mode === "auth" ? loadSpaceAuth(authDir(m.root)) : undefined,
+    auth,
     personaRoot: personaRoot(m.root),
     source,
   };

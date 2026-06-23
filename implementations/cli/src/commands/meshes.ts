@@ -18,4 +18,8 @@ export async function meshes(): Promise<void> {
     const marker = m.space === current ? c.green("*") : " ";
     console.log(`${marker} ${m.space.padEnd(pad)}  ${c.dim(`${m.server}  ${m.mode}  ${m.root}`)}`);
   }
+  // A `current` that no longer matches any running mesh (its broker went down) shows no `*` — say
+  // why, so a bare `cotal spawn` still reporting "multiple meshes" isn't a mystery.
+  if (current && !all.some((m) => m.space === current))
+    console.log(c.dim(`\nnote: default "${current}" is not running — \`cotal use <name>\` to set a live one`));
 }
