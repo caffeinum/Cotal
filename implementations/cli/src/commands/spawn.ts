@@ -134,10 +134,14 @@ async function preflightOrExit(target: MeshTarget): Promise<void> {
   const creds = target.auth ? await mintCreds(target.auth, newIdentity(), "manager") : undefined;
   const probe = await probeConnect(target.server, creds ? { creds } : {});
   if (probe.ok) return;
-  // A target picked FROM the registry (vs an explicit local project / --server) owns its entry, so
-  // a definitive failure prunes it.
+  // A target whose server + mode came from a registry record owns that record, so a definitive
+  // failure prunes the stale entry. `local-recorded` (a local project matched to an entry by root)
+  // is registry-owned for pruning even though the success line treats it as a quiet local target.
   const fromRegistry =
-    target.source === "registry" || target.source === "current" || target.source === "flag-space";
+    target.source === "registry" ||
+    target.source === "current" ||
+    target.source === "flag-space" ||
+    target.source === "local-recorded";
   if (probe.reason === "unreachable") {
     if (fromRegistry) removeMesh(target.space); // the broker is gone — drop the stale entry
     console.error(

@@ -28,7 +28,18 @@ export interface MeshTarget {
   auth?: SpaceAuth;
   /** `<root>/.cotal/agents` — the persona catalog for this mesh. */
   personaRoot: string;
-  source: "flag-server" | "flag-space" | "local-space" | "registry" | "current";
+  /** Where the target came from — this also carries OWNERSHIP for pruning. Every value except
+   *  `local-space` and `flag-server` (the two non-registry escape hatches) means the server + mode
+   *  came from a registry record, so a stale-broker failure prunes it. `local-recorded` is a local
+   *  project matched to a registry entry by root: registry-owned for pruning, but quiet on the
+   *  success line (the target is self-evident from cwd, like `local-space`). */
+  source:
+    | "flag-server"
+    | "flag-space"
+    | "local-space"
+    | "local-recorded"
+    | "registry"
+    | "current";
 }
 
 export interface ResolveFlags {
@@ -97,7 +108,18 @@ export function resolveMeshTarget(cwd: string, flags: ResolveFlags = {}): MeshTa
     // and a recorded OPEN mesh must not mint creds off stale `.cotal/auth` left on disk. Fall back
     // to the local default only when nothing is recorded for this root.
     const recorded = loadMeshes().find((m) => resolve(m.root) === resolve(root));
-    if (recorded) return targetFromEntry(recorded, recorded.server, "local-space");
+    if (recorded) return targetFromEntry(recorded, recorded.server, "local-recorded");
+    // No record for this root (migration, or our broker went down and the entry was just pruned).
+    // Before guessing DEFAULT_SERVER, refuse if a DIFFERENT mesh is recorded there — otherwise the
+    // fallback would silently join someone else's mesh on the default port with our persona (the
+    // exact silent-wrong-mesh outcome this feature exists to prevent).
+    const onDefault = loadMeshes().find(
+      (m) => m.server === DEFAULT_SERVER && resolve(m.root) !== resolve(root),
+    );
+    if (onDefault)
+      throw new Error(
+        `another mesh ("${onDefault.space}") is running at ${DEFAULT_SERVER} — run \`cotal up\` here to start yours, or \`--space ${onDefault.space}\` to join it`,
+      );
     return localTarget(root, DEFAULT_SERVER, "local-space");
   }
 

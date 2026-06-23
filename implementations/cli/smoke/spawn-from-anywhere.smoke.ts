@@ -109,7 +109,7 @@ try {
   const sub = join(projA, "nested", "dir");
   mkdirSync(sub, { recursive: true });
   const local = resolveMeshTarget(sub);
-  check("local project wins: source is 'local-space' on its own root", local.source === "local-space" && local.root === projA, local);
+  check("local project wins: source is 'local-recorded' (matched a registry entry by root)", local.source === "local-recorded" && local.root === projA, local);
 
   // Registry `mode` is authoritative for auth: an OPEN mesh resolves credlessly EVEN IF its root
   // still has auth material on disk; an AUTH mesh loads it. Same root, opposite outcomes.
@@ -131,7 +131,7 @@ try {
   const localReg = resolveMeshTarget(join(projA, "nested", "dir"));
   check(
     "local project uses the RECORDED server, not DEFAULT_SERVER",
-    localReg.server === ALT && localReg.source === "local-space",
+    localReg.server === ALT && localReg.source === "local-recorded",
     localReg,
   );
   check(
@@ -140,6 +140,28 @@ try {
     localReg.auth,
   );
   recordMesh(entry("teamA", projA)); // restore (default server, open) for the remaining checks
+
+  // A recorded local project resolves as `local-recorded`: registry-owned (so a stale entry prunes
+  // on auth-required) yet quiet on the success line (the target is self-evident from cwd).
+  check(
+    "recorded local project → source 'local-recorded' (registry-owned for pruning, quiet UX)",
+    resolveMeshTarget(join(projA, "nested", "dir")).source === "local-recorded",
+  );
+  // A target built by localTarget (flag-server with no registry hit) stays `flag-server` — a
+  // non-registry escape hatch, so it is NOT pruned on failure.
+  check(
+    "localTarget (flag-server, no registry match) → source 'flag-server' (not registry-owned)",
+    resolveMeshTarget(neutral, { server: "nats://127.0.0.1:9999" }).source === "flag-server",
+  );
+  // Silent-wrong-mesh guard: a genuine local project with NO entry of its own must NOT fall back
+  // onto another mesh already recorded on DEFAULT_SERVER — it errors instead of joining it.
+  const projC = project("projC", ["x"]);
+  assert.throws(
+    () => resolveMeshTarget(projC),
+    (e: Error) => /another mesh/.test(e.message) && /is running at/.test(e.message),
+  );
+  check("local project w/o its own entry won't silently join a mesh on the default port", true);
+  rmSync(projC, { recursive: true, force: true });
 
   // Offline completion: lists the RESOLVED mesh's personas (current=teamB → projB), and is
   // synchronous — it cannot have awaited a network probe.
