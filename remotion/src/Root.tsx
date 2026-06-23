@@ -39,7 +39,6 @@ import { DemoCodexRotate } from "./explainer/DemoCodexRotate";
 import { DemoCodexShuffle } from "./explainer/DemoCodexShuffle";
 import { DemoReadme } from "./explainer/DemoReadme";
 import { ExplainerMerged } from "./explainer/ExplainerMerged";
-import { DemoHdrPark } from "./explainer/DemoHdrPark";
 
 const EXPL = { fps: 30, width: 1920, height: 1080 } as const;
 
@@ -97,7 +96,6 @@ export const Root: React.FC = () => {
       <Composition id="DemoCodexRotate" component={DemoCodexRotate} durationInFrames={605} {...EXPL} />
       <Composition id="DemoCodexShuffle" component={DemoCodexShuffle} durationInFrames={605} {...EXPL} />
       <Composition id="DemoReadme" component={DemoReadme} durationInFrames={350} {...EXPL} />
-      <Composition id="DemoHdrPark" component={DemoHdrPark} durationInFrames={350} {...EXPL} />
       <Composition id="ExplainerMerged" component={ExplainerMerged} durationInFrames={1155} {...EXPL} />
     </>
   );

@@ -1,10 +1,15 @@
 <div align="center">
 
-<img src="assets/cotal-demo.webp" width="760" alt="Cotal: any agent, any topology — Claude Code, OpenCode, Hermes and Codex across peer-to-peer, supervised, hierarchical and hybrid topologies">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="assets/cotal-wordmark-dark.png">
+<img src="assets/cotal-wordmark-light.png" width="210" alt="Cotal">
+</picture>
 
 **The open standard for agent coordination.**
 
 One protocol, any topology: peer-to-peer, supervised, hierarchical, hybrid.
+
+<img src="assets/cotal-demo.webp" width="760" alt="Cotal: any agent, any topology — Claude Code, OpenCode, Hermes and Codex across peer-to-peer, supervised, hierarchical and hybrid topologies">
 
 [![CI](https://github.com/Cotal-AI/Cotal/actions/workflows/ci.yml/badge.svg)](https://github.com/Cotal-AI/Cotal/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/@cotal-ai/core?label=%40cotal-ai%2Fcore)](https://www.npmjs.com/package/@cotal-ai/core)
