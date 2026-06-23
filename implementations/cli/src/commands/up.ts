@@ -23,6 +23,13 @@ import {
   newIdentity,
   setupSpaceStreams,
   seedChannelRegistry,
+  clearCurrent,
+  getCurrent,
+  loadMeshes,
+  recordMesh,
+  removeMesh,
+  setCurrent,
+  type MeshEntry,
   type SpaceAuth,
   type ChannelRegistryFile,
 } from "@cotal-ai/core";
@@ -49,6 +56,21 @@ export async function up(argv: string[]): Promise<void> {
   const server = values.server ?? DEFAULT_SERVER;
   const host = values.host ?? "127.0.0.1";
   if (await isReachable(server)) {
+    const space = values.space ?? resolveSpace(process.cwd());
+    const root = cotalRoot();
+    // A broker is already on this port. If the registry says it's a DIFFERENT space, the new mesh
+    // did not start — fail loudly rather than let the user believe it did (a later `spawn --space`
+    // would then fail with a stale-looking error). If it's ours (or unrecorded), adopt/refresh it.
+    const held = loadMeshes().find((m) => m.server === server);
+    if (held && held.root !== root) {
+      console.error(
+        c.red(
+          `✗ ${server} is held by mesh "${held.space}" (${held.root}) — to run "${space}" too, pass \`--server nats://${host}:<port>\``,
+        ),
+      );
+      process.exit(1);
+    }
+    recordOurMesh({ space, server, root, mode: values.open ? "open" : "auth", ts: new Date().toISOString() });
     console.log(c.green(`✓ NATS already running at ${server}`));
     return;
   }
@@ -93,13 +115,21 @@ export async function up(argv: string[]): Promise<void> {
   const stop = () => { stopDelivery(); child.kill("SIGTERM"); };
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
-  child.on("exit", (code) => { stopDelivery(); process.exit(code ?? 0); });
+  // The broker is gone — drop it from the registry (and the `current` pointer if it was the default)
+  // so a later `cotal spawn` doesn't try to join a dead mesh.
+  child.on("exit", (code) => {
+    stopDelivery();
+    removeMesh(space);
+    if (getCurrent() === space) clearCurrent();
+    process.exit(code ?? 0);
+  });
 
   if (await waitReady(server, setup?.creds)) {
     await postStart(server, space, setup, seedFile);
     // Bring up the delivery daemon WITH the server (auth mode only — it self-gates on `.cotal/auth`).
     // It is part of the server, so `cotal up` starts it by default; open dev mode has no daemon.
     await startDeliveryWithBroker(space, server);
+    recordOurMesh({ space, server, root: cotalRoot(), mode: useAuth ? "auth" : "open", ts: new Date().toISOString() });
   }
   await new Promise<void>(() => {});
 }
@@ -167,7 +197,24 @@ export async function startMeshDetached(opts: DetachOpts = {}): Promise<{ server
   await postStart(server, space, setup, seedFile);
   // Bring up the delivery daemon WITH the detached broker (auth mode only; `cotal down` tears both down).
   await startDeliveryWithBroker(space, server);
+  // Detached: the registry entry outlives this process — `cotal down` removes it.
+  recordOurMesh({ space, server, root: cotalRoot(), mode: useAuth ? "auth" : "open", ts: new Date().toISOString() });
   return { server, pid: child.pid ?? 0, source };
+}
+
+/** Record this mesh in the registry, and make it the `current` default ONLY when it's the first one
+ *  running — never silently redirect a `current` the user already chose. When another mesh is current,
+ *  say so and how to switch. */
+function recordOurMesh(m: MeshEntry): void {
+  const first = loadMeshes().length === 0;
+  recordMesh(m);
+  if (first) {
+    setCurrent(m.space);
+    return;
+  }
+  const current = getCurrent();
+  if (current && current !== m.space)
+    console.log(c.dim(`"${m.space}" up; current is still "${current}" — \`cotal use ${m.space}\` to switch`));
 }
 
 /** Poll a growing log file and forward newly-appended lines until `stopped()` is true. */

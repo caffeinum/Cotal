@@ -3,7 +3,6 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { parseArgs } from "node:util";
 import {
-  DEFAULT_SERVER,
   agentFilePath,
   authDir,
   connectorServers,
@@ -11,27 +10,38 @@ import {
   isReachable,
   loadAgentFile,
   loadCotalConfig,
-  loadSpaceAuth,
+  loadMeshes,
   mintCreds,
   newIdentity,
   parseShareSelection,
+  probeConnect,
   provisionAgent,
   registry,
+  removeMesh,
+  resolveMeshTarget,
   CotalEndpoint,
   type AgentDef,
   type CompletionResult,
   type Connector,
+  type MeshTarget,
   type SpaceAuth,
 } from "@cotal-ai/core";
-import { cotalRoot } from "../lib/paths.js";
-import { listPersonaNames } from "../lib/personas.js";
-import { resolveSpace } from "../lib/status.js";
+import { c } from "../ui.js";
+import { pruneStaleMeshes } from "../lib/meshes.js";
+import { listPersonas } from "../lib/personas.js";
 
-/** Completion for `cotal spawn <name>` — the first positional is a persona; the rest are flags
- *  we leave to the shell. Filesystem-only (the persona catalog), so it never opens the mesh. */
+/** Completion for `cotal spawn` — `--space <TAB>` lists the running meshes, and the first positional
+ *  is a persona from the mesh this spawn would target. Resolved OFFLINE (registry + `current`, no
+ *  probe — a <TAB> must stay cheap and never open the network), so it lists the *target* mesh's
+ *  personas, not the cwd's. */
 export function spawnComplete(argv: string[]): CompletionResult {
-  if (argv.length <= 1)
-    return { items: listPersonaNames().map((value) => ({ value })), directive: "nofiles" };
+  if (argv[argv.length - 2] === "--space")
+    return { items: loadMeshes().map((m) => ({ value: m.space })), directive: "nofiles" };
+  // Only the first word after `spawn` is the persona positional; once it's typed, defer to the shell.
+  if (argv.length <= 1) {
+    const target = resolveMeshTarget(process.cwd());
+    return { items: listPersonas(target.root).map((p) => ({ value: p.name })), directive: "nofiles" };
+  }
   return { items: [], directive: "nofiles" };
 }
 
@@ -47,6 +57,10 @@ export function spawnComplete(argv: string[]): CompletionResult {
  * shared with the manager); only *how the spec runs* differs — foreground exec
  * here vs. a supervised runtime in the manager. The connector is resolved from
  * the registry by agent type, composed at the root.
+ *
+ * The mesh it joins — creds and personas together — is resolved by {@link resolveMeshTarget}, so a
+ * bare `cotal spawn <persona>` from any directory finds the running mesh (one up, or the `current`
+ * default) instead of mistaking `~/.cotal` for a space.
  */
 /**
  * Auto-number `requested` past any peer already present on the mesh (foo → foo-2 → foo-3) — the same
@@ -95,6 +109,43 @@ async function uniqueMeshName(
   }
 }
 
+/** Resolve the mesh this spawn targets, exiting with one human sentence on an unresolved/ambiguous
+ *  registry rather than a stack trace. Prunes dead registry entries first so a crashed mesh doesn't
+ *  block a bare spawn or get offered by `--space`. */
+async function resolveTargetOrExit(flags: { server?: string; space?: string }): Promise<MeshTarget> {
+  await pruneStaleMeshes();
+  try {
+    return resolveMeshTarget(process.cwd(), flags);
+  } catch (e) {
+    console.error(c.red(`✗ ${(e as Error).message}`));
+    process.exit(1);
+  }
+}
+
+/** Confirm the resolved mesh is actually up and accepts our creds — replaces the raw NATS
+ *  "Authorization Violation" trace with one sentence, and prunes the entry if the broker is gone. */
+async function preflightOrExit(target: MeshTarget): Promise<void> {
+  const creds = target.auth ? await mintCreds(target.auth, newIdentity(), "manager") : undefined;
+  const probe = await probeConnect(target.server, creds ? { creds } : {});
+  if (probe.ok) return;
+  if (probe.reason === "unreachable") {
+    const fromRegistry = target.source === "registry" || target.source === "current";
+    if (fromRegistry) removeMesh(target.space); // the entry was stale — drop it
+    console.error(
+      c.red(
+        `✗ no mesh running at ${target.server}${fromRegistry ? " (stale registry entry — removed)" : ""} — run \`cotal up\``,
+      ),
+    );
+  } else {
+    console.error(
+      c.red(
+        `✗ mesh "${target.space}" at ${target.server} requires credentials this folder can't provide — its trust material is in ${authDir(target.root)}; spawn from there, or use \`--space <name>\` for another mesh`,
+      ),
+    );
+  }
+  process.exit(1);
+}
+
 export async function spawn(argv: string[]): Promise<void> {
   const { values, positionals } = parseArgs({
     args: argv,
@@ -120,31 +171,42 @@ export async function spawn(argv: string[]): Promise<void> {
   // (`--no-transcript` is accepted too, to be explicit about the default).
   const transcript = values.transcript ? true : values["no-transcript"] ? false : false;
 
-  // Where the config lives: --config, else the positional <name-or-path>, else --name
-  // (.cotal/agents/<name>.md). With none of those, fall back to the seeded `default` persona:
-  // `cotal spawn` with no args launches `.cotal/agents/default.md` (same flags as `cotal start`).
-  const ref = values.config ?? positionals[0] ?? values.name ?? "default";
+  // Which mesh this spawn joins — creds + personas together, resolved from --server/--space, a local
+  // project, or the registry (the running mesh / the `current` default).
+  const target = await resolveTargetOrExit({ server: values.server, space: values.space });
+  const { space, server, auth } = target;
 
-  const path = agentFilePath(cotalRoot(), ref);
+  // Where the config lives: --config, else the positional <name-or-path>, else --name
+  // (.cotal/agents/<name>.md under the TARGET mesh's root). With none, fall back to its `default`
+  // persona — `cotal spawn` with no args launches `<root>/.cotal/agents/default.md`.
+  const ref = values.config ?? positionals[0] ?? values.name ?? "default";
+  const path = agentFilePath(target.root, ref);
   let def: AgentDef;
   try {
     def = loadAgentFile(path);
   } catch (e) {
-    const noDefault = ref === "default" && (e as NodeJS.ErrnoException).code === "ENOENT";
-    console.error(
-      noDefault
-        ? "✗ no default persona yet — run `cotal setup` to seed one, or name a persona: `cotal spawn <name>`"
-        : `✗ ${(e as Error).message}`,
-    );
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      console.error(
+        c.red(
+          ref === "default"
+            ? "✗ no default persona yet — run `cotal setup` to seed one, or name a persona: `cotal spawn <name>`"
+            : `✗ no persona "${ref}" in ${target.space}'s ${target.personaRoot} — use \`--config <path>\` for a file elsewhere`,
+        ),
+      );
+    } else {
+      console.error(c.red(`✗ ${(e as Error).message}`));
+    }
     process.exit(1);
   }
 
   // --name / --role override the file (name defaults from the file's frontmatter).
   const requested = values.name ?? def.name;
   const role = values.role ?? def.role;
-  const space = values.space ?? resolveSpace(process.cwd());
-  const server = values.server ?? DEFAULT_SERVER;
-  const auth = loadSpaceAuth(authDir(cotalRoot()));
+
+  // Preflight: fail with one sentence if the mesh is down or won't take our creds, instead of
+  // crashing mid-connect with a raw NATS Authorization Violation.
+  await preflightOrExit(target);
 
   // A second `cotal spawn` of the same agent would otherwise join under a duplicate mesh identity:
   // auto-number the name past anyone already present (best-effort — this path bypasses the manager's
@@ -152,6 +214,12 @@ export async function spawn(argv: string[]): Promise<void> {
   const name = await uniqueMeshName(requested, { space, server, auth });
   if (name !== requested)
     console.error(`"${requested}" is already on the mesh — spawning as ${name} instead`);
+
+  // When the target was auto-resolved (one mesh up, or the `current` default), say which mesh we
+  // picked — it isn't obvious from the cwd. An explicit --space/--server or a local project is
+  // self-evident, so stay quiet there.
+  if (target.source === "registry" || target.source === "current")
+    console.error(c.dim(`→ joining mesh ${space} (${server}) as ${name}`));
 
   // Auth mode (`.cotal/auth` present): mint a stable identity + scoped creds for this agent
   // and pre-create its bind-only durables, via a short-lived privileged provisioner — the
@@ -188,7 +256,7 @@ export async function spawn(argv: string[]): Promise<void> {
       durableMembership: false,
     });
     await prov.stop();
-    credsPath = join(authDir(cotalRoot()), "creds", `${name}.creds`);
+    credsPath = join(authDir(target.root), "creds", `${name}.creds`);
     mkdirSync(dirname(credsPath), { recursive: true });
     writeFileSync(credsPath, creds, { mode: 0o600 });
     id = identity.id;
@@ -196,11 +264,11 @@ export async function spawn(argv: string[]): Promise<void> {
   }
 
   // Which of the operator's personal MCP servers to share with this agent: declared in the cotal
-  // config (global ~/.config/cotal + space-local .cotal), narrowed by an optional --share-tools
-  // selection. Default (no config) is none — the connector launches isolated.
+  // config (global ~/.config/cotal + the target mesh's .cotal), narrowed by an optional
+  // --share-tools selection. Default (no config) is none — the connector launches isolated.
   const agentType = values.agent ?? "claude";
   const mcpServers = connectorServers(
-    loadCotalConfig(cotalRoot()),
+    loadCotalConfig(target.root),
     agentType,
     parseShareSelection(values["share-tools"]),
   );

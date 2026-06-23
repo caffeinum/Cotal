@@ -1,0 +1,125 @@
+/**
+ * `cotal spawn` from any directory — the mesh registry + resolver + offline completion + the
+ * connect preflight's stale-detection. Hermetic (no broker needed): COTAL_HOME is sandboxed to a
+ * temp dir, "meshes" are recorded straight into the registry, and reachability is probed against a
+ * closed port. Run: pnpm smoke:spawn-from-anywhere
+ *
+ * Covers every `resolveMeshTarget` source branch (0 / 1 / N+current / --space / local-project),
+ * that completion lists the RESOLVED mesh's personas (not the cwd's) without opening the network,
+ * and that a dead registry entry probes `unreachable` and is pruned.
+ */
+import { strict as assert } from "node:assert";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+// Sandbox the machine-home BEFORE touching the registry — homeCotalDir() reads COTAL_HOME per call,
+// so the real ~/.cotal is never touched.
+const home = mkdtempSync(join(tmpdir(), "cotal-home-"));
+process.env.COTAL_HOME = home;
+
+const {
+  clearCurrent,
+  loadMeshes,
+  probeConnect,
+  recordMesh,
+  removeMesh,
+  resolveMeshTarget,
+  setCurrent,
+} = await import("@cotal-ai/core");
+const { spawnComplete } = await import("../src/commands/spawn.js");
+const { listPersonas } = await import("../src/lib/personas.js");
+const { pruneStaleMeshes } = await import("../src/lib/meshes.js");
+
+let pass = 0;
+const check = (name: string, cond: boolean, extra?: unknown) => {
+  assert.ok(cond, `${name}${extra !== undefined ? ` — ${JSON.stringify(extra)}` : ""}`);
+  pass++;
+  console.log(`  ✓ ${name}`);
+};
+
+/** A project root with a `.cotal/agents/<persona>.md` catalog. */
+function project(label: string, personas: string[]): string {
+  const root = mkdtempSync(join(tmpdir(), `cotal-${label}-`));
+  const dir = join(root, ".cotal", "agents");
+  mkdirSync(dir, { recursive: true });
+  for (const p of personas) writeFileSync(join(dir, `${p}.md`), `# ${p}\n`);
+  return root;
+}
+
+const projA = project("projA", ["reviewer", "researcher"]);
+const projB = project("projB", ["builder"]);
+const neutral = mkdtempSync(join(tmpdir(), "cotal-neutral-")); // no .cotal up-tree
+const SERVER = "nats://127.0.0.1:4222";
+const DEAD = "nats://127.0.0.1:1"; // nothing listens here
+const entry = (space: string, root: string, server = SERVER) =>
+  ({ space, server, root, mode: "open" as const, ts: "2026-06-22T00:00:00.000Z" });
+
+try {
+  // 0 meshes → a bare resolve fails with one sentence, not a crash.
+  assert.throws(() => resolveMeshTarget(neutral), /no mesh running/);
+  check("0 meshes: resolve throws 'no mesh running'", true);
+
+  // 1 mesh → used automatically (source 'registry'), with its root + personas.
+  recordMesh(entry("teamA", projA));
+  const one = resolveMeshTarget(neutral);
+  check("1 mesh: source is 'registry'", one.source === "registry", one.source);
+  check("1 mesh: resolves to its root", one.root === projA, one.root);
+  check(
+    "1 mesh: personas come from the TARGET mesh",
+    listPersonas(one.root).map((p) => p.name).join(",") === "researcher,reviewer",
+    listPersonas(one.root).map((p) => p.name),
+  );
+
+  // 2 meshes, no current → ambiguous: error names both spaces AND their roots.
+  recordMesh(entry("teamB", projB));
+  assert.throws(() => resolveMeshTarget(neutral), (e: Error) => /multiple meshes/.test(e.message) && e.message.includes(projA) && e.message.includes(projB));
+  check("N meshes, no current: error names both meshes + roots", true);
+
+  // --space picks one explicitly (source 'flag-space').
+  const flagged = resolveMeshTarget(neutral, { space: "teamB" });
+  check("--space: source is 'flag-space' on the right root", flagged.source === "flag-space" && flagged.root === projB, flagged);
+  assert.throws(() => resolveMeshTarget(neutral, { space: "ghost" }), /no mesh named "ghost"/);
+  check("--space ghost: errors with the unknown name", true);
+
+  // current set → bare resolve uses it (source 'current').
+  setCurrent("teamB");
+  const cur = resolveMeshTarget(neutral);
+  check("N meshes + current: source is 'current' on the chosen root", cur.source === "current" && cur.root === projB, cur);
+
+  // A genuine local project always wins over the registry (source 'local-space').
+  const sub = join(projA, "nested", "dir");
+  mkdirSync(sub, { recursive: true });
+  const local = resolveMeshTarget(sub);
+  check("local project wins: source is 'local-space' on its own root", local.source === "local-space" && local.root === projA, local);
+
+  // Offline completion: lists the RESOLVED mesh's personas (current=teamB → projB), and is
+  // synchronous — it cannot have awaited a network probe.
+  const prevCwd = process.cwd();
+  process.chdir(neutral);
+  try {
+    const personas = spawnComplete([""]); // CompletionResult, not a Promise
+    check("completion: lists the resolved mesh's personas (not cwd's)", personas.items.map((i) => i.value).join(",") === "builder", personas.items);
+    const spaces = spawnComplete(["--space", ""]);
+    check("completion: --space lists the running spaces", spaces.items.map((i) => i.value).sort().join(",") === "teamA,teamB", spaces.items);
+  } finally {
+    process.chdir(prevCwd);
+  }
+
+  // Preflight probe: a closed port is 'unreachable' (distinct from an auth broker's 'auth-required').
+  const dead = await probeConnect(DEAD, { timeoutMs: 500 });
+  check("probeConnect(closed port) → unreachable", !dead.ok && dead.reason === "unreachable", dead);
+
+  // Stale prune: an entry whose broker is gone is dropped; live-looking ones are left to their probe.
+  clearCurrent();
+  removeMesh("teamA");
+  removeMesh("teamB");
+  recordMesh(entry("ghost", projA, DEAD));
+  await pruneStaleMeshes();
+  check("pruneStaleMeshes drops the dead entry", loadMeshes().every((m) => m.space !== "ghost"), loadMeshes());
+
+  console.log(`\nspawn-from-anywhere smoke: ${pass} checks passed`);
+} finally {
+  for (const d of [home, projA, projB, neutral]) rmSync(d, { recursive: true, force: true });
+}
+process.exit(0);
