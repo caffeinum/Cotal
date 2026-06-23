@@ -7,7 +7,7 @@
 
 **The open standard for agent coordination.**
 
-<img src="assets/cotal-demo.webp" width="760" alt="Cotal: any agent, any topology — Claude Code, OpenCode, Hermes and Codex across peer-to-peer, supervised, hierarchical and hybrid topologies">
+<img src="assets/cotal-demo.webp" width="760" alt="Cotal: any agent, any topology. Claude Code, OpenCode, Hermes and Codex across peer-to-peer, supervised, hierarchical and hybrid topologies">
 
 <sub>One protocol, any topology: peer-to-peer, supervised, hierarchical, or any mix.</sub>
 
