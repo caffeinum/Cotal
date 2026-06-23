@@ -56,7 +56,9 @@ function currentFile(): string {
 
 /** Record (or refresh) a running mesh — atomic write, 0600 (the file points at a secrets dir). */
 export function recordMesh(m: MeshEntry): void {
-  mkdirSync(meshesDir(), { recursive: true });
+  // 0700: the filenames in here ARE the space names, so a world-traversable dir would leak them to
+  // other local users even though the file contents are 0600. Keep the dir readable only by us.
+  mkdirSync(meshesDir(), { recursive: true, mode: 0o700 });
   const file = meshFile(m.space);
   // Per-process temp name so two concurrent `up`s for the same space can't stomp each other's
   // half-written file before the rename.
@@ -106,7 +108,7 @@ export function getCurrent(): string | undefined {
 }
 
 export function setCurrent(space: string): void {
-  mkdirSync(homeCotalDir(), { recursive: true });
+  mkdirSync(homeCotalDir(), { recursive: true, mode: 0o700 });
   writeFileSync(currentFile(), space, { mode: 0o600 });
 }
 

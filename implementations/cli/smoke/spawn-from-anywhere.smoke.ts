@@ -9,7 +9,7 @@
  * and that a dead registry entry probes `unreachable` and is pruned.
  */
 import { strict as assert } from "node:assert";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -21,6 +21,7 @@ process.env.COTAL_HOME = home;
 const {
   clearCurrent,
   loadMeshes,
+  meshesDir,
   probeConnect,
   recordMesh,
   removeMesh,
@@ -71,6 +72,13 @@ try {
 
   // 1 mesh → used automatically (source 'registry'), with its root + personas.
   recordMesh(entry("teamA", projA));
+  // Hardening: the registry dir is 0700 — its filenames are space names, so it must not be
+  // world-traversable even though the file contents are already 0600.
+  check(
+    "registry dir is created 0700 (space names not world-readable)",
+    (statSync(meshesDir()).mode & 0o777) === 0o700,
+    (statSync(meshesDir()).mode & 0o777).toString(8),
+  );
   const one = resolveMeshTarget(neutral);
   check("1 mesh: source is 'registry'", one.source === "registry", one.source);
   check("1 mesh: resolves to its root", one.root === projA, one.root);

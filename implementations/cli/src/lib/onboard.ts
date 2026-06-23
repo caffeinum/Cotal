@@ -12,6 +12,6 @@ export function isOnboarded(): boolean {
 }
 
 export function markOnboarded(version: string): void {
-  mkdirSync(homeCotalDir(), { recursive: true });
+  mkdirSync(homeCotalDir(), { recursive: true, mode: 0o700 });
   writeFileSync(MARKER(), JSON.stringify({ version, ts: new Date().toISOString() }, null, 2));
 }
