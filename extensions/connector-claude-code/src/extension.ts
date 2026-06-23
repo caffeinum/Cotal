@@ -32,6 +32,7 @@ export const claudeConnector: Connector = {
   kind: "connector",
   name: "claude",
   pluginRoot: PLUGIN_ROOT,
+  requires: ["claude"],
   buildLaunch(opts: LaunchOpts): LaunchSpec {
     // Operator MCP servers shared with this agent (default none — see the --mcp-config block).
     const shared = opts.mcpServers ?? {};
@@ -102,13 +103,16 @@ export const claudeConnector: Connector = {
 
     // An agent file carries identity (read in-session via COTAL_AGENT_FILE) plus
     // persona + model, which can only be applied to a `claude` session at launch.
+    let model = opts.model;
     if (opts.configPath) {
       const path = resolve(opts.configPath);
       env.COTAL_AGENT_FILE = path;
       const def = loadAgentFile(path);
       if (def.persona) args.push("--append-system-prompt", def.persona);
-      if (def.model) args.push("--model", def.model);
+      model ??= def.model;
     }
+    // The `--model` flag wins over the agent file, and applies even with no agent file.
+    if (model) args.push("--model", model);
 
     return {
       command: "claude",
