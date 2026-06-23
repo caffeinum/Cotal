@@ -27,6 +27,7 @@ const { resolveMeshTarget, recordMesh, loadMeshes, probeConnect, meshesDir } = a
   "@cotal-ai/core"
 );
 const { pruneStaleMeshes } = await import("../src/lib/meshes.js");
+const { reachableOrExit } = await import("../src/lib/connect.js");
 
 let pass = 0;
 const kids: ChildProcess[] = [];
@@ -88,6 +89,12 @@ try {
   // Preflight's core against the LIVE broker (open → no creds): must connect.
   const live = await probeConnect(t.server, {});
   ok("B: probeConnect to the LIVE recorded broker → ok", live.ok === true, live);
+
+  // reachableOrExit — the raw-path reachability used by the `--creds` escape hatch and join's
+  // explicit path — RETURNS on a live open broker (it would process.exit() on failure, which would
+  // kill this run before the assertion; reaching it proves success).
+  await reachableOrExit(SRV_OPEN, {});
+  ok("B: reachableOrExit returns on a live open broker (raw-path reachability)", true);
 
   // B(auth-required): the unreachable-vs-auth split against a REAL auth broker.
   startBroker(4456, true);
