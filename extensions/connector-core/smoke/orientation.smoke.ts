@@ -8,6 +8,7 @@ import {
   cotalToolSpecs,
   buildOrientation,
   renderOrientation,
+  ORIENTATION_BOOTSTRAP,
   type AgentConfig,
   type MeshAgent,
 } from "@cotal-ai/connector-core";
@@ -105,6 +106,12 @@ const presence = (id: string, name: string, role?: string, status = "idle") => (
   assert.match(o.peers.summary, /bob\/worker \(working\)/);
   assert.ok(!o.peers.summary.includes("alice"), "self not in the peer summary");
   assert.equal(o.unread.total, 3);
+}
+
+// 5 — the shared connector bootstrap is exported and points agents at the tool.
+{
+  assert.ok(ORIENTATION_BOOTSTRAP.length > 0, "bootstrap is non-empty");
+  assert.match(ORIENTATION_BOOTSTRAP, /cotal_orientation/);
 }
 
 console.log("✓ orientation smoke passed");
