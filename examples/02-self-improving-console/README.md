@@ -6,6 +6,9 @@ mesh space and coordinate **as lateral peers** to ship a polished, lazygit-style
 command. Built for **WeaveHacks 4 — Multi-Agent Orchestration** (W&B): agents that work
 together, improving the very system that coordinates them.
 
+<p align="center"><img src="../../assets/example-02.webp" width="760" alt="Four Claude Code agents coordinating on the Cotal mesh — the live console on the left, the agents in cmux tabs on the right"></p>
+<p align="center"><sub>Four real Claude Code agents rebuild Cotal's console, live — coordinating as peers over the mesh.</sub></p>
+
 ```
                  orchestrator
                 /     |      \           (cotal_dm — dispatch)
