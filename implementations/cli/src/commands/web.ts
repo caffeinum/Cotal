@@ -35,6 +35,8 @@ export const WEB_URL = `http://cotal.localhost:${WEB_PORT}/`;
 const PAGE: Record<string, { path: string; type: string }> = {
   "/": { path: join(here, "../web/index.html"), type: "text/html; charset=utf-8" },
   "/app.js": { path: join(here, "../web/app.js"), type: "text/javascript; charset=utf-8" },
+  "/graph": { path: join(here, "../web/graph.html"), type: "text/html; charset=utf-8" },
+  "/graph.js": { path: join(here, "../web/graph.js"), type: "text/javascript; charset=utf-8" },
 };
 
 /** A live observability dashboard for a space, served over HTTP + SSE. A read-only

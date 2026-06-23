@@ -29,7 +29,9 @@ to peers, `watchPresence:true` so it sees the roster, and an **admin** cred so i
 whole space. A `node:http` server serves the static page and bridges mesh → browser over
 **SSE**:
 
-- `GET /` · `/app.js`: the page (`src/web/index.html`, `src/web/app.js`)
+- `GET /` · `/app.js`: the Monitor page (`src/web/index.html`, `src/web/app.js`)
+- `GET /graph` · `/graph.js`: the Graph view (`src/web/graph.html`, `src/web/graph.js`) — same
+  feed, rendered as a live constellation (see [Graph view](#graph-view))
 - `GET /feed`: SSE stream; `roster` events on presence change, `message` events for every
   comm tapped on the space (chat / unicast / anycast)
 - `GET /api/meta`: `{ space }`
@@ -71,6 +73,32 @@ The skeleton is the same on every view: **left** is navigation (roster, channels
   full instance id. Fields absent from the card are simply omitted.
 - **Needs you:** agents currently blocked or waiting, newest first. **Persistent on the
   right** across every view, so the attention lane never disappears on drill-in.
+
+## Graph view
+
+`GET /graph` (linked from the Monitor header, **Graph view →**) renders the same observer feed
+as a live **force-directed constellation** — a second lens on one space, not a separate
+data source. Channels and agents are both nodes; the wires between them are the traffic.
+
+- **Nodes:** channels are bright **hubs**, agents are smaller orbs coloured by status (working
+  / waiting / idle / offline, the same palette as the Monitor). Waiting agents pulse.
+- **Wires + traffic:** a wire is faint at rest and **glows when a message flows** along it. A
+  channel post sends a comet from the sender into the hub, the hub blooms, then the post **fans
+  out** to every other agent on the channel (a real broadcast). A direct message is a curved
+  comet between the two peers; an anycast blooms at the sender.
+- **Layout:** the simulation cools to a rest state and only gently **re-heats on a structural
+  change** (a node or wire appears/disappears), so the constellation settles and messages drive
+  *glow*, not motion. Drag to pan, scroll to zoom, click a node for its detail card; the camera
+  auto-fits until you take over.
+- **Controls:** per-mode filter chips (channel / direct / anycast) and pause, mirroring the
+  Monitor feed.
+
+**Wires are activity-derived, by design.** True channel membership is a privileged manager-only
+read and isn't always available to the observer (e.g. when the durable backstop is down), so the
+graph draws what it can *observe*: an agent links to a channel once it communicates there, and a
+DM wire appears once two peers have messaged. Links persist (faded) while both endpoints are
+present and are cleaned up when an agent leaves — never on a timer. Instance ids are per-session,
+so only present agents are linked; stale ids from history are dropped.
 
 ## Design
 

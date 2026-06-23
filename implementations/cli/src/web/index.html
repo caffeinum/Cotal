@@ -37,6 +37,11 @@
       .brand .mark { width: 10px; height: 10px; border-radius: 50%; background: var(--blue); }
       .brand .title { font-size: 18px; font-weight: 700; color: var(--fg); }
       .brand .space { font-size: 14px; color: var(--dim); }
+      .brand-graph {
+        font-size: 12px; font-weight: 600; color: var(--dim); text-decoration: none;
+        padding: 4px 10px; border: 1px solid var(--line); border-radius: 8px;
+      }
+      .brand-graph:hover { color: var(--fg); border-color: var(--blue); }
       .pill {
         display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px;
         border-radius: 20px; background: var(--tint-green);
@@ -322,6 +327,7 @@
         <span class="title">Cotal</span>
         <span class="space" id="space"></span>
         <span class="pill down" id="conn"><span class="d"></span><span class="t">connecting</span></span>
+        <a class="brand-graph" href="/graph">Graph view →</a>
       </span>
       <div class="tiles" id="tiles"></div>
     </header>
