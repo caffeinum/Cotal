@@ -128,8 +128,14 @@ export async function up(argv: string[]): Promise<void> {
   // so a later `cotal spawn` doesn't try to join a dead mesh.
   child.on("exit", (code) => {
     stopDelivery();
-    removeMesh(space);
-    if (getCurrent() === space) clearCurrent();
+    // Only unrecord if the registry still points at THIS broker. A newer broker for the same space
+    // (a concurrent `up`, or a different-port re-up that recorded after us) may have replaced our
+    // record — removing by name would clobber the live winner and hide it from the registry.
+    const mine = findMesh(space);
+    if (mine && mine.server === server && mine.root === cotalRoot()) {
+      removeMesh(space);
+      if (getCurrent() === space) clearCurrent();
+    }
     process.exit(code ?? 0);
   });
 
