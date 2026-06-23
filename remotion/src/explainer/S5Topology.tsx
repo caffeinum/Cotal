@@ -14,16 +14,11 @@
 
 import React from "react";
 import {
-  AbsoluteFill,
   AgentNode,
   BeamLine,
   bez,
   CreamStage,
   fade,
-  fontFamily,
-  GOLD,
-  INK,
-  interpolate,
   lerp,
   loopEnvelope,
   prog,
