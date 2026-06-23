@@ -16,7 +16,7 @@ import {
 } from "@cotal-ai/core";
 import { cotalPath } from "../lib/paths.js";
 import { resolveSpace } from "../lib/status.js";
-import { preflightOrExit, resolveTargetOrExit } from "../lib/connect.js";
+import { connectOrExit } from "../lib/connect.js";
 import { c } from "../ui.js";
 import { selfArgv } from "../lib/self-exec.js";
 
@@ -52,21 +52,12 @@ export async function web(argv: string[]): Promise<void> {
     },
   });
   // Resolve WHICH running mesh (from any directory) + its trust material, the same way `spawn` does.
-  const target = await resolveTargetOrExit({ server: values.server, space: values.space });
-  const space = target.space;
-  const server = target.server;
-  const port = values.port ? Number(values.port) : WEB_PORT;
   // The dashboard is always an admin god-view (no read-only viewer mode) so it can show DMs and
-  // anycast. Auth mode: self-mint an `admin` cred from the resolved mesh's trust material so it joins
-  // with no manual --creds (an explicit --creds still wins). Open mode: connect bare. `auth` is kept
-  // at function scope: the channel-delete write path mints an ephemeral `manager` cred from it.
-  const auth = target.auth;
-  const creds = values.creds
-    ? readFileSync(values.creds, "utf8")
-    : auth
-      ? await mintCreds(auth, newIdentity(), "admin")
-      : undefined;
-  await preflightOrExit(target, creds);
+  // anycast — `connectOrExit("admin")` self-mints that cred on an auth mesh, connects bare on an
+  // open one, or takes `--creds` as a raw off-registry connection. `auth` is kept at function scope:
+  // the channel-delete write path mints an ephemeral `manager` cred from it (registry path only).
+  const { server, space, creds, auth } = await connectOrExit(values, "admin");
+  const port = values.port ? Number(values.port) : WEB_PORT;
 
   // Observer: never registers presence, never consumes an inbox — invisible to peers.
   const ep = new CotalEndpoint({

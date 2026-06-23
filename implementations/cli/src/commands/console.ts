@@ -1,11 +1,10 @@
 import { parseArgs } from "node:util";
-import { readFileSync, writeSync } from "node:fs";
+import { writeSync } from "node:fs";
 import { userInfo } from "node:os";
 import { createElement } from "react";
 import { render } from "ink";
-import { chatWildcard, mintCreds, newIdentity } from "@cotal-ai/core";
-import { resolveSpace } from "../lib/status.js";
-import { preflightOrExit, resolveTargetOrExit } from "../lib/connect.js";
+import { chatWildcard } from "@cotal-ai/core";
+import { connectOrExit } from "../lib/connect.js";
 import { c } from "../ui.js";
 import { runLog } from "../render.js";
 import { Root, makeObserver } from "../console/root.js";
@@ -32,16 +31,9 @@ export async function console_(argv: string[]): Promise<void> {
   // `observer` profile denies → NATS Authorization Violation); an authed server hosts exactly one
   // space, so we enter it directly. Open mode connects bare; with no --space, the TTY shows the
   // space overview. An explicit --creds wins.
-  const target = await resolveTargetOrExit({ server: values.server, space: values.space });
-  const server = target.server;
-  const creds = values.creds
-    ? readFileSync(values.creds, "utf8")
-    : target.auth
-      ? await mintCreds(target.auth, newIdentity(), "admin")
-      : undefined;
-  await preflightOrExit(target, creds);
+  const { server, space: resolvedSpace, creds, auth } = await connectOrExit(values, "admin");
   // Auth pins its one space; open mode keeps --space (undefined → the overview picker).
-  const space = target.auth ? target.space : values.space;
+  const space = auth ? resolvedSpace : values.space;
 
   // Operator identity for sent messages (still off the roster). Open mode or an explicit --creds can
   // write; the self-minted observer cred (auth default) is read-only, so the palette/`D` are inert.
@@ -55,9 +47,9 @@ export async function console_(argv: string[]): Promise<void> {
   const canWrite = !creds || !!values.creds;
 
   // No TTY (piped/headless) or --plain → the passive line stream; Ink needs a real terminal, and a
-  // stream can't host the picker, so it falls back to the default space.
+  // stream can't host the picker, so it falls back to the RESOLVED mesh's space (not the cwd's).
   if (values.plain || process.stdout.isTTY !== true) {
-    const s = space ?? resolveSpace(process.cwd());
+    const s = space ?? resolvedSpace;
     await runLog(makeObserver(s, server, creds, operator), s, creds ? chatWildcard(s) : undefined);
     return;
   }

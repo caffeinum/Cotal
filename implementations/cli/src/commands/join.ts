@@ -4,9 +4,6 @@ import { readFileSync } from "node:fs";
 import * as readline from "node:readline";
 import {
   CotalEndpoint,
-  isReachable,
-  mintCreds,
-  newIdentity,
   parseJoinLink,
   resolvePeer,
   AmbiguousPeerError,
@@ -17,7 +14,7 @@ import {
   type CotalMessage,
 } from "@cotal-ai/core";
 import { resolveSpace } from "../lib/status.js";
-import { preflightOrExit, resolveTargetOrExit } from "../lib/connect.js";
+import { connectOrExit, reachableOrExit } from "../lib/connect.js";
 import { c, statusBadge } from "../ui.js";
 
 export async function join(argv: string[]): Promise<void> {
@@ -58,19 +55,15 @@ export async function join(argv: string[]): Promise<void> {
   if (link || values.token || values.creds) {
     space = values.space ?? link?.space ?? resolveSpace(process.cwd());
     server = values.server ?? link?.servers ?? DEFAULT_SERVER;
-    if (!(await isReachable(server, auth))) {
-      console.error(c.red(`Can't reach NATS at ${server}.`));
-      console.error(
-        c.dim(link ? "Check the join link and that the host is up." : "Start it in another terminal:  pnpm cotal up"),
-      );
-      process.exit(1);
-    }
+    // Preflight with the ACTUAL auth (probeConnect, not isReachable — which returns true on an auth
+    // REJECT, so a bad --creds/token/link would skip the check and crash raw at ep.start()). One
+    // sentence on unreachable vs credentials-rejected, then we connect with the same auth.
+    await reachableOrExit(server, auth);
   } else {
-    const target = await resolveTargetOrExit({ server: values.server, space: values.space });
-    space = target.space;
-    server = target.server;
-    if (target.auth) auth.creds = await mintCreds(target.auth, newIdentity(), "manager");
-    await preflightOrExit(target, auth.creds);
+    const conn = await connectOrExit(values, "manager");
+    space = conn.space;
+    server = conn.server;
+    auth.creds = conn.creds;
   }
 
   const ep = new CotalEndpoint({

@@ -1,14 +1,13 @@
-import { readFileSync } from "node:fs";
-import { CotalEndpoint, mintCreds, newIdentity } from "@cotal-ai/core";
+import { CotalEndpoint } from "@cotal-ai/core";
 import { c } from "../ui.js";
-import { preflightOrExit, resolveTargetOrExit } from "./connect.js";
+import { connectOrExit } from "./connect.js";
 
 /**
  * A one-shot, write-capable connection for the headless commands that touch the live mesh
- * (`dm`/`msg`/`ask`, and `personas list --running`). Resolves WHICH mesh + creds via the shared
- * `resolveMeshTarget` (so these work from any directory, not just inside the project), opens a
- * transient endpoint that never joins the roster, does the one thing, stops. Fail-loud throughout —
- * an unresolved/ambiguous registry or an unreachable/auth-mismatched broker exits, never degrades.
+ * (`dm`/`msg`/`ask`, and `personas list --running`). Resolution + creds + reachability all go through
+ * the shared `connectOrExit` (so these work from any directory, and an explicit `--creds` is a raw
+ * off-registry connection). Opens a transient endpoint that never joins the roster, does the one
+ * thing, stops.
  */
 
 export interface ConnectValues {
@@ -17,20 +16,14 @@ export interface ConnectValues {
   creds?: string;
 }
 
-/** Resolve where to connect and with what credentials: an explicit `--creds` wins; else self-mint
- *  from the resolved mesh's `.cotal/auth` so an AUTH-mode mesh admits us; else connect bare on an
- *  open mesh. Preflights the broker (one-sentence exit on unreachable / auth mismatch). */
+/** Resolve where to connect + with what credentials (`--creds` → raw off-registry; else the running
+ *  mesh's minted manager creds). Fail-loud — an unresolved registry or an unreachable/auth-mismatched
+ *  broker exits with one sentence, never degrades. */
 export async function resolveConnect(
   values: ConnectValues,
 ): Promise<{ server: string; space: string; creds?: string }> {
-  const target = await resolveTargetOrExit({ server: values.server, space: values.space });
-  const creds = values.creds
-    ? readFileSync(values.creds, "utf8")
-    : target.auth
-      ? await mintCreds(target.auth, newIdentity(), "manager")
-      : undefined;
-  await preflightOrExit(target, creds);
-  return { server: target.server, space: target.space, creds };
+  const { server, space, creds } = await connectOrExit(values, "manager");
+  return { server, space, creds };
 }
 
 /** Open a transient endpoint: it watches presence (so name→id resolution and the live roster work)
