@@ -51,12 +51,17 @@ export async function web(argv: string[]): Promise<void> {
       creds: { type: "string" },
     },
   });
-  // Resolve WHICH running mesh (from any directory) + its trust material, the same way `spawn` does.
-  // The dashboard is always an admin god-view (no read-only viewer mode) so it can show DMs and
-  // anycast — `connectOrExit("admin")` self-mints that cred on an auth mesh, connects bare on an
-  // open one, or takes `--creds` as a raw off-registry connection. `auth` is kept at function scope:
-  // the channel-delete write path mints an ephemeral `manager` cred from it (registry path only).
-  const { server, space, creds, auth } = await connectOrExit(values, "admin");
+  // Resolve WHICH running mesh + creds (admin god-view: shows DMs + anycast), then DROP the account
+  // seed. The dashboard is a loopback HTTP process; holding the space signing seed (`auth` — it can
+  // mint ANY identity/role) for the whole session would make a dashboard compromise = full account
+  // control. Instead pre-mint ONE scoped `manager` cred for the only write path (channel delete) and
+  // let the seed fall out of scope here, so it isn't reachable from the request handlers. `--creds`
+  // / open mode have no seed → the connection creds carry the purge rights.
+  const { server, space, creds, purgeCreds } = await (async () => {
+    const conn = await connectOrExit(values, "admin");
+    const purge = conn.auth ? await mintCreds(conn.auth, newIdentity(), "manager") : conn.creds;
+    return { server: conn.server, space: conn.space, creds: conn.creds, purgeCreds: purge };
+  })();
   const port = values.port ? Number(values.port) : WEB_PORT;
 
   // Observer: never registers presence, never consumes an inbox — invisible to peers.
@@ -161,9 +166,9 @@ export async function web(argv: string[]): Promise<void> {
       return json(res, await ep.channelHistory(name, { limit }));
     }
     // Delete a channel and its content. The only write path on this otherwise read-only
-    // dashboard, so it's POST-gated and guarded by a confirm in the UI. The observer's admin
-    // cred can't purge; mint an ephemeral manager cred (auth mode) for the op, else connect
-    // bare (open mode has full rights). A wildcard / missing channel is a 400.
+    // dashboard, so it's POST-gated and guarded by a confirm in the UI. Uses the manager cred
+    // pre-minted at startup (auth mode) or the connection creds (open / --creds), NOT the account
+    // seed (which we dropped). A wildcard / missing channel is a 400.
     if (path === "/api/channel/delete" && req.method === "POST") {
       const body = await readBody(req).catch(() => ({}) as { channel?: string });
       const channel = typeof body.channel === "string" ? body.channel : "";
@@ -173,7 +178,6 @@ export async function web(argv: string[]): Promise<void> {
         return;
       }
       try {
-        const purgeCreds = auth ? await mintCreds(auth, newIdentity(), "manager") : creds;
         const result = await clearChannel({ servers: server, space, channel, creds: purgeCreds });
         return json(res, { ok: true, ...result });
       } catch (e) {
