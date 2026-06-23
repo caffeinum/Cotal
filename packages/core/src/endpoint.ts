@@ -46,6 +46,9 @@ import type {
   CotalMessage,
   DeliveryClass,
   MembershipRecord,
+  ChannelMembership,
+  MembershipEntry,
+  MembershipSnapshot,
   Plane3Entry,
 } from "./types.js";
 import {
@@ -96,6 +99,8 @@ import {
   parseSubject,
   type ParsedSubject,
   presenceBucket,
+  membershipBucket,
+  MEMBERSHIP_FEED_KEY,
   spacePrefix,
   spaceWildcard,
   subjectMatches,
@@ -208,6 +213,7 @@ export class CotalEndpoint extends EventEmitter {
   private membersKv?: KV;
   private aclKv?: KV;
   private deliveryKv?: KV;
+  private membershipKv?: KV;
   /** The live `ctl.delivery` serve subscription (delivery daemon) — re-created on every (re)connect by
    *  {@link armDeliveryControl}; tracked so the stale one is dropped on reconnect. */
   private deliveryServeSub?: import("@nats-io/transport-node").Subscription;
@@ -1052,6 +1058,53 @@ export class CotalEndpoint extends EventEmitter {
     }
     for (const arr of map.values()) arr.sort(byName);
     return map;
+  }
+
+  /** Lazily open the derived membership feed KV (admin/observer read; the delivery daemon writes it).
+   *  Read-only here — the dashboard consumes it; agents hold no grant and never call this. */
+  private async membershipRegistry(): Promise<KV> {
+    if (!this.nc) throw new Error("endpoint not started");
+    this.membershipKv ??= await new Kvm(this.nc).open(membershipBucket(this.space));
+    return this.membershipKv;
+  }
+
+  /**
+   * Snapshot the broker-sourced channel-membership feed (admin/observer read): every agent's
+   * `{live, durable}` record plus `asOf` — the feed's freshness heartbeat (epoch ms of the daemon's last
+   * successful poll, from the reserved {@link MEMBERSHIP_FEED_KEY}). `live` patterns are kept as-is
+   * (wildcards preserved); the consumer expands them against the channel registry. `asOf` is undefined
+   * when the feed has never been written (no daemon → the dashboard degrades to traffic-only).
+   */
+  async readMembership(): Promise<MembershipSnapshot> {
+    const kv = await this.membershipRegistry();
+    const members: MembershipEntry[] = [];
+    let asOf: number | undefined;
+    for await (const key of await kv.keys()) {
+      const e = await kv.get(key);
+      if (!e || e.operation === "DEL" || e.operation === "PURGE") continue;
+      if (key === MEMBERSHIP_FEED_KEY) {
+        try { asOf = e.json<{ observedAt: number }>().observedAt; } catch { /* heartbeat garbled — leave undefined */ }
+        continue;
+      }
+      try {
+        const rec = e.json<ChannelMembership>();
+        members.push({ id: key, live: rec.live ?? [], durable: rec.durable ?? [], observedAt: rec.observedAt });
+      } catch { /* skip undecodable */ }
+    }
+    return { asOf, members };
+  }
+
+  /** Watch the membership feed for changes (admin/observer): `onChange` fires on every KV entry,
+   *  including the initial replay — the caller debounces + re-reads {@link readMembership}. Returns a
+   *  stop handle. Best-effort: a feed the cred can't read (or absent) surfaces as an `error` event and
+   *  the dashboard keeps its last snapshot. */
+  async watchMembership(onChange: () => void): Promise<{ stop(): void }> {
+    const kv = await this.membershipRegistry();
+    const iter = await kv.watch();
+    void (async () => {
+      for await (const _ of iter) onChange();
+    })().catch((err) => this.emit("error", err as Error));
+    return { stop: () => iter.stop() };
   }
 
   /** Fetch recent messages from a channel's JetStream backlog. */
@@ -2307,7 +2360,7 @@ export class CotalEndpoint extends EventEmitter {
   }
 
   private async publishPresence(): Promise<void> {
-    if (!this.kv) return;
+    if (!this.doRegister || !this.kv) return; // observers watch but never publish their own record
     const p: Presence = {
       card: this.card,
       status: this.status,
