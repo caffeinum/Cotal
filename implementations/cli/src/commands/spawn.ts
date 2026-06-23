@@ -39,8 +39,14 @@ export function spawnComplete(argv: string[]): CompletionResult {
     return { items: loadMeshes().map((m) => ({ value: m.space })), directive: "nofiles" };
   // Only the first word after `spawn` is the persona positional; once it's typed, defer to the shell.
   if (argv.length <= 1) {
-    const target = resolveMeshTarget(process.cwd());
-    return { items: listPersonas(target.root).map((p) => ({ value: p.name })), directive: "nofiles" };
+    try {
+      const target = resolveMeshTarget(process.cwd());
+      return { items: listPersonas(target.root).map((p) => ({ value: p.name })), directive: "nofiles" };
+    } catch {
+      // No single target (no mesh, or several with no `current`) — fail CLOSED: offer no personas
+      // rather than throw. `cotal spawn --space <TAB>` still lists the running meshes.
+      return { items: [], directive: "nofiles" };
+    }
   }
   return { items: [], directive: "nofiles" };
 }
@@ -128,15 +134,30 @@ async function preflightOrExit(target: MeshTarget): Promise<void> {
   const creds = target.auth ? await mintCreds(target.auth, newIdentity(), "manager") : undefined;
   const probe = await probeConnect(target.server, creds ? { creds } : {});
   if (probe.ok) return;
+  // A target picked FROM the registry (vs an explicit local project / --server) owns its entry, so
+  // a definitive failure prunes it.
+  const fromRegistry =
+    target.source === "registry" || target.source === "current" || target.source === "flag-space";
   if (probe.reason === "unreachable") {
-    const fromRegistry = target.source === "registry" || target.source === "current";
-    if (fromRegistry) removeMesh(target.space); // the entry was stale — drop it
+    if (fromRegistry) removeMesh(target.space); // the broker is gone — drop the stale entry
     console.error(
       c.red(
         `✗ no mesh running at ${target.server}${fromRegistry ? " (stale registry entry — removed)" : ""} — run \`cotal up\``,
       ),
     );
+  } else if (target.auth && fromRegistry) {
+    // We DID present creds minted from the registry's own trust material and the broker rejected
+    // them — so the entry now points at a DIFFERENT broker on that port. The fix isn't "spawn from
+    // the root" (we just used it); it's that the registry entry is stale. Drop it and say so.
+    removeMesh(target.space);
+    console.error(
+      c.red(
+        `✗ mesh "${target.space}" at ${target.server} no longer matches its registry entry (credentials rejected — port reused?) — re-run \`cotal up\` from ${target.root}, or \`cotal meshes\` to see what's live`,
+      ),
+    );
   } else {
+    // Open/local resolution against a broker that wants auth (or a non-registry target): the trust
+    // material genuinely isn't where we looked.
     console.error(
       c.red(
         `✗ mesh "${target.space}" at ${target.server} requires credentials this folder can't provide — its trust material is in ${authDir(target.root)}; spawn from there, or use \`--space <name>\` for another mesh`,

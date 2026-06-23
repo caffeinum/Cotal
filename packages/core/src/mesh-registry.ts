@@ -58,7 +58,9 @@ function currentFile(): string {
 export function recordMesh(m: MeshEntry): void {
   mkdirSync(meshesDir(), { recursive: true });
   const file = meshFile(m.space);
-  const tmp = `${file}.tmp`;
+  // Per-process temp name so two concurrent `up`s for the same space can't stomp each other's
+  // half-written file before the rename.
+  const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, JSON.stringify(m, null, 2), { mode: 0o600 });
   renameSync(tmp, file); // atomic replace — a reader never sees a half-written record
 }

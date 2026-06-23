@@ -60,6 +60,15 @@ try {
   assert.throws(() => resolveMeshTarget(neutral), /no mesh running/);
   check("0 meshes: resolve throws 'no mesh running'", true);
 
+  // …but completion must FAIL CLOSED, never throw — offer nothing rather than crash the shell.
+  const prevCwd0 = process.cwd();
+  process.chdir(neutral);
+  try {
+    check("0 meshes: completion returns no items (no throw)", spawnComplete([""]).items.length === 0);
+  } finally {
+    process.chdir(prevCwd0);
+  }
+
   // 1 mesh → used automatically (source 'registry'), with its root + personas.
   recordMesh(entry("teamA", projA));
   const one = resolveMeshTarget(neutral);
@@ -75,6 +84,15 @@ try {
   recordMesh(entry("teamB", projB));
   assert.throws(() => resolveMeshTarget(neutral), (e: Error) => /multiple meshes/.test(e.message) && e.message.includes(projA) && e.message.includes(projB));
   check("N meshes, no current: error names both meshes + roots", true);
+
+  // …and completion still fails CLOSED in the ambiguous state, rather than throwing.
+  const prevCwdN = process.cwd();
+  process.chdir(neutral);
+  try {
+    check("N meshes, no current: completion returns no items (no throw)", spawnComplete([""]).items.length === 0);
+  } finally {
+    process.chdir(prevCwdN);
+  }
 
   // --space picks one explicitly (source 'flag-space').
   const flagged = resolveMeshTarget(neutral, { space: "teamB" });

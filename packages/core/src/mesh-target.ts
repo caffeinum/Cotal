@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { DEFAULT_SERVER, DEFAULT_SPACE } from "./endpoint.js";
 import { authDir, findCotalRoot, loadSpaceAuth, type SpaceAuth } from "./provision.js";
 import {
@@ -61,7 +61,9 @@ function localTarget(root: string, server: string, source: MeshTarget["source"])
 /** A `.cotal/` that a user actually created here — not the machine-home dir the cwd walk-up lands on
  *  from outside any project (which has no space, just the daemon's pid/onboard files). */
 function isGenuineSpace(root: string): boolean {
-  return join(root, ".cotal") !== homeCotalDir() && existsSync(join(root, ".cotal"));
+  // Normalize both sides — COTAL_HOME may be relative or non-canonical, and a raw string compare
+  // would then let the real `~/.cotal` masquerade as a project space (or vice-versa).
+  return resolve(join(root, ".cotal")) !== resolve(homeCotalDir()) && existsSync(join(root, ".cotal"));
 }
 
 /**

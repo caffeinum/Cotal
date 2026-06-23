@@ -24,6 +24,7 @@ import {
   setupSpaceStreams,
   seedChannelRegistry,
   clearCurrent,
+  findMesh,
   getCurrent,
   loadMeshes,
   recordMesh,
@@ -58,21 +59,23 @@ export async function up(argv: string[]): Promise<void> {
   if (await isReachable(server)) {
     const space = values.space ?? resolveSpace(process.cwd());
     const root = cotalRoot();
-    // A broker is already on this port. If the registry says it's a DIFFERENT space, the new mesh
-    // did not start — fail loudly rather than let the user believe it did (a later `spawn --space`
-    // would then fail with a stale-looking error). If it's ours (or unrecorded), adopt/refresh it.
+    // A broker is already on this port. Only treat it as a no-op refresh when the registry confirms
+    // it's THIS exact mesh (same server + root + space). Anything else — a different space/root, or a
+    // broker we never recorded — we must NOT adopt: recording our space over it would let a later
+    // `spawn --space <s>` load the wrong root's creds. Fail loudly and tell the user to free the port.
     const held = loadMeshes().find((m) => m.server === server);
-    if (held && held.root !== root) {
-      console.error(
-        c.red(
-          `✗ ${server} is held by mesh "${held.space}" (${held.root}) — to run "${space}" too, pass \`--server nats://${host}:<port>\``,
-        ),
-      );
-      process.exit(1);
+    if (held && held.root === root && held.space === space) {
+      recordOurMesh({ space, server, root, mode: values.open ? "open" : "auth", ts: new Date().toISOString() });
+      console.log(c.green(`✓ NATS already running at ${server}`));
+      return;
     }
-    recordOurMesh({ space, server, root, mode: values.open ? "open" : "auth", ts: new Date().toISOString() });
-    console.log(c.green(`✓ NATS already running at ${server}`));
-    return;
+    const who = held ? `mesh "${held.space}" (${held.root})` : "a broker not started here";
+    console.error(
+      c.red(
+        `✗ ${server} is already in use by ${who} — to run "${space}" use \`--server nats://${host}:<port>\` with a free port`,
+      ),
+    );
+    process.exit(1);
   }
 
   if (values.detach) {
@@ -93,6 +96,7 @@ export async function up(argv: string[]): Promise<void> {
   mkdirSync(storeDir, { recursive: true });
   const useAuth = !values.open;
   const space = values.space ?? resolveSpace(process.cwd());
+  await claimSpace(space, server, cotalRoot());
   const seedFile = loadChannelsFile(values.channels);
   const setup = useAuth ? await authSetup(storeDir, server, space, host) : undefined;
   const port = Number(new URL(server).port) || 4222;
@@ -170,6 +174,7 @@ export async function startMeshDetached(opts: DetachOpts = {}): Promise<{ server
   mkdirSync(storeDir, { recursive: true });
   const useAuth = !opts.open;
   const space = opts.space ?? resolveSpace(process.cwd());
+  await claimSpace(space, server, cotalRoot());
   const seedFile = loadChannelsFile(opts.channels);
   const host = opts.host ?? "127.0.0.1";
   const setup = useAuth ? await authSetup(storeDir, server, space, host) : undefined;
@@ -200,6 +205,24 @@ export async function startMeshDetached(opts: DetachOpts = {}): Promise<{ server
   // Detached: the registry entry outlives this process — `cotal down` removes it.
   recordOurMesh({ space, server, root: cotalRoot(), mode: useAuth ? "auth" : "open", ts: new Date().toISOString() });
   return { server, pid: child.pid ?? 0, source };
+}
+
+/** A space name identifies at most one mesh in the registry (it's the key `--space`/`use`/`down` act
+ *  on). Before starting a broker, refuse to reuse a space already claimed by a DIFFERENT mesh —
+ *  unless that prior holder's broker is gone (stale), in which case reclaim the name. Re-`up`ping the
+ *  same mesh (same server + root) is fine; that's a refresh, handled by the port-reachable path. */
+async function claimSpace(space: string, server: string, root: string): Promise<void> {
+  const existing = findMesh(space);
+  if (!existing || (existing.server === server && existing.root === root)) return;
+  if (await isReachable(existing.server)) {
+    console.error(
+      c.red(
+        `✗ space "${space}" is already in use by a mesh at ${existing.server} (${existing.root}) — pick a different \`--space\`, or \`cotal down\` it first`,
+      ),
+    );
+    process.exit(1);
+  }
+  removeMesh(space); // the prior holder's broker is gone — reclaim the name
 }
 
 /** Record this mesh in the registry, and make it the `current` default ONLY when it's the first one
