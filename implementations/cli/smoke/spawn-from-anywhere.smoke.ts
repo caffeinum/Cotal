@@ -122,6 +122,25 @@ try {
   removeMesh("openmesh");
   removeMesh("authmesh");
 
+  // Fix A (HIGH): a local project whose mesh is in the registry resolves to the RECORDED server +
+  // mode, not the hardcoded DEFAULT_SERVER — so `cotal up --server …:4333` then an in-project spawn
+  // targets :4333, not :4222. And an open-recorded mesh mints NO creds even with auth files left on
+  // its root's disk (closes the local-path mode gap truthium flagged).
+  const ALT = "nats://127.0.0.1:4333";
+  recordMesh({ ...entry("teamA", projA, ALT), mode: "open" });
+  const localReg = resolveMeshTarget(join(projA, "nested", "dir"));
+  check(
+    "local project uses the RECORDED server, not DEFAULT_SERVER",
+    localReg.server === ALT && localReg.source === "local-space",
+    localReg,
+  );
+  check(
+    "local project honors recorded OPEN mode despite auth files on disk",
+    localReg.auth === undefined,
+    localReg.auth,
+  );
+  recordMesh(entry("teamA", projA)); // restore (default server, open) for the remaining checks
+
   // Offline completion: lists the RESOLVED mesh's personas (current=teamB → projB), and is
   // synchronous — it cannot have awaited a network probe.
   const prevCwd = process.cwd();

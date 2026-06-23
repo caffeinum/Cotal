@@ -91,7 +91,15 @@ export function resolveMeshTarget(cwd: string, flags: ResolveFlags = {}): MeshTa
   }
 
   const root = findCotalRoot(cwd);
-  if (isGenuineSpace(root)) return localTarget(root, DEFAULT_SERVER, "local-space");
+  if (isGenuineSpace(root)) {
+    // Local project wins by root — but if its mesh is in the registry, use the RECORDED server +
+    // mode, not DEFAULT_SERVER: a project started with `--server …:4333` must spawn against :4333,
+    // and a recorded OPEN mesh must not mint creds off stale `.cotal/auth` left on disk. Fall back
+    // to the local default only when nothing is recorded for this root.
+    const recorded = loadMeshes().find((m) => resolve(m.root) === resolve(root));
+    if (recorded) return targetFromEntry(recorded, recorded.server, "local-space");
+    return localTarget(root, DEFAULT_SERVER, "local-space");
+  }
 
   const meshes = loadMeshes();
   if (meshes.length === 0)

@@ -145,7 +145,7 @@ async function preflightOrExit(target: MeshTarget): Promise<void> {
         `✗ no mesh running at ${target.server}${fromRegistry ? " (stale registry entry — removed)" : ""} — run \`cotal up\``,
       ),
     );
-  } else if (target.auth && fromRegistry) {
+  } else if (fromRegistry && target.auth) {
     // We DID present creds minted from the registry's own trust material and the broker rejected
     // them — so the entry now points at a DIFFERENT broker on that port. The fix isn't "spawn from
     // the root" (we just used it); it's that the registry entry is stale. Drop it and say so.
@@ -155,12 +155,29 @@ async function preflightOrExit(target: MeshTarget): Promise<void> {
         `✗ mesh "${target.space}" at ${target.server} no longer matches its registry entry (credentials rejected — port reused?) — re-run \`cotal up\` from ${target.root}, or \`cotal meshes\` to see what's live`,
       ),
     );
-  } else {
-    // Open/local resolution against a broker that wants auth (or a non-registry target): the trust
-    // material genuinely isn't where we looked.
+  } else if (fromRegistry) {
+    // An OPEN-mode registry target probed credlessly, but the broker now wants auth — the recorded
+    // open mesh is gone (its port was reused by an auth broker). Same stale class; drop the entry.
+    removeMesh(target.space);
     console.error(
       c.red(
-        `✗ mesh "${target.space}" at ${target.server} requires credentials this folder can't provide — its trust material is in ${authDir(target.root)}; spawn from there, or use \`--space <name>\` for another mesh`,
+        `✗ open mesh "${target.space}" at ${target.server} no longer matches its registry entry (broker now requires auth — port reused?) — re-run \`cotal up\` from ${target.root}, or \`cotal meshes\` to see what's live`,
+      ),
+    );
+  } else if (target.auth) {
+    // Creds were presented and rejected, but the target is a local project / --server we don't own
+    // in the registry. A different mesh is likely on that port — the user owns the diagnosis, so we
+    // don't prune; we point at the likely cause. "Can't provide" would be wrong: the folder DID.
+    console.error(
+      c.red(
+        `✗ credentials for "${target.space}" were rejected at ${target.server} — a different mesh may be running there. Run \`cotal meshes\` to check, or \`cotal up\` here to start yours`,
+      ),
+    );
+  } else {
+    // No creds to present (open, non-registry) and the broker wants auth.
+    console.error(
+      c.red(
+        `✗ broker at ${target.server} requires auth, but this mesh is open (no trust material) — use \`--space <name>\` for an auth mesh, or run \`cotal up\` here without \`--open\``,
       ),
     );
   }
