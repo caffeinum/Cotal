@@ -455,10 +455,18 @@ export function cotalToolSpecs(config: AgentConfig, source = "connector"): Cotal
           .string()
           .optional()
           .describe("Optional role for the new peer (e.g. worker, reviewer)."),
+        agent: z
+          .string()
+          .optional()
+          .describe("Optional harness/agent type (e.g. claude, opencode, hermes). Defaults to the manager's default (Claude)."),
+        model: z
+          .string()
+          .optional()
+          .describe("Optional model override (e.g. opus, sonnet) — wins over the persona file's model:."),
       },
-      async run(agent, _config, { name, role }: { name: string; role?: string }) {
+      async run(agent, _config, { name, role, agent: agentType, model }: { name: string; role?: string; agent?: string; model?: string }) {
         try {
-          const reply = await agent.spawn(name, role);
+          const reply = await agent.spawn(name, role, { agent: agentType, model });
           if (!reply.ok) return err(`Couldn't spawn ${name}: ${reply.error ?? "manager refused"}`);
           const d = reply.data as { name?: string; mode?: string } | undefined;
           const actual = d?.name ?? name; // the manager auto-numbers on a collision — report what it spawned

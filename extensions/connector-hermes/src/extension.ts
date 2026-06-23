@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { registry, type Connector, type LaunchOpts, type LaunchSpec } from "@cotal-ai/core";
+import { loadAgentFile, registry, type Connector, type LaunchOpts, type LaunchSpec } from "@cotal-ai/core";
 import { launchEnv, MODEL_PROVIDER_KEYS } from "@cotal-ai/connector-core";
 
 /** The launcher (run via tsx, which loads both) owns the mesh endpoint and supervises the Hermes
@@ -40,8 +40,11 @@ export const hermesConnector: Connector = {
     // An agent file carries identity + persona + model; the launcher applies the persona as
     // Hermes' SOUL.md (system prompt) at gateway startup, the one place it can be set.
     if (opts.configPath) env.COTAL_AGENT_FILE = opts.configPath;
-    // The `--model` flag wins over an ambient HERMES_MODEL; the launcher applies it as the gateway model.
-    const model = opts.model ?? process.env.HERMES_MODEL;
+    // Model precedence, at parity with the Claude/OpenCode connectors: the `--model` flag, else the
+    // agent file's `model:`, else an ambient HERMES_MODEL. The launcher reads HERMES_MODEL as the
+    // gateway model — resolving here is the one place that honors the file's model for Hermes.
+    const fileModel = opts.configPath ? loadAgentFile(opts.configPath).model : undefined;
+    const model = opts.model ?? fileModel ?? process.env.HERMES_MODEL;
     if (model) env.HERMES_MODEL = model;
     return { command: TSX, args: [LAUNCH_ENTRY], env };
   },

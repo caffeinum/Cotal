@@ -134,10 +134,11 @@ point at with `--config`.
 
 **Define one at runtime.** `cotal_persona(name, prompt, model?)` sends the persona to the
 manager, which writes the same `.cotal/agents/<name>.md` file (via `saveAgentFile`) and
-announces it on the mesh. A later `cotal_spawn(name)` auto-discovers it, so a peer can mint a
-teammate's persona on the fly and bring it online with no hand-written file. (Role is set at
-spawn, since `cotal_spawn` takes a role; it is not set here, because role is policy, not
-persona content.)
+announces it on the mesh. A later `cotal_spawn(name, role?, agent?, model?)` auto-discovers it, so
+a peer can mint a teammate's persona on the fly and bring it online with no hand-written file. The
+agent spawn door carries the same knobs as the operator's `cotal start` — `role`, `agent` (harness)
+and `model` (overrides the persona file's `model:`) — set at spawn because they are policy, not
+persona content.
 
 **Manage the catalog from the CLI.** `cotal personas` is the operator-side counterpart to the
 runtime `cotal_persona` tool. It reads and writes the same `.cotal/agents/*.md` files
