@@ -458,7 +458,7 @@ export function cotalToolSpecs(config: AgentConfig, source = "connector"): Cotal
         agent: z
           .string()
           .optional()
-          .describe("Optional harness/agent type (e.g. claude, opencode, hermes). Defaults to the manager's default (Claude)."),
+          .describe("Optional harness the new peer runs on — the agent/connector type (claude, opencode, hermes), NOT the peer's display name (that's `name`). Defaults to the manager's default (Claude)."),
         model: z
           .string()
           .optional()
