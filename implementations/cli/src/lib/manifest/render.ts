@@ -79,16 +79,23 @@ export function renderInherited(p: PreparedManifest): string {
   const rows: string[] = [];
   for (const a of p.agents) {
     const i = a.inherited;
-    if (!i.subscribe.length && !i.allowSubscribe.length && !i.allowPublish.length) continue;
-    const parts = [
-      i.subscribe.length ? `subscribe ${i.subscribe.join(",")}` : "",
-      i.allowSubscribe.length ? `read ${i.allowSubscribe.join(",")}` : "",
-      i.allowPublish.length ? `post ${i.allowPublish.join(",")}` : "",
-    ].filter(Boolean);
-    rows.push(`  ${c.bold(a.name)} → ${parts.join(" · ")}  ${c.dim(`(persona ${a.persona} · unmanaged by manifest, no card)`)}`);
+    const hasAcl = i.subscribe.length || i.allowSubscribe.length || i.allowPublish.length;
+    if (!hasAcl && !i.capabilities.length) continue;
+    // Capabilities first — they are NOT channel-scoped (spawn/tool power), so they're easiest to miss
+    // and most security-significant (security review, round-8).
+    if (i.capabilities.length)
+      rows.push(`  ${c.yellow("‼")} ${c.bold(a.name)} capabilities: ${i.capabilities.join(", ")}  ${c.dim(`(persona ${a.persona} — not channel-scoped)`)}`);
+    if (hasAcl) {
+      const parts = [
+        i.subscribe.length ? `subscribe ${i.subscribe.join(",")}` : "",
+        i.allowSubscribe.length ? `read ${i.allowSubscribe.join(",")}` : "",
+        i.allowPublish.length ? `post ${i.allowPublish.join(",")}` : "",
+      ].filter(Boolean);
+      rows.push(`  ${c.bold(a.name)} → ${parts.join(" · ")}  ${c.dim(`(persona ${a.persona} · unmanaged by manifest, no card)`)}`);
+    }
   }
   if (!rows.length) return "";
-  return [c.yellow(c.bold("⚠ Persona-inherited access outside manifest channels")), ...rows].join("\n");
+  return [c.yellow(c.bold("⚠ Persona-inherited access + capabilities outside manifest channels")), ...rows].join("\n");
 }
 
 /** Render the non-fatal warnings (empty-ACL agents, loud when they carry capabilities). */

@@ -64,9 +64,10 @@ export function buildLaunchSpec(prepared: PreparedManifest, runId: string): Mesh
  *  policy) and return its path. */
 export function writeLaunchSpec(root: string, spec: MeshLaunchSpec): string {
   const dir = join(root, ".cotal", "run");
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
   const path = join(dir, `${spec.runId}.json`);
-  writeFileSync(path, JSON.stringify(spec, null, 2), { mode: 0o600 });
+  // `wx`: exclusive create (runId is random) — won't follow a symlink pre-planted at the path.
+  writeFileSync(path, JSON.stringify(spec, null, 2), { mode: 0o600, flag: "wx" });
   return path;
 }
 

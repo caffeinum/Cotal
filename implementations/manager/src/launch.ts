@@ -1,5 +1,5 @@
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import { z } from "zod";
 import { assertValidName, type MeshLaunchAgent, type MeshLaunchSpec } from "@cotal-ai/core";
 
@@ -65,7 +65,11 @@ export function runDir(root: string, runId: string): string {
  *  generated-artifact header — never ACL/capability frontmatter (creds come from the spec's policy). */
 export function materializePersona(root: string, runId: string, a: MeshLaunchAgent): string {
   const dir = join(runDir(root, runId), "agents");
-  mkdirSync(dir, { recursive: true });
+  // 0700 dir, fresh per run (random runId). Defense-in-depth on top of the spec's assertValidName:
+  // the file must resolve to a direct child of `dir` — never escape it via the name.
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const path = resolve(dir, `${a.name}.md`);
+  if (dirname(path) !== dir) throw new Error(`unsafe agent name "${a.name}" — persona path escapes ${dir}`);
   const fm = ["---", `name: ${a.name}`];
   if (a.role) fm.push(`role: ${scalar(a.role)}`);
   if (a.model) fm.push(`model: ${scalar(a.model)}`);
@@ -74,8 +78,8 @@ export function materializePersona(root: string, runId: string, a: MeshLaunchAge
   const src = a.personaPath ?? "the manifest";
   const header = `<!-- Generated runtime artifact from a cotal mesh manifest (run ${runId}). Do NOT edit — regenerated on each launch and deleted by \`cotal down\`. Edit ${src} instead. This file is not a reusable persona and carries no access authority. -->`;
   const body = a.body ? `${a.body.trim()}\n` : "";
-  const path = join(dir, `${a.name}.md`);
-  writeFileSync(path, `${fm.join("\n")}${header}\n\n${body}`, { mode: 0o600 });
+  // `wx`: exclusive create — fails rather than following a symlink pre-planted at the path.
+  writeFileSync(path, `${fm.join("\n")}${header}\n\n${body}`, { mode: 0o600, flag: "wx" });
   return path;
 }
 
