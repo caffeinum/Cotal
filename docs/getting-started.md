@@ -94,6 +94,22 @@ you (built-in `cotal_feedback`), or run `cotal feedback "<message>"`.
 
 Run `cotal setup --full` to redo the full guided flow, for example to repair something.
 
+## Launch a team from a manifest
+
+The guided flow gives you the default experts. To run a **specific team** instead — your own
+channels, agents, and who may read and post where — describe it once in a `cotal.yaml` and
+launch it:
+
+```bash
+cotal topology view -f cotal.yaml    # validate + see the access graph (no broker needed)
+cotal up -f cotal.yaml               # bring up a fresh mesh from the file
+cotal down                           # tear it down
+```
+
+`cotal spawn -f cotal.yaml` deploys a team onto a mesh that is already running, and
+`cotal down -f cotal.yaml` removes just what that deploy created. See
+**[manifest.md](manifest.md)** for the file format and the full lifecycle.
+
 ## For agents and CI
 
 A coding agent can set Cotal up for you with one non-interactive command:
