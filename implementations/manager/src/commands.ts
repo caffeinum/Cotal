@@ -220,8 +220,8 @@ async function attach(argv: string[]): Promise<void> {
 }
 
 /** Run a manager daemon in this process (the long-lived supervisor), then block.
- *  `pty`/`tmux` ship with the manager; `cmux` needs its integration imported by the
- *  composition root (the `cotal` binary does). Stays alive until SIGINT/SIGTERM. */
+ *  `pty` ships with the manager; `tmux` and `cmux` need their integration imported by
+ *  the composition root (the `cotal` binary does). Stays alive until SIGINT/SIGTERM. */
 // `--runtime` forces the manager runtime; honored only on the `supervise` path (default
 // auto-detect). `cmux` gives each teammate its own cmux tab — `cotal supervise --runtime cmux` is
 // the cmux-tab manager. The session machinery launches it with `--runtime cmux --space <space>`
