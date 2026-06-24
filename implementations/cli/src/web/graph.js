@@ -37,7 +37,7 @@
   const recent = [];
   const feed = { asOf: undefined, available: false }; // membership-feed freshness
   const cam = { x: 0, y: 0, scale: 1, ready: false, user: false };
-  const filter = { chat: true, unicast: true, anycast: true, window: 30, paused: false, hideOffline: true };
+  const filter = { chat: true, unicast: true, anycast: true, window: 30, paused: false, hideOffline: true, hideEmpty: true };
   let W = 0, H = 0, DPR = 1, hover = null, sel = null, lastT = 0, alpha = 1;
 
   // ── utils ──
@@ -88,7 +88,7 @@
     const id = typeof ref === "object" ? ref.id || ref.name : ref;
     if (!id) return null;
     let a = agents.get(id);
-    if (!a) { a = Object.assign({ kind: "agent", id, name: (typeof ref === "object" && ref.name) || shortId(id), role: typeof ref === "object" ? ref.role : undefined, status: "idle", activity: "", harness: undefined, ts: 0, live: [], durable: [], memberOf: new Map(), r: 6.5, charge: -190, mass: 1, phase: (hash(id) % 1000) / 1000 * 6.283 }, spawn(id, 70)); agents.set(id, a); reheat(); }
+    if (!a) { a = Object.assign({ kind: "agent", id, name: (typeof ref === "object" && ref.name) || shortId(id), role: typeof ref === "object" ? ref.role : undefined, status: "idle", present: false, activity: "", harness: undefined, ts: 0, live: [], durable: [], memberOf: new Map(), r: 6.5, charge: -190, mass: 1, phase: (hash(id) % 1000) / 1000 * 6.283 }, spawn(id, 70)); agents.set(id, a); reheat(); }
     else if (typeof ref === "object" && ref.name) a.name = ref.name;
     return a;
   }
@@ -121,7 +121,7 @@
         a.vx += (dx / d) * q; a.vy += (dy / d) * q; b.vx -= (dx / d) * q; b.vy -= (dy / d) * q;
       }
     }
-    for (const e of edges.values()) { const h = hubs.get(e.chan); if (h && !isHiddenMember(e)) link(e.a, h, 105, 0.08); }
+    for (const e of edges.values()) { const h = hubs.get(e.chan); if (h && !isHidden(h) && !isHiddenMember(e)) link(e.a, h, 105, 0.08); }
     for (const d of dms.values()) if (!isHidden(d.a) && !isHidden(d.b)) link(d.a, d.b, 165, 0.03);
     // small graphs: faint tangential nudge so agents form a loose ring around their hub instead of a line (decays with alpha)
     if (hubs.size <= 2) for (const a of agents.values()) { if (isHidden(a)) continue; const h = (primaryChan(a) && hubs.get(primaryChan(a))) || [...hubs.values()][0]; if (h) { const dx = a.x - h.x, dy = a.y - h.y, d = Math.hypot(dx, dy) || 1; a.vx += (-dy / d) * 0.4 * alpha; a.vy += (dx / d) * 0.4 * alpha; } }
@@ -148,7 +148,7 @@
   function onMessage({ mode, senderId, msg }) {
     if (!msg) return;
     const from = ensureAgent(senderId ? { id: senderId, name: msg.from?.name, role: msg.from?.role } : msg.from);
-    if (from) from.ts = now();
+    if (from) { from.ts = now(); from.present = true; } // a live sender is a live presence (roster event may lag)
     const animate = !filter.paused && filter[mode];
     let toName = null;
     if (mode === "chat" && msg.channel) {
@@ -178,13 +178,14 @@
       if (p.card?.kind === "endpoint") continue;
       const a = ensureAgent({ id: p.card.id, name: p.card.name, role: p.card.role });
       a.status = p.status; a.activity = p.activity || ""; a.role = p.card.role; a.harness = p.card.meta?.connector; a.ts = p.ts;
+      a.present = true; // in the roster = a live presence (the authority for isOffline)
       seen.add(a.id);
     }
     // Drop an agent as soon as it goes offline OR leaves the roster (main's ghost fix, c9e9000) — EXCEPT
     // keep it if it's still a feed member: a durable member whose presence is offline must persist to
     // render as "member, currently offline" (the feed's durable arm survives offline). Membership is
     // broker-truth, applied separately; presence no longer carries channels.
-    for (const [id, a] of agents) if ((!seen.has(id) || a.status === "offline") && !(a.wideReader || (a.memberOf && a.memberOf.size))) { agents.delete(id); for (const k of [...edges.keys()]) if (edges.get(k).a === a) edges.delete(k); for (const k of [...dms.keys()]) { const d = dms.get(k); if (d.a === a || d.b === a) dms.delete(k); } reheat(); if (sel === a) closeDetail(); }
+    for (const [id, a] of agents) { if (!seen.has(id)) a.present = false; if ((!seen.has(id) || a.status === "offline") && !(a.wideReader || (a.memberOf && a.memberOf.size))) { agents.delete(id); for (const k of [...edges.keys()]) if (edges.get(k).a === a) edges.delete(k); for (const k of [...dms.keys()]) { const d = dms.get(k); if (d.a === a || d.b === a) dms.delete(k); } reheat(); if (sel === a) closeDetail(); } }
   }
 
   // ── membership (authoritative spokes) ──
@@ -207,7 +208,8 @@
     // An agent that dropped out of the feed entirely is no longer a member of anything (incl. a wide reader,
     // which carries the flag but no concrete edges).
     for (const a of agents.values()) if (!present.has(a.id) && (a.wideReader || (a.memberOf && a.memberOf.size))) { a.live = []; a.durable = []; a.wideReader = false; const empty = new Map(); pruneMemberEdges(a, empty); a.memberOf = empty; }
-    if (sel) renderDetail();
+    recomputeHubEmpty(); // these mutations change hub visibility — refresh before the detail/selection check below
+    if (sel) { if (isHidden(sel)) closeDetail(); else renderDetail(); }
   }
   // Drop this agent's membership edges that are no longer in `keep`; a still-warm one stays as a fading
   // traffic-only edge (mem:false) and is pruned later when cold, so a comet in flight isn't orphaned.
@@ -221,7 +223,8 @@
     // Prune cold traffic-only spokes (a non-member's post that has faded). Membership spokes persist by
     // membership, never on a timer — they're the resting skeleton, faint at rest, glowing on traffic.
     for (const [k, e] of edges) if (!e.mem && e.heat <= TRAFFIC_COLD && now() - e.last > 1000) { edges.delete(k); reheat(); }
-    for (const h of hubs.values()) h.empty = ![...edges.values()].some((e) => e.chan === h.name && e.mem && !isHiddenMember(e)); // no VISIBLE members = dormant (hidden offline ghosts don't keep it lit)
+    recomputeHubEmpty(); // no VISIBLE members = dormant (hidden offline ghosts don't keep it lit); drives hub hide + dim
+    if (sel && isHidden(sel)) closeDetail(); // a selection hidden by a membership/roster change (not just the toggle) closes its card
     physics();
     // re-frame only once the sim has cooled, so the camera doesn't chase the re-settle wobble
     if (!cam.user && alpha < 0.12) { const f = fitTarget(); const e = 1 - Math.pow(0.02, dt); cam.x += (f.x - cam.x) * e; cam.y += (f.y - cam.y) * e; cam.scale += (f.scale - cam.scale) * e; }
@@ -238,18 +241,46 @@
   // Hover/select a hub or agent → highlight its membership fan, dim the rest (dandelion mitigation).
   function fanFocus() { return hover && hover.kind === "hub" ? hover : sel && sel.kind === "hub" ? sel : hover && hover.kind === "agent" ? hover : sel && sel.kind === "agent" ? sel : null; }
   function inFan(e, f) { if (!f) return true; return f.kind === "hub" ? e.chan === f.name : e.a === f; }
-  // "hide offline" (on by default): collapse a "member, currently offline" — an agent that is NOT a live
-  // presence. Two shapes reach this: presence explicitly `offline`, OR a member the broker no longer sees
-  // connected, i.e. it has NO live subscription and survives only by durable membership (`live` empty +
-  // still a member). The latter is the common ghost — a peer that posted then left, kept at default `idle`
-  // status with dashed durable-only spokes. Hiding is render-only (node, spokes, DM curves, fan-out comets,
-  // hit-testing, camera frame, detail list): the node stays in the model + sim, so toggling reveals it instantly.
-  const isHidden = (n) => filter.hideOffline && n.kind === "agent" &&
-    (n.status === "offline" || ((n.live || []).length === 0 && n.memberOf && n.memberOf.size > 0));
-  // Per-CHANNEL visibility: a membership edge is "offline" if the agent is a ghost (isHidden) OR this
-  // particular membership is durable-only (the agent may be live elsewhere — keep its node, but drop this
-  // dashed spoke + its seat in this channel's roster/count, so "hide offline" holds per channel, not just per node).
-  const isHiddenMember = (e) => filter.hideOffline && (e.durableOnly || isHidden(e.a));
+  // Core offline-ness of an AGENT (toggle-INDEPENDENT): it is NOT a live presence — either presence reports it
+  // explicitly `offline`, or it is absent from the presence roster entirely (`present === false`). Presence is
+  // the authority here, NOT the membership feed. This is what fixes the "ghost flashes back for ~1s" report: a
+  // ghost that left EARLIER (its roster-absence already observed, `present === false`) stays hidden when a later
+  // snapshot empties its memberOf — there is no per-node `memberOf.size` heuristic to flip it back to VISIBLE on
+  // a membership change. (Membership and roster are independent SSE events; this covers the reported case, where
+  // a peer's channel join drops a long-departed ghost. A near-simultaneous disconnect whose membership-drop is
+  // processed before its roster-absence can still show the node for one roster interval — presence stays the
+  // authority and it self-resolves on the next roster event; review-ux/critic R2.) It also does NOT false-hide a
+  // genuinely-connected agent that just sits in no channel (e.g.
+  // `manager`/DM-only: roster-present, but absent from the channel feed, so its `live` is an empty DEFAULT, not
+  // proof of disconnection — review-freelance R2). `present` is set from the roster in updateRoster; a live
+  // message sender is marked present too.
+  const isOffline = (n) => n.kind === "agent" && (n.status === "offline" || !n.present);
+  // A membership edge that is offline FOR ITS channel: durable-only here, or the agent itself is offline.
+  const isOfflineMember = (e) => e.durableOnly || isOffline(e.a);
+  // Render/sim visibility. `hide offline` (on by default) collapses offline AGENTS. `hide empty` (on by
+  // default) collapses a HUB with no VISIBLE member under the current filters — it reads the cached `h.empty`
+  // (kept current by recomputeHubEmpty). So when `hide offline` is ON this
+  // means "no ONLINE member"; when it's OFF a channel that still shows offline members keeps its hub — the two
+  // toggles don't fight (review-critic R2). Gated on `feed.available`: without the authoritative feed there
+  // are no membership edges, so every hub would read empty — we can't tell a quiet channel from an unknown
+  // one, so we don't hide. Reading the cached flag keeps isHidden(hub) O(1), not an all-edges scan per call.
+  // Hiding suppresses node/spoke rendering, hit-testing, camera framing, and physics participation; the node
+  // stays in the model, so toggling reveals it instantly.
+  const isHidden = (n) => n.kind === "hub"
+    ? filter.hideEmpty && feed.available && n.empty
+    : filter.hideOffline && isOffline(n);
+  // Per-CHANNEL visibility of a membership spoke: hidden when `hide offline` is on AND this edge is offline
+  // for its channel (durable-only, or the agent is offline) — so "hide offline" holds per channel, not just
+  // per node (an agent live elsewhere keeps its node, but its dashed offline spokes + roster seats drop).
+  const isHiddenMember = (e) => filter.hideOffline && isOfflineMember(e);
+  // Recompute every hub's `empty` (no VISIBLE member under the current filters) in ONE O(hubs+edges) pass.
+  // isHidden(hub) reads this cached flag, so call this synchronously anywhere a hub's visibility is consulted
+  // outside the render loop — toggle cleanup + after applyMembership — so detail/selection logic never reads a
+  // stale flag (review-critic/freelance/ux R2). The frame loop calls it too, for roster/traffic-driven changes.
+  function recomputeHubEmpty() {
+    for (const h of hubs.values()) h.empty = true;
+    for (const e of edges.values()) if (e.mem && !isHiddenMember(e)) { const h = hubs.get(e.chan); if (h) h.empty = false; }
+  }
 
   function drawSpokes() {
     ctx.lineCap = "round";
@@ -257,7 +288,7 @@
     // structure layer: a constant-faint spoke per membership (solid = live, dashed-dim = member-offline)
     for (const e of edges.values()) {
       if (!e.mem || isHiddenMember(e)) continue;
-      const h = hubs.get(e.chan); if (!h) continue;
+      const h = hubs.get(e.chan); if (!h || isHidden(h)) continue;
       const off = e.durableOnly || e.a.status === "offline";
       const lit = inFan(e, f);
       ctx.beginPath(); ctx.moveTo(e.a.x, e.a.y); ctx.lineTo(h.x, h.y);
@@ -268,7 +299,7 @@
     ctx.setLineDash([]);
     // activity layer: traffic glow on top (members + transient non-member posts)
     ctx.globalCompositeOperation = "lighter";
-    for (const e of edges.values()) { const h = hubs.get(e.chan); if (!h || e.heat <= 0.02 || isHiddenMember(e)) continue; const lit = inFan(e, f); ctx.beginPath(); ctx.moveTo(e.a.x, e.a.y); ctx.lineTo(h.x, h.y); ctx.strokeStyle = rgba(MODE.chat, Math.min(0.55, e.heat * 0.55) * (lit ? 1 : 0.35)); ctx.lineWidth = 1 + e.heat * 1.6; ctx.stroke(); }
+    for (const e of edges.values()) { const h = hubs.get(e.chan); if (!h || isHidden(h) || e.heat <= 0.02 || isHiddenMember(e)) continue; const lit = inFan(e, f); ctx.beginPath(); ctx.moveTo(e.a.x, e.a.y); ctx.lineTo(h.x, h.y); ctx.strokeStyle = rgba(MODE.chat, Math.min(0.55, e.heat * 0.55) * (lit ? 1 : 0.35)); ctx.lineWidth = 1 + e.heat * 1.6; ctx.stroke(); }
     ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1;
   }
   function drawDmEdges() {
@@ -286,6 +317,7 @@
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
     const t = performance.now() / 1000;
     for (const h of hubs.values()) {
+      if (isHidden(h)) continue;
       const focus = h === hover || h === sel, dim = h.empty ? 0.55 : 1; // dormant hubs read quieter, not gone
       ctx.save(); ctx.shadowColor = MODE.chat; ctx.shadowBlur = (focus ? 28 : 16) * dim;
       const g = ctx.createRadialGradient(h.x, h.y, 0, h.x, h.y, h.r); g.addColorStop(0, h.empty ? "#16314f" : "#2b5a8f"); g.addColorStop(1, "#0c1726");
@@ -359,7 +391,7 @@
     const content = ns.filter((n) => !(n.kind === "hub" && n.empty) && !isHidden(n)), frame = content.length ? content : ns;
     let a = 1e9, b = 1e9, c = -1e9, d = -1e9;
     for (const n of frame) { const r = n.r + 40; a = Math.min(a, n.x - r); c = Math.max(c, n.x + r); b = Math.min(b, n.y - r); d = Math.max(d, n.y + r); }
-    for (const h of hubs.values()) if (h.empty) { a = Math.min(a, h.x - 20); c = Math.max(c, h.x + 20); b = Math.min(b, h.y - 20); d = Math.max(d, h.y + 20); }
+    for (const h of hubs.values()) if (h.empty && !isHidden(h)) { a = Math.min(a, h.x - 20); c = Math.max(c, h.x + 20); b = Math.min(b, h.y - 20); d = Math.max(d, h.y + 20); }
     const bw = c - a || 1, bh = d - b || 1, pad = 90, maxScale = ns.length <= 6 ? 2.4 : 1.6;
     const scale = Math.max(0.35, Math.min(maxScale, Math.min((W - pad * 2) / bw, (H - pad * 2) / bh)));
     return { x: W / 2 - ((a + c) / 2) * scale, y: H / 2 - ((b + d) / 2) * scale, scale };
@@ -436,7 +468,8 @@
   window.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDetail(); });
   $("modes").onclick = (e) => { const c = e.target.closest(".chip"); if (!c) return; const m = c.dataset.mode; filter[m] = !filter[m]; c.classList.toggle("on", filter[m]); };
   $("pause").onclick = () => { filter.paused = !filter.paused; $("pause").classList.toggle("on", filter.paused); $("pause").textContent = filter.paused ? "▶ resume" : "⏸ pause"; };
-  $("hideOffline").onclick = () => { filter.hideOffline = !filter.hideOffline; $("hideOffline").classList.toggle("on", filter.hideOffline); if (sel && isHidden(sel)) closeDetail(); if (hover && isHidden(hover)) hover = null; reheat(); if (sel) renderDetail(); };
+  $("hideOffline").onclick = () => { filter.hideOffline = !filter.hideOffline; $("hideOffline").classList.toggle("on", filter.hideOffline); recomputeHubEmpty(); if (sel && isHidden(sel)) closeDetail(); if (hover && isHidden(hover)) hover = null; reheat(); if (sel) renderDetail(); };
+  $("hideEmpty").onclick = () => { filter.hideEmpty = !filter.hideEmpty; $("hideEmpty").classList.toggle("on", filter.hideEmpty); recomputeHubEmpty(); if (sel && isHidden(sel)) closeDetail(); if (hover && isHidden(hover)) hover = null; reheat(); if (sel) renderDetail(); };
   $("legendToggle").onclick = () => $("legend").classList.toggle("collapsed");
   function setConn(live) { const el = $("conn"); el.classList.toggle("down", !live); el.querySelector(".t").textContent = live ? "live" : "disconnected"; }
 
