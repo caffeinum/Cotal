@@ -30,6 +30,7 @@ import {
   type RuntimeMode,
 } from "./runtime/index.js";
 import { AttachEndpoint } from "./attach-endpoint.js";
+import { launchSpecForRun, materializePersona, launchAgentToStartOpts } from "./launch.js";
 
 /** Concurrency ceiling — the manager refuses to hold more than this many live + in-flight +
  *  cooling slots at once (P4a). Bounds a fork-bomb: spawn is a full agent process per call. */
@@ -243,6 +244,14 @@ export class Manager {
       case "start":
         // Spawn is a privileged-tier op; reaching it via admin is fine (admin ⊇ privileged powers).
         return this.opStart(args, caller);
+      case "launch":
+        // SECURITY: manifest launch is operator-only (admin tier). It is higher-power than `start`
+        // — it boots an operator-authored, coordinated policy set from a run spec and underpins the
+        // ownership ledger — so a merely spawn-capable agent (which CAN publish to the privileged
+        // subject) must not reach it. Gate at the handler like `purge`; the subject alone isn't a
+        // boundary because `spawn` grants privileged-subject publish and dispatch is by op here.
+        if (!admin) return { ok: false, error: "launch is admin-only; not allowed on the privileged subject" };
+        return this.opLaunch(args, caller);
       case "stop": {
         if (!name) return { ok: false, error: "self-stop not allowed on privileged subject; send it on the self-service subject" };
         return this.opStop(args, caller, admin);
@@ -377,6 +386,40 @@ export class Manager {
       },
       caller,
     );
+  }
+
+  /** Boot one resolved agent from a mesh-manifest launch spec, for `cotal spawn -f` onto a RUNNING
+   *  manager. The request carries a `{ runId, name }`, NEVER a path: the manager derives + validates
+   *  `.cotal/run/<runId>.json` itself ({@link launchSpecForRun} — token-safe id, no-follow,
+   *  `loadLaunchSpec`'s untrusted-input + `validateLaunchPolicy` contract), materializes the named
+   *  agent's transient persona, and spawns via the same `startAgent({ resolved })` path as
+   *  `supervise --launch`. The reply is enriched for the ownership ledger: the SPAWNED
+   *  (collision-numbered) name + nkey id creds are filed under, plus the manifest `requested` name,
+   *  `runId`, and resolved `hash`. */
+  private async opLaunch(args: Record<string, unknown>, caller: string): Promise<ControlReply> {
+    const runId = String(args.runId ?? "").trim();
+    const name = String(args.name ?? "").trim();
+    if (!runId || !name) return { ok: false, error: "launch requires runId + name" };
+    let spec;
+    try {
+      spec = launchSpecForRun(this.workspaceRoot, runId);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const la = spec.agents.find((a) => a.name === name);
+    if (!la) return { ok: false, error: `no agent "${name}" in launch spec for run ${runId}` };
+    let configPath: string;
+    try {
+      configPath = materializePersona(this.workspaceRoot, runId, la);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const reply = await this.startAgent(launchAgentToStartOpts(la, configPath), caller);
+    if (reply.ok)
+      // `data.name` stays the spawned (numbered) identity — what creds are filed under and the ledger
+      // keys on; `requested`/`runId`/`hash` give the CLI the manifest name + drift hash for the ledger.
+      reply.data = { ...(reply.data as object), requested: la.name, runId, hash: la.hash, newlyStarted: true };
+    return reply;
   }
 
   /** Spawn and supervise one agent. The single spawn path: both the control-plane
