@@ -6,69 +6,90 @@
 
 ## What it is
 
-A manifest (`cotal.yaml`, `kind: Mesh`) is the declarative form of the things you would
-otherwise do by hand: start a broker, seed some channels, spawn agents, and mint each agent
-creds scoped to the channels it may use. You write the topology once; `cotal` resolves it into
-per-agent access and boots it.
+A manifest (`cotal.yaml`, `kind: Mesh`) is the declarative form of what you'd otherwise do by
+hand: start a broker, seed some channels, spawn agents, and mint each agent creds scoped to the
+channels it may use.
 
 It is **channel-centric**: you list the channels, and under each one name the agents that may
-read and post. The CLI *inverts* that into one ACL set per agent
-([`resolve.ts`](../implementations/cli/src/lib/manifest/resolve.ts)) — so the file reads the way
-you think about a team ("who's in #review?"), while each agent still gets least-privilege creds.
+read and post. Cotal inverts that into one least-privilege credential per agent — so the file
+reads the way you think about a team ("who's in #review?"), while each agent only gets the access
+you granted. Run `cotal topology view -f cotal.yaml` at any time to see the resolved access
+graph before you launch anything.
 
-## A first manifest
+## Quickstart
+
+A complete, runnable manifest — two agents, two channels, no separate files:
 
 ```yaml
 apiVersion: cotal/v1
 kind: Mesh
-space: research-team
-broker: { host: 127.0.0.1, auth: true }   # JWT auth is the default; omit broker for the defaults
-agent: claude                             # default harness for agents that don't set their own
+space: demo-team
+agent: claude                          # the harness that runs each agent (see note below)
 
-agents:                                   # name → persona; three forms (see Fields)
-  planner: ./agents/planner.md            # 1) a persona file, as-is
-  builder:                                # 2) a persona file + overrides for this run
-    persona: ./agents/builder.md
-    model: sonnet
-  lead:                                   # 3) fully inline — no file
-    model: opus
-    role: lead
-    capabilities: [spawn]                 # may spawn helpers
-    instructions: Coordinate the team.
+agents:                                # inline personas — no external files needed
+  planner:
+    instructions: Break the work into steps and post the plan.
+  builder:
+    instructions: Implement the smallest change that works.
 
 channels:
   general:
-    description: Open coordination.
-    subscribe:    [planner, builder, lead]   # auto-listening at boot (and may read)
-    allowPublish: [planner, builder, lead]   # post ACL — default-deny, so list it explicitly
+    subscribe:    [planner, builder]   # auto-listen at boot (a subscriber may also read)
+    allowPublish: [planner, builder]   # may post — default-deny, so list everyone who posts
   review:
-    description: Design critique.
-    subscribe:      [planner, lead]
-    allowSubscribe: [planner, builder, lead]  # builder MAY read #review, but isn't auto-subscribed
-    allowPublish:   [planner, lead]
-  decisions:
-    description: The durable record.
-    subscribe:    [lead]
-    allowPublish: []                          # nobody posts (e.g. a human writes here)
+    subscribe:      [planner]          # only planner auto-listens
+    allowSubscribe: [planner, builder] # builder MAY read #review, but isn't auto-subscribed
+    allowPublish:   [planner, builder]
 ```
 
-Validate and **see the access graph** before touching a broker:
+> **Harness:** `agent: claude` runs each agent as Claude Code (which must be installed). Use
+> `agent: opencode` for OpenCode — its models use `provider/model` form (e.g.
+> `anthropic/claude-sonnet-4-6`). You can also set the harness per agent.
+
+Save it as `cotal.yaml` and run:
 
 ```bash
-cotal topology view -f cotal.yaml
+cotal topology view -f cotal.yaml      # validate + render the access graph (no broker needed)
+cotal up -f cotal.yaml                 # broker + channels + agents, all fresh
+cotal ps --space demo-team             # see the agents the manager booted
+cotal web --space demo-team            # ...or watch the live mesh in the browser
+cotal down                             # stop the whole mesh
 ```
 
-## The four commands
+> If you already have a Cotal mesh running on the default address (e.g. from `cotal setup`),
+> `up -f` **refuses** — it never re-seeds a live broker. Run `cotal down` first, give the
+> manifest its own `broker` host/port, or use `cotal spawn -f` to deploy onto the running mesh.
 
-| Command | What it does | Owns |
-|---|---|---|
-| `cotal topology view -f <file>` | Validate the file and render its access graph (per-channel and per-agent read/post, inherited scopes, warnings). Read-only — needs no broker, mutates nothing. | — |
-| `cotal up -f <file>` | Bring up a **fresh** mesh: broker + seeded channels + booted agents. Refuses if a broker is already reachable at that address (use `spawn -f`). | the whole space |
-| `cotal spawn -f <file>` | Deploy a manifest **additively** onto a mesh that is already running. | only what it created |
-| `cotal down -f <file>` | Tear down. After `up -f`, `cotal down` stops the whole mesh; after `spawn -f`, `down -f` (or `--run <id>`) removes **only** that run's agents and channels. | — |
+**What that grants.** `topology view -f` inverts the channel lists into per-agent access:
+
+| Agent | Reads | Auto-listens | Posts |
+|---|---|---|---|
+| `planner` | #general #review | #general #review | #general #review |
+| `builder` | #general #review | #general | #general #review |
+
+The one distinction to learn: `builder` **may read** #review (`allowSubscribe`) but doesn't
+**auto-listen** to it (`subscribe`). `subscribe` controls what an agent tunes into at boot;
+`allowSubscribe` controls what it's *allowed* to read.
+
+## The commands
+
+| Command | What it does |
+|---|---|
+| `cotal topology view -f <file>` | Validate the file and render its access graph. Read-only — needs no broker, mutates nothing. |
+| `cotal up -f <file>` | Bring up a **fresh** mesh: broker + seeded channels + booted agents. Refuses if a broker is already reachable at that address (use `spawn -f` instead). |
+| `cotal spawn -f <file>` | Deploy a manifest **additively** onto a mesh that is already running. |
+| `cotal down [-f <file>]` | Tear down (see "Which `down`?" below). |
+
+**Which `down`?** — A fresh mesh from `up -f` is torn down with plain **`cotal down`** (it owns
+the whole space). An additive deploy from `spawn -f` is torn down with **`cotal down -f <file>`**
+(or `cotal down -f <file> --run <id>`), which removes *only* that run's agents and channels.
 
 `up -f` and `spawn -f` accept `--dry-run` (preview the plan, change nothing). `up -f` also takes
 `--server` / `--host` / `--space` / `--runtime` / `--open` to override the file for one run.
+
+> The manager commands `cotal ps` / `start` / `stop` / `attach` default to
+> `nats://127.0.0.1:4222`. They work as-is for a default-port mesh; for a manifest mesh on
+> another port, pass `--server` (see [Operating a manifest mesh](#operating-a-manifest-mesh)).
 
 ## Fields
 
@@ -79,7 +100,7 @@ cotal topology view -f cotal.yaml
 | `apiVersion` | yes | Must be `cotal/v1`. |
 | `kind` | yes | Must be `Mesh`. |
 | `space` | yes | The space name (one per file). `spaces:` is not supported in v1. |
-| `broker` | no | `host` (bind address, no scheme), `servers` (comma-separated URLs, **no embedded creds**), `auth` (bool — JWT auth, default `true`; `false` is an open dev mesh). |
+| `broker` | no | `host` (bind address, no scheme — uses the default NATS port `4222` unless `--host`/`--server` overrides), `servers` (comma-separated URLs, **no embedded creds**), `auth` (bool — JWT auth, default `true`; `false` is an open dev mesh). |
 | `runtime` | no | How the manager runs each agent: `pty` (default) · `tmux` · `cmux`. |
 | `agent` | no | Default harness (`claude` / `opencode` / `hermes` / …) for agents that don't set their own. There is **no silent default** — an agent needs this or its own `agent:`. |
 | `personaPermissions` | no | `reject` (default) — the manifest is the whole truth. `include` — a persona's own channel grants are inherited for channels the manifest doesn't declare. |
@@ -91,29 +112,32 @@ Unknown keys are rejected (no silent ignore), and every error is reported with i
 
 ### `agents:` — three forms
 
+The quickstart used the inline form. All three:
+
 ```yaml
 agents:
-  planner: ./agents/planner.md          # 1) bare path: reuse a persona file
-  builder:                              # 2) file + overrides (manifest wins)
+  planner: ./agents/planner.md          # 1) bare path: reuse a persona file as-is
+  builder:                              # 2) a persona file + overrides (manifest wins)
     persona: ./agents/builder.md
     model: sonnet
     role: implementer
     instructions: Prefer the smallest change that works.
-  scout:                                # 3) inline (no file): needs at least model or instructions
-    agent: opencode                     #    per-agent harness override
-    model: anthropic/claude-sonnet-4-6  #    opencode uses provider/model form
-    instructions: Research the web; report 3 bullets.
+  lead:                                 # 3) inline (no file): needs at least model or instructions
+    model: opus
+    role: lead
+    capabilities: [spawn]               # may spawn helpers
+    instructions: Coordinate the team.
 ```
 
 Per-agent keys: `persona`, `agent` (harness override), `model`, `role`, `description`,
 `instructions`, `capabilities` (e.g. `[spawn]`), `personaPermissions` (override the top-level
-policy). Model strings are passed to the harness as-is — for Claude use the short form (`opus`,
+policy). Model strings pass to the harness as-is — for Claude use the short form (`opus`,
 `sonnet`) or the full id; for OpenCode use `provider/model`.
 
 ### `channels:` — the three access verbs
 
 A channel carries its registry card (`description`, `instructions`, `replay`, …) plus three
-lists of agent names, the same verbs Cotal uses everywhere:
+lists of agent names — the same verbs Cotal uses everywhere:
 
 | Verb | ACL | Meaning |
 |---|---|---|
@@ -121,61 +145,79 @@ lists of agent names, the same verbs Cotal uses everywhere:
 | `allowSubscribe` | **read** | May read the channel. Omitted ⇒ defaults to `subscribe`. Must be a superset of `subscribe`. |
 | `allowPublish` | **post** | May post. **Default-deny** — an empty or omitted list means nobody posts. |
 
+A read-only channel (no agent posts — e.g. an operator writes the record by hand with
+`cotal send`, which is a CLI action outside agent ACLs):
+
+```yaml
+channels:
+  decisions:
+    description: The durable record of what we decided.
+    subscribe:    [lead]
+    allowPublish: []                    # read-only for agents
+```
+
 Every name under a channel must be declared in `agents:`. Channel names must be concrete
 (no wildcards in v1).
 
 ## How access is resolved
 
-You declare membership per channel; `cotal` inverts it into each agent's minted creds:
+You declare membership per channel; Cotal inverts it into each agent's minted creds (as in the
+quickstart's "What that grants" table):
 
 - **Read** comes from `allowSubscribe` (or `subscribe` when `allowSubscribe` is omitted).
-- **Post** comes from `allowPublish`, and is default-deny — if you don't list an agent, it
-  cannot post, even to a channel it reads.
-- `subscribe` only sets what an agent *auto-listens to* at boot; it never widens read beyond
-  `allowSubscribe`.
+- **Post** comes from `allowPublish`, and is default-deny — an agent you don't list cannot post,
+  even to a channel it reads.
+- `subscribe` only sets what an agent *auto-listens to* at boot; it never widens read.
 
 With `personaPermissions: reject` (the default) the manifest is the complete picture — a persona
 file's own channel grants are ignored, so the file you read is exactly what each agent can do.
-Set `include` (top level or per agent) to additionally inherit a persona's own grants for
-channels the manifest doesn't mention. `cotal topology view -f` prints the resolved graph,
-including inherited scopes, so you can check it before launch.
+Set `include` (top level or per agent) to *also* inherit a persona's own grants for channels the
+manifest doesn't mention. `cotal topology view -f` always prints the resolved graph, inherited
+scopes included.
 
 ## Ownership and teardown
 
-`cotal` only ever tears down what it owns; foreign actors on a shared mesh are never touched.
+The rule: **`up -f` owns the whole space; `spawn -f` owns only what it created.** Cotal only ever
+tears down what it owns — foreign actors on a shared mesh are never touched.
 
-- **`up -f` owns the whole space.** It created the broker and seeded everything, so `cotal down`
-  stops all of it.
-- **`spawn -f` owns only what it created.** It writes a creation-only ledger
-  (`.cotal/manifests/<runId>.json`) recording exactly the channels and agents it added, and
-  `down -f` removes only those.
+- A fresh mesh from `up -f` → `cotal down` stops all of it.
+- An additive deploy from `spawn -f` records a creation-only **ledger**
+  (`.cotal/manifests/<runId>.json`) of exactly the channels and agents it added; `cotal down -f`
+  removes only those. (`.cotal/` is git-ignored — commit your `cotal.yaml` and persona files, not
+  the ledger/creds/runtime artifacts under it.)
 
-`spawn -f` classifies each declared item against the live mesh:
+The **run id** for `down -f --run <id>` is printed by `spawn -f` and is the filename under
+`.cotal/manifests/`. You need it when the manifest has changed since the deploy (an edited file
+no longer matches its ledger, so `down -f` asks for `--run` rather than guessing), or to finish a
+teardown that was retained (below).
+
+### Deploying onto a shared mesh (`spawn -f`)
+
+`spawn -f` is additive and never adopts or mutates anything it didn't create. It classifies each
+declared item against the live mesh:
 
 | Item | Classification | Behavior |
 |---|---|---|
 | Channel, brand-new | created + owned | Seeded and recorded in the ledger. |
-| Channel, already present | `exists-unmanaged` | Left untouched — its card is not mutated; the desired card is shown against the live one. |
+| Channel, already present | `exists-unmanaged` | Left untouched — card not mutated; the desired card is shown against the live one. |
 | Agent, not yet created | will-create | Booted and recorded. |
 | Agent, already created, unchanged | already-owned | No-op. |
 | Agent, already created, policy changed | `stale` | Exits non-zero unless `--allow-stale <names>` (then it restarts). |
 
 If an **unmanaged** actor already has read access to a channel you declare, `spawn -f` prints a
-SECURITY warning — an isolation conflict on a shared mesh. This is an explicit *lower bound*
+SECURITY warning — an isolation conflict on a shared mesh. It's an explicit *lower bound*
 (presence plus the broker membership feed), not a guarantee that no other access exists.
 
-`down -f` is deliberately conservative — it treats the ledger as untrusted and validates the
-whole of it before deleting anything:
+`down -f` is deliberately conservative — it treats the ledger as untrusted and validates all of
+it before deleting anything:
 
 - An owned agent is stopped only when the live agent's recorded **name *and* id** match (a
   same-name, different-id agent is foreign and left alone).
 - Credential files are derived from the auth root and deleted without following symlinks.
 - An owned channel is removed only when no other members remain.
-- If the broker is unreachable or anything is uncertain, nothing remote is removed and the
-  ledger is **retained** so a later `down -f --run <id>` finishes the job.
-- An edited manifest no longer matches its ledger; `down -f` then fails with a `--run` hint
-  rather than guessing. `down -f` is local-only — run it from the same checkout that created the
-  run.
+- If the broker is unreachable or anything is uncertain, nothing remote is removed and the ledger
+  is **retained** so a later `cotal down -f <file> --run <id>` finishes the job.
+- `down -f` is local-only — run it from the same checkout that created the run.
 
 ## Operating a manifest mesh
 
@@ -200,3 +242,10 @@ A follow-up will route these through the same resolution as the rest of the CLI.
 | `up -f` / `spawn -f` / `down -f` / `topology view -f` | ✅ today |
 | `--server` resolution for `ps`/`start`/`stop`/`attach` | follow-up |
 | Multiple spaces per manifest (`spaces:`) | not in v1 |
+
+---
+
+For implementers: the channel-centric → per-agent inversion lives in
+[`resolve.ts`](../implementations/cli/src/lib/manifest/resolve.ts); the `spawn -f` classification
+and teardown in [`spawn-plan.ts`](../implementations/cli/src/lib/manifest/spawn-plan.ts) and
+[`down-manifest.ts`](../implementations/cli/src/commands/down-manifest.ts).

@@ -1,8 +1,8 @@
 # Cotal docs
 
-These describe the **protocol**, the wire contract that *is* Cotal. Each runnable example
-documents itself in its own `examples/*/README.md`. Working build-plans and research live
-in the private `.internal/` submodule, not here.
+These describe the **protocol** — the wire contract that *is* Cotal — and the core CLI surfaces
+over it. Each runnable example documents itself in its own `examples/*/README.md`. Working
+build-plans and research live in the private `.internal/` submodule, not here.
 
 ## New here? Read these three, in order
 
