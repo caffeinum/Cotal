@@ -4,6 +4,19 @@ import WebSocket from "ws";
 const DETACH = 0x1d;
 
 /**
+ * Terminal modes a full-screen child (e.g. Claude's TUI) commonly turns on but that we must undo
+ * locally on detach/exit: the agent keeps running after Ctrl-], so it never restores OUR terminal.
+ * Without this, detaching from a mouse-tracking TUI leaves the terminal reporting every cursor move
+ * as input (a stream of `ESC[<…M` escape codes). Disables all mouse-report modes + bracketed paste,
+ * shows the cursor, and resets attributes. Deliberately does NOT toggle the alternate screen.
+ */
+const RESTORE =
+  "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l" + // mouse tracking off
+  "\x1b[?2004l" + // bracketed paste off
+  "\x1b[?25h" + // show cursor
+  "\x1b[0m"; // reset attributes
+
+/**
  * Drive a manager's attach endpoint from the terminal: raw-mode stdin streams to
  * the PTY, PTY output streams to stdout, and SIGWINCH-style resizes are forwarded.
  * Ctrl-] detaches without killing the agent.
@@ -26,6 +39,8 @@ export function attachClient(url: string): Promise<void> {
     const cleanup = () => {
       stdin.off("data", onInput);
       process.stdout.off("resize", sendResize);
+      // Undo terminal modes the (still-running) agent's TUI enabled — it won't restore us on detach.
+      if (process.stdout.isTTY) process.stdout.write(RESTORE);
       if (stdin.isTTY) stdin.setRawMode(wasRaw);
       stdin.pause();
     };
