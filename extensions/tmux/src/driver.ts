@@ -150,9 +150,10 @@ export function mergedCommand(
   return ["env", ...pairs, shellQuote(command), ...args.map(shellQuote)].join(" ");
 }
 
-/** Type literal text into a tmux target (`session:window`). */
+/** Type literal text into a tmux target (`session:window`).
+ *  `-l` sends the string as literal keystrokes, bypassing tmux's key-name lookup. */
 export function send(text: string, target: string): void {
-  execFileSync("tmux", ["send-keys", "-t", target, text], { stdio: "ignore" });
+  execFileSync("tmux", ["send-keys", "-t", target, "-l", text], { stdio: "ignore" });
 }
 
 /** Send a named key sequence (e.g. `"Enter"`, `"C-c"`) to a tmux target. */

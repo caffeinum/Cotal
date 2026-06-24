@@ -74,10 +74,12 @@ with no silent fallback.
   adapter; includes a Python sidecar.
 - **`@cotal-ai/cmux`** (`extensions/cmux`): the cmux integration: a driver over the cmux CLI
   plus a self-registering `cmux` Runtime and `TerminalLayout` provider.
+- **`@cotal-ai/tmux`** (`extensions/tmux`): the tmux integration: a driver over the tmux CLI
+  plus a self-registering `tmux` Runtime and `TerminalLayout` provider.
 - **`@cotal-ai/cli`** (`implementations/cli`): the mesh CLI: `up`, `join`, `watch`, `console`,
   `web`, `spawn`, `mint`, `channels`, `history`.
 - **`@cotal-ai/manager`** (`implementations/manager`): the agent supervisor: spawns and manages
-  nodes via a pluggable Runtime (`pty` / `tmux` / `cmux`), with `start`/`stop`/`ps`/`attach` and
+  nodes via a pluggable Runtime (`pty` built-in; `tmux` and `cmux` via extensions), with `start`/`stop`/`ps`/`attach` and
   a WebSocket attach endpoint.
 - **`@cotal-ai/delivery`** (`implementations/delivery`): the server-side Plane-3 delivery daemon
   — the durable backstop (fan-out writer + trusted reader + membership/ACL authority), a scoped,

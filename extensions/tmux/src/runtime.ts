@@ -59,8 +59,7 @@ export class TmuxRuntime implements Runtime {
       kind: "tmux",
       status: () => (tmux.windowAlive(this.session, name) ? "running" : "exited"),
       stop: (opts) => {
-        const kill = () => tmux.closeWindow(target);
-        if (opts?.graceful === false) return kill();
+        if (opts?.graceful === false) return tmux.closeWindow(target);
         // Graceful: type `/exit` so the Claude session shuts down cleanly (its SessionEnd
         // hook leaves the mesh), then close the now-idle window regardless.
         try {
@@ -69,7 +68,16 @@ export class TmuxRuntime implements Runtime {
         } catch {
           /* window already gone — still ensure it's closed below */
         }
-        setTimeout(kill, GRACE_MS);
+        // Deferred, so a throw here is uncaught in a timer and would crash the manager.
+        // closeWindow already no-ops on an already-gone window; guard anyway and log a genuine
+        // tmux failure rather than let teardown cleanup take the process down.
+        setTimeout(() => {
+          try {
+            tmux.closeWindow(target);
+          } catch (err) {
+            console.error(`tmux runtime: failed to close window for "${name}":`, err);
+          }
+        }, GRACE_MS);
       },
       interrupt: () => {
         tmux.sendKey("C-c", target);
