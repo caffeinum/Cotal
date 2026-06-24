@@ -103,7 +103,10 @@ export async function downManifest(file: string, flags: DownManifestFlags): Prom
       const ep = await connectProbe({ space: ledger.space, server: ledger.server, creds });
       try {
         const ps = await ep.requestControl(CONTROL_ADMIN, { op: "ps" });
-        const live = (ps.ok ? (ps.data as Array<{ name: string; id: string }>) : []) ?? [];
+        // A FAILED ps reply is teardown uncertainty too — not a trustworthy empty roster. Throw so it
+        // joins the no-responder/thrown path → controlOk stays false → partial retention (review-ux).
+        if (!ps.ok) throw new Error(ps.error ?? "ps failed");
+        const live = (ps.data as Array<{ name: string; id: string }>) ?? [];
         liveById = new Map(live.map((r) => [r.id, r]));
         for (const a of ledger.created.agents) {
           const l = liveById.get(a.id);
