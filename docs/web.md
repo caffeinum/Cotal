@@ -90,7 +90,8 @@ data source. Channels and agents are both nodes; the wires between them are the 
   the **broker-sourced membership feed** (`/api/membership`) — so a silent subscriber shows on any
   channel class. A wire is faint at rest and **glows when a message flows** along it. A live
   (connected) member draws solid-faint; a member that's only durable while its presence is offline
-  draws dashed-dim ("member, currently offline"). A channel post sends a comet from the sender into
+  draws dashed-dim ("member, currently offline") — **hidden by default**, revealed with the *hide
+  offline* control (the channel's detail card still lists them either way). A channel post sends a comet from the sender into
   the hub, the hub blooms, then the post **fans out** to every other member on the channel (a real
   broadcast). A direct message is a curved comet between the two peers; an anycast blooms at the sender.
 - **Layout:** the simulation cools to a rest state and only gently **re-heats on a structural
@@ -98,7 +99,9 @@ data source. Channels and agents are both nodes; the wires between them are the 
   *glow*, not motion. Drag to pan, scroll to zoom, click a node for its detail card; the camera
   auto-fits until you take over.
 - **Controls:** per-mode filter chips (channel / direct / anycast) and pause, mirroring the
-  Monitor feed.
+  Monitor feed, plus **hide offline** (on by default) — collapses the dashed-dim "member,
+  currently offline" nodes to keep the constellation to who's actually here; toggle it off to
+  reveal durable members that are away.
 
 **Membership is broker-sourced and authoritative, not self-reported.** Channels delivered `live`
 keep no enumerable subscriber roster, so "who reads #x" can't be read from any one place. A
