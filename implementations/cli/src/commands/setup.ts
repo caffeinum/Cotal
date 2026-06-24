@@ -302,34 +302,51 @@ async function offerDemo(haveClaude: boolean): Promise<void> {
 
   if (haveClaude && haveAgents && isTTY) {
     const cmux = inCmuxSurface();
-    const tmux = !cmux && inTmuxSurface();
-    const go = abortIfCancel(
-      await p.confirm({
-        message: cmux
-          ? "Open the cmux demo? A Claude you drive, with david and sven helping in cmux tabs."
-          : tmux
-            ? "Open the tmux demo? A Claude you drive, with david and sven helping in tmux windows."
-            : "Open the demo? A Claude you drive, with david and sven helping in the background.",
-        initialValue: true,
-      }),
-    );
-    if (go) {
-      if (cmux) {
+    const tmux = inTmuxSurface();
+
+    if (cmux) {
+      const go = abortIfCancel(
+        await p.confirm({
+          message: "Open the cmux demo? A Claude you drive, with david and sven helping in cmux tabs.",
+          initialValue: true,
+        }),
+      );
+      if (go) {
         ensureCmuxSession(cotalRoot());
         p.log.success("Session open: drive the 'cotal-main' pane; david and sven are on the mesh in the background.");
         return;
       }
-      if (tmux) {
+    }
+
+    if (tmux) {
+      const go = abortIfCancel(
+        await p.confirm({
+          message: "Open the tmux demo? A Claude you drive, with david and sven helping in tmux windows.",
+          initialValue: true,
+        }),
+      );
+      if (go) {
         ensureTmuxSession(cotalRoot());
         p.log.success("Session open: switch to the 'cotal-main' window; david and sven are warming up in the background.");
         return;
       }
-      // Non-cmux / non-tmux: a background pty manager pre-spawns david/sven (managed, despawnable),
-      // then we hand this terminal to the driving session. (auth → delivery daemon first, then the manager.)
-      await ensureControlPlane({ space: resolveSpace(process.cwd()), server: DEFAULT_SERVER, spawn: [...DEMO_TEAM] });
-      p.outro(brand("Launching your session... david and sven are warming up in the background."));
-      await spawn(["me", "--prompt", ME_GREETING]);
-      process.exit(0);
+    }
+
+    if (!cmux && !tmux) {
+      const go = abortIfCancel(
+        await p.confirm({
+          message: "Open the demo? A Claude you drive, with david and sven helping in the background.",
+          initialValue: true,
+        }),
+      );
+      if (go) {
+        // Background pty manager pre-spawns david/sven (managed, despawnable), then we hand this
+        // terminal to the driving session. (auth → delivery daemon first, then the manager.)
+        await ensureControlPlane({ space: resolveSpace(process.cwd()), server: DEFAULT_SERVER, spawn: [...DEMO_TEAM] });
+        p.outro(brand("Launching your session... david and sven are warming up in the background."));
+        await spawn(["me", "--prompt", ME_GREETING]);
+        process.exit(0);
+      }
     }
   } else if (isTTY && haveAgents && !haveClaude) {
     p.log.info(`The demo needs Claude Code. Install it (https://claude.com/claude-code), then run \`${displayCmd()} go\`.`);
