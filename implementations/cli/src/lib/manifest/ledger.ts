@@ -171,7 +171,9 @@ export function listLedgers(root: string): Array<{ path: string; ledger: MeshLed
     if (!n.endsWith(".json") || n.startsWith(".")) continue;
     const p = join(dir, n);
     try {
-      out.push({ path: p, ledger: loadLedger(p) });
+      const ledger = loadLedger(p);
+      if (`${ledger.runId}.json` !== n) continue; // filename must match the declared runId (no spoofed authority)
+      out.push({ path: p, ledger });
     } catch {
       /* skip — a foreign/corrupt file isn't this run's ledger; `--run` targets a known one */
     }
@@ -197,7 +199,11 @@ export function findLedgerByRun(root: string, runId: string): { path: string; le
   const dir = realDirNoSymlink(root, ".cotal", "manifests"); // refuse a symlinked manifests parent
   if (!dir) throw new Error(`no ledger for run ${runId} (.cotal/manifests is absent)`);
   const path = join(dir, `${runId}.json`);
-  return { path, ledger: loadLedger(path) }; // loadLedger refuses a symlinked ledger file
+  const ledger = loadLedger(path); // loadLedger refuses a symlinked ledger file
+  // Bind the filename to the contents: a tampered `<runId>.json` whose body declares a DIFFERENT
+  // runId must not redirect teardown to that other run's derived run dir / resources.
+  if (ledger.runId !== runId) throw new Error(`ledger ${path}: declares runId "${ledger.runId}", not "${runId}" — refusing`);
+  return { path, ledger };
 }
 
 /** Derive an owned agent's cred path under the known auth root — `<root>/.cotal/auth/creds/<name>.creds`

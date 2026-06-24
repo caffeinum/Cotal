@@ -31,7 +31,7 @@ import {
 import { c } from "../ui.js";
 import { cotalRoot } from "../lib/paths.js";
 import { connectProbe } from "../lib/manifest/live.js";
-import { findLedgerByHash, findLedgerByRun, hashManifestSource, ownedCredPath, type MeshLedger } from "../lib/manifest/ledger.js";
+import { findLedgerByHash, findLedgerByRun, hashManifestSource, ownedCredPath, writeLedger, type MeshLedger } from "../lib/manifest/ledger.js";
 
 export interface DownManifestFlags {
   run?: string;
@@ -78,27 +78,28 @@ export async function downManifest(file: string, flags: DownManifestFlags): Prom
 
   if (flags.dryRun) {
     console.log(c.bold("\nWould remove (dry run):"));
-    for (const a of credPaths) console.log(`  ${c.red("-")} agent ${a.name} ${c.dim(`(id ${a.id.slice(0, 8)}, creds ${a.path})`)}`);
-    for (const ch of ledger.created.channels) console.log(`  ${c.red("-")} channel ${c.cyan("#" + ch)} ${c.dim("(only if no members remain)")}`);
-    console.log(`  ${c.red("-")} run dir ${runDir ?? "(none)"} + ledger ${ledgerPath}`);
-    console.log(c.dim("\nDry run — nothing was changed."));
+    for (const a of credPaths) console.log(`  ${c.red("-")} agent ${a.name} ${c.dim(`(id ${a.id.slice(0, 8)}, creds ${a.path}) — stopped only if name+id match live`)}`);
+    for (const ch of ledger.created.channels) console.log(`  ${c.red("-")} channel ${c.cyan("#" + ch)} ${c.dim("(auth mesh: only if no members remain · open mesh: metadata cleanup, no membership audit)")}`);
+    console.log(`  ${c.red("-")} run dir ${runDir ?? "(none)"} + ledger ${ledgerPath} ${c.dim("(only if every owned resource is removed/proven gone; else the ledger is kept)")}`);
+    console.log(c.dim("\nDry run — nothing was changed. The live membership check + actual disposition happen at apply."));
     return;
   }
 
   // 4) Best-effort live teardown: stop owned agents (name AND id match) + remove childless owned
-  //    channels. The broker may be down — then we still do local cleanup and say what we couldn't reach.
+  //    channels. If the broker is down, nothing remote is torn down and the ledger is RETAINED.
   const stoppedIds = new Set<string>();
   const removed: string[] = [];
   const openNoFeed: string[] = []; // owned channels removed on an open mesh with no membership proof
   const skipped: Array<{ channel: string; why: string }> = [];
   const creds = await mintIfAuth(root, ledger.space);
   const reachable = await isReachable(ledger.server, creds ? { creds } : undefined);
+  let liveById = new Map<string, { name: string; id: string }>();
   if (reachable) {
     const ep = await connectProbe({ space: ledger.space, server: ledger.server, creds });
     try {
       const ps = await ep.requestControl(CONTROL_ADMIN, { op: "ps" });
       const live = (ps.ok ? (ps.data as Array<{ name: string; id: string }>) : []) ?? [];
-      const liveById = new Map(live.map((r) => [r.id, r]));
+      liveById = new Map(live.map((r) => [r.id, r]));
       for (const a of ledger.created.agents) {
         const l = liveById.get(a.id);
         if (!l) {
@@ -153,16 +154,27 @@ export async function downManifest(file: string, flags: DownManifestFlags): Prom
       await ep.stop();
     }
   } else {
-    console.log(c.yellow(`  ! ${ledger.server} unreachable — can't stop processes or remove channels; cleaning local artifacts only`));
-    for (const ch of ledger.created.channels) skipped.push({ channel: ch, why: "broker unreachable" });
+    console.log(c.yellow(`  ! ${ledger.server} unreachable — can't stop processes or remove channels; the ledger is RETAINED for a later \`down -f --run ${ledger.runId}\``));
   }
 
-  // 5) Local cleanup (always): owned cred files (no-follow), the run dir + launch spec, then the
-  //    ledger LAST (after everything it described is handled).
+  // 5) Resolution: which owned resources are NOT proven handled. An agent is unresolved if the broker
+  //    was unreachable, or it's still live under our recorded id and its stop failed (an id we don't
+  //    see live is gone; a same-name/different-id agent is foreign, not ours). A channel is unresolved
+  //    if it wasn't removed. The ledger is the ONLY durable ownership record, so we never erase it
+  //    while owned resources may remain — we rewrite it down to the unresolved set instead
+  //    (critic/security/engineer/ux PR2 blocker).
+  const removedSet = new Set(removed);
+  const unresolvedAgents = ledger.created.agents.filter((a) => !reachable || (liveById.has(a.id) && !stoppedIds.has(a.id)));
+  const unresolvedChannels = ledger.created.channels.filter((ch) => !removedSet.has(ch));
+  const unresolvedIds = new Set(unresolvedAgents.map((a) => a.id));
+  const complete = unresolvedAgents.length === 0 && unresolvedChannels.length === 0;
+
+  // 6) Local cleanup of RESOLVED resources only. A resolved (stopped/gone) agent's cred is deleted
+  //    after verifying the cred file's own nkey id matches the recorded id (so a same-name foreign
+  //    agent's cred, or a tampered-ledger cred path, is left alone; fail closed on unverifiable). An
+  //    unresolved agent keeps its cred (still in use / to retry).
   for (const cp of credPaths) {
-    // Verify the cred file's OWN nkey id matches the recorded id before deleting — so a same-named
-    // foreign agent that reused the name (different id), or a tampered ledger pointing at an unrelated
-    // safe-token cred, can't get its creds unlinked. Fail closed: don't delete what we can't verify.
+    if (unresolvedIds.has(cp.id)) continue;
     const sub = credSubject(cp.path);
     if (sub === undefined) continue; // no cred file
     if (sub === null) {
@@ -179,23 +191,38 @@ export async function downManifest(file: string, flags: DownManifestFlags): Prom
       console.error(c.yellow(`  ! ${cp.name} creds: ${(e as Error).message}`));
     }
   }
-  try {
-    unlinkFileNoFollow(specPath);
-  } catch (e) {
-    console.error(c.yellow(`  ! launch spec: ${(e as Error).message}`));
-  }
-  if (runDir) rmSync(runDir, { recursive: true, force: true });
-  try {
-    unlinkFileNoFollow(ledgerPath);
-  } catch (e) {
-    console.error(c.yellow(`  ! ledger: ${(e as Error).message}`));
-  }
 
-  // 6) Summary.
+  // 7) Summary + ledger disposition.
   for (const s of skipped) console.log(c.yellow(`  ~ left ${c.cyan("#" + s.channel)}: ${s.why}`) + c.dim(" (best-effort membership check — racy)"));
   if (openNoFeed.length)
     console.log(c.dim(`  note: removed ${openNoFeed.length} channel(s) on an OPEN mesh with no membership feed — no ACL isolation to protect, no membership proof: ${openNoFeed.map((n) => "#" + n).join(", ")}`));
-  console.log(c.green(`✓ torn down run ${ledger.runId}`) + (removed.length ? c.dim(` — removed ${removed.length} channel(s): ${removed.map((n) => "#" + n).join(", ")}`) : ""));
+
+  if (complete) {
+    // Everything owned is removed/proven gone — safe to delete the run dir + launch spec + ledger.
+    try {
+      unlinkFileNoFollow(specPath);
+    } catch (e) {
+      console.error(c.yellow(`  ! launch spec: ${(e as Error).message}`));
+    }
+    if (runDir) rmSync(runDir, { recursive: true, force: true });
+    try {
+      unlinkFileNoFollow(ledgerPath);
+    } catch (e) {
+      console.error(c.yellow(`  ! ledger: ${(e as Error).message}`));
+    }
+    console.log(c.green(`✓ torn down run ${ledger.runId}`) + (removed.length ? c.dim(` — removed ${removed.length} channel(s): ${removed.map((n) => "#" + n).join(", ")}`) : ""));
+  } else {
+    // Partial: rewrite the ledger DOWN to the unresolved resources (atomic temp-then-rename) so a
+    // later `down -f --run` can finish — never erase the only record while owned resources may remain.
+    const remaining: MeshLedger = { ...ledger, created: { channels: unresolvedChannels, agents: unresolvedAgents } };
+    writeLedger(root, remaining, { update: true });
+    console.log(
+      c.yellow(`! partial teardown of run ${ledger.runId}`) +
+        c.dim(` — ${unresolvedAgents.length} agent(s) + ${unresolvedChannels.length} channel(s) still owned; ledger kept`),
+    );
+    console.log(c.dim(`  finish later (broker up / members gone): cotal down -f ${ledger.manifestPath} --run ${ledger.runId}`));
+    process.exitCode = 1; // not a full success
+  }
 }
 
 /** Extract the nkey subject (the agent id) from a NATS creds file's user JWT — to verify a cred file

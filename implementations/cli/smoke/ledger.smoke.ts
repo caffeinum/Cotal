@@ -105,6 +105,11 @@ function writeRaw(name: string, body: unknown): string {
   throws("findLedgerByHash ambiguous throws (>1 run)", () => findLedgerByHash(r2, "h1"));
   check("findLedgerByRun resolves a known run", findLedgerByRun(r2, "aaa").ledger.runId === "aaa");
   throws("findLedgerByRun rejects a traversal run id", () => findLedgerByRun(r2, "../x"));
+  // Filename ↔ runId binding: a `bar.json` whose body declares runId "foo" must not redirect teardown.
+  mkdirSync(join(r2, ".cotal", "manifests"), { recursive: true });
+  writeFileSync(join(r2, ".cotal", "manifests", "spoof.json"), JSON.stringify(ledgerOf({ runId: "elsewhere" })));
+  throws("findLedgerByRun rejects a filename/runId mismatch (no spoofed authority)", () => findLedgerByRun(r2, "spoof"));
+  check("listLedgers skips a filename/runId mismatch", !listLedgers(r2).some((l) => l.path.endsWith("spoof.json")));
   check("hashManifestSource is stable + hex", /^[a-f0-9]+$/.test(hashManifestSource("space: demo\n")) && hashManifestSource("x") === hashManifestSource("x"));
 }
 
