@@ -8,10 +8,10 @@
  * (`COTAL_HOME` → a tmpdir) and a cwd with no `.cotal` ancestor, so the result is environment-
  * independent. Run: pnpm smoke:server-resolution
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_SERVER, recordMesh } from "@cotal-ai/core";
+import { DEFAULT_SERVER, DEFAULT_SPACE, recordMesh } from "@cotal-ai/core";
 import { resolveManagerTarget } from "../src/commands.js";
 
 let failures = 0;
@@ -56,6 +56,18 @@ check(
   "--server + unregistered --space → raw open (no creds, no registry)",
   rawOpen.server === OTHER && rawOpen.space === "not-registered" && rawOpen.creds === undefined,
   rawOpen,
+);
+
+// 5. Explicit --creds → a raw off-registry connection: the file's creds verbatim, `--server`
+//    honored, and (no `--space`) space defaults to this folder's auth-space via spaceFor — here the
+//    clean cwd has no auth, so DEFAULT_SPACE. (Deliberate manager-command default, not connectOrExit's.)
+const credsFile = join(home, "dummy.creds");
+writeFileSync(credsFile, "DUMMY-CREDS\n");
+const withCreds = await resolveManagerTarget({ creds: credsFile, server: OVERRIDE });
+check(
+  "--creds → raw connection (file creds, honored --server, spaceFor default)",
+  withCreds.creds === "DUMMY-CREDS\n" && withCreds.server === OVERRIDE && withCreds.space === DEFAULT_SPACE,
+  withCreds,
 );
 
 rmSync(home, { recursive: true, force: true });

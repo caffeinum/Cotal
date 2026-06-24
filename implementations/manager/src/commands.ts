@@ -36,14 +36,21 @@ function spaceFor(v: Values): string {
   return v.space ?? loadSpaceAuth(authDir(findCotalRoot()))?.space ?? DEFAULT_SPACE;
 }
 
-/** Resolve which running mesh a control command (`ps`/`start`/`stop`/`attach`) targets — the SAME
- *  registry/`current` resolution the rest of the CLI uses ({@link resolveMeshTarget}), so
- *  `cotal ps --space <name>` reaches that mesh's RECORDED broker instead of silently assuming
- *  `DEFAULT_SERVER` (:4222). `--server` is an override only. An explicit `--creds` is a raw
- *  off-registry connection (honor `--server`/`--space` verbatim, no registry lookup), mirroring the
- *  CLI's `connectOrExit`. Mints a privileged "manager" cred from the RESOLVED mesh's trust material
- *  (its own recorded root — so `--space other` loads other's auth, not this folder's), or none for
- *  an open mesh. */
+/** Resolve which running mesh a control command (`ps`/`start`/`stop`/`attach`) targets, with the
+ *  same precedence as the rest of the CLI ({@link resolveMeshTarget} / `connectOrExit`):
+ *    1. explicit `--creds` → a raw off-registry connection. Space defaults to this folder's
+ *       auth-space via {@link spaceFor} (a deliberate manager-command choice — more correct than
+ *       `DEFAULT_SPACE` for a non-default-space project, and what these commands did before — NOT
+ *       `connectOrExit`'s `DEFAULT_SPACE`).
+ *    2. `--server` + an UNregistered `--space` → a raw OPEN off-registry connection, no creds (the
+ *       same escape hatch `connectOrExit` has).
+ *    3. otherwise the registry/`current` resolver — so `cotal ps --space <name>` reaches that mesh's
+ *       RECORDED broker instead of silently assuming `DEFAULT_SERVER` (:4222); `--server` overrides.
+ *  In case 3 the privileged "manager" cred is minted from the RESOLVED mesh's own recorded root (so
+ *  `--space other` loads other's auth, guarded by `targetFromEntry`'s `auth.space === m.space`
+ *  check), or none for an open mesh. Unlike `connectOrExit` it doesn't prune stale entries or
+ *  preflight here (those helpers are CLI-only) — a dead `--space` fails in `ask()`'s reachability
+ *  check rather than being pruned with a "stale registry entry" message. */
 export async function resolveManagerTarget(v: Values): Promise<{ space: string; server: string; creds?: string }> {
   if (v.creds) {
     return { space: spaceFor(v), server: v.server ?? DEFAULT_SERVER, creds: readFileSync(v.creds, "utf8") };
