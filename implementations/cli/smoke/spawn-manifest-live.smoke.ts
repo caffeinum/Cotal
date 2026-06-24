@@ -118,6 +118,25 @@ try {
   ok("#lobby (unmanaged) SURVIVES teardown", reg2.channels?.lobby?.description === "Base lobby — pre-existing, NOT created by the deploy.", reg2.channels?.lobby);
   ok("ledger removed by teardown", ledgerFiles().length === 0, ledgerFiles());
 
+  // 5) Partial-teardown RETENTION (the most dangerous path): re-deploy, kill the broker, then
+  //    `down -f` — an unreachable broker means owned channels can't be proven gone, so the ledger
+  //    must be RETAINED (it used to be erased), and the command exits non-zero.
+  const sp2 = cli("spawn", "-f", deploy, "--server", SERVER);
+  ok("re-deploy writes a fresh ledger", ledgerFiles().length === 1, sp2.stdout + sp2.stderr);
+  const run2 = ledgerFiles()[0].replace(/\.json$/, "");
+  cli("down"); // kill the whole mesh (broker gone)
+  let brokerDown = false;
+  for (let i = 0; i < 20 && !brokerDown; i++) {
+    await sleep(300);
+    brokerDown = !(await portOpen(PORT));
+  }
+  ok("broker is down before the partial teardown", brokerDown);
+  const partial = cli("down", "-f", deploy, "--run", run2);
+  const partialOut = partial.stdout + partial.stderr;
+  ok("down -f reports a retained ledger when the broker is unreachable", /unreachable|partial|RETAINED/i.test(partialOut), partialOut);
+  ok("the ledger SURVIVES an incomplete teardown", ledgerFiles().includes(`${run2}.json`), { files: ledgerFiles(), out: partialOut });
+  ok("partial teardown exits non-zero", partial.status !== 0, partial.status);
+
   console.log(`\nSPAWN-MANIFEST LIVE SMOKE OK ✅ (${pass} checks)`);
 } finally {
   down();
