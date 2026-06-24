@@ -23,6 +23,9 @@ export async function down(): Promise<void> {
   // Non-pid control-plane artifacts: the delivery daemon's scoped creds + the manager's delivery-aware
   // marker. Drop them with the processes so a stale creds file / marker never lingers.
   for (const f of ["delivery.creds", "manager.delivery-aware"]) rmSync(cotalPath(f), { force: true });
+  // Transient `cotal up -f` launch artifacts (launch specs + materialized runtime personas). `up -f`
+  // owns the whole mesh, so tearing it down clears all run dirs — they're never authoritative source.
+  rmSync(cotalPath("run"), { recursive: true, force: true });
   // Drop this folder's mesh from the registry (and the `current` pointer if it was the default).
   const space = resolveSpace(process.cwd());
   removeMesh(space);

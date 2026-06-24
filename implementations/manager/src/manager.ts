@@ -22,7 +22,7 @@ import {
   CONTROL_SELF_SERVICE,
   CONTROL_ADMIN,
 } from "@cotal-ai/core";
-import type { AgentDef, Connector, ControlReply, ControlRequest, ControlTier, SpaceAuth } from "@cotal-ai/core";
+import type { AgentDef, Connector, ControlReply, ControlRequest, ControlTier, MeshLaunchAgent, SpaceAuth } from "@cotal-ai/core";
 import {
   createRuntime,
   type AgentHandle,
@@ -93,6 +93,11 @@ export interface StartAgentOpts {
   /** Mirror the session's transcript to `tr-<name>`. Defaults to off; `true` (the
    *  `--transcript` flag) opts in. */
   transcript?: boolean;
+  /** A fully-resolved launch profile (from a mesh manifest via `supervise --launch`). When present,
+   *  `startAgent` takes identity/role/ACLs/capabilities/model from here — NOT from a persona file —
+   *  and `config` points at the materialized transient persona the connector reads. The persona file
+   *  is never the access authority in this path. */
+  resolved?: MeshLaunchAgent;
 }
 
 interface ManagedAgent {
@@ -431,44 +436,66 @@ export class Manager {
     if (missing.length)
       return { ok: false, error: `${agent} harness needs ${missing.join(", ")} on PATH — not found` };
 
-    // Load the persona. IDENTITY = its free-form `name:`, validated as a safe mesh/creds-file token;
-    // role + read/post ACL come from the file too (`--role` overrides). The number rides the IDENTITY
-    // (socrates → socrates-2), not the file ref — a redelivered identical spawn yields a fresh
-    // numbered agent (create-new, not ensure-exists; MAX_AGENTS bounds the blast radius).
-    let def: AgentDef;
-    try {
-      def = loadAgentFile(configPath);
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
+    // Resolve the launch profile: IDENTITY (free-form `name:`) + role + read/post ACL + capabilities
+    // + model. Either from a fully-resolved manifest launch object (`opts.resolved`, whose `config`
+    // is a materialized transient persona — the file is NOT the access authority), or from the
+    // persona file. The number rides the IDENTITY (socrates → socrates-2), not the file ref — a
+    // redelivered identical spawn yields a fresh numbered agent (MAX_AGENTS bounds the blast radius).
+    let identityName: string;
+    let role: string | undefined;
+    let subscribe: string[] | undefined;
+    let allowSubscribe: string[];
+    let allowPublish: string[] | undefined;
+    let capabilities: string[] | undefined;
+    let model = opts.model;
+    if (opts.resolved) {
+      const r = opts.resolved;
+      identityName = r.name;
+      role = opts.role ?? r.role;
+      subscribe = r.subscribe;
+      allowSubscribe = r.allowSubscribe?.length ? r.allowSubscribe : r.subscribe;
+      allowPublish = r.allowPublish;
+      capabilities = r.capabilities;
+      model = opts.model ?? r.model;
+    } else {
+      let def: AgentDef;
+      try {
+        def = loadAgentFile(configPath);
+      } catch (e) {
+        return { ok: false, error: (e as Error).message };
+      }
+      identityName = def.name;
+      role = opts.role ?? def.role;
+      subscribe = def.subscribe;
+      // Defaulted the same way the loader/provisioner do — minted into the creds (the broker
+      // boundary); runtime durable joins are re-authorized against the committed ACL by the daemon.
+      allowSubscribe = def.allowSubscribe ?? def.subscribe ?? ["general"];
+      allowPublish = def.allowPublish;
+      capabilities = def.capabilities;
     }
-    const idErr = this.nameError(def.name);
-    if (idErr) return { ok: false, error: `persona ${configPath}: ${idErr}` };
-    const role = opts.role ?? def.role;
-    // The agent's read ACL, defaulted the same way the loader/provisioner do — minted into the
-    // creds below (the broker boundary); runtime durable joins are re-authorized against it by the
-    // delivery daemon, which reads the committed ACL, so the manager keeps no copy on its record.
-    const allowSubscribe = def.allowSubscribe ?? def.subscribe ?? ["general"];
+    const idErr = this.nameError(identityName);
+    if (idErr) return { ok: false, error: opts.resolved ? `launch agent: ${idErr}` : `persona ${configPath}: ${idErr}` };
 
-    const name = this.uniqueName(def.name);
+    const name = this.uniqueName(identityName);
     this.reserved.add(name);
     try {
       // A stable nkey identity assigned at spawn: the public key is the agent's card.id (threaded via
       // COTAL_ID); the seed is retained to mint matching creds later.
       const identity = newIdentity();
       // In auth mode, mint the agent's creds from the space signing key and write them where the
-      // spawned session reads them (COTAL_CREDS path). Open mesh → no creds. Read scope = the file's
-      // subscribe/allowSubscribe; post scope = its allowPublish (default-deny).
+      // spawned session reads them (COTAL_CREDS path). Open mesh → no creds. Scope = the resolved
+      // subscribe/allowSubscribe (read) + allowPublish (post, default-deny).
       let credsPath: string | undefined;
       if (this.auth) {
         // Pre-create the agent's bind-only chat (+ DM + role TASK) durables and mint its scoped creds
         // — the shared onboarding step (provisionAgent); the manager supplies its own connected
         // endpoint as the privileged provisioner.
         const creds = await provisionAgent(this.ep, this.auth, identity, {
-          subscribe: def.subscribe,
+          subscribe,
           allowSubscribe,
-          allowPublish: def.allowPublish,
+          allowPublish,
           role,
-          capabilities: def.capabilities,
+          capabilities,
         });
         credsPath = join(authDir(this.workspaceRoot), "creds", `${name}.creds`);
         mkdirSync(dirname(credsPath), { recursive: true });
@@ -485,7 +512,7 @@ export class Manager {
         creds: credsPath,
         servers: this.servers,
         configPath,
-        model: opts.model,
+        model,
         transcript: opts.transcript,
         mcpServers,
       });

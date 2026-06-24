@@ -40,6 +40,11 @@ import { c } from "../ui.js";
 import { resolveNatsServer } from "../lib/nats-bin.js";
 import { cotalPath, cotalRoot } from "../lib/paths.js";
 import { ensureDelivery, stopDelivery, stopOldHostingManagerIfPresent } from "../lib/delivery-proc.js";
+import { startManagerDetached } from "../lib/manager-proc.js";
+import { loadManifest, type PreparedManifest } from "../lib/manifest/index.js";
+import { buildLaunchSpec, genRunId, manifestToChannels, preflightConnectors, writeLaunchSpec } from "../lib/manifest/apply.js";
+import { renderUpPlan, renderInherited, renderWarnings } from "../lib/manifest/render.js";
+import { failManifest } from "./topology.js";
 
 export async function up(argv: string[]): Promise<void> {
   const { values } = parseArgs({
@@ -53,8 +58,26 @@ export async function up(argv: string[]): Promise<void> {
       channels: { type: "string" }, // seed the channel registry from this JSON file
       detach: { type: "boolean" }, // run the server in the background (pid in .cotal/nats.pid)
       host: { type: "string" }, // bind address (default 127.0.0.1 — loopback; 0.0.0.0 to expose with auth)
+      runtime: { type: "string" }, // with -f: override the manifest's runtime (pty | tmux | cmux)
+      file: { type: "string", short: "f" }, // a mesh manifest (cotal.yaml) — fresh broker + channels + agents
+      "dry-run": { type: "boolean" }, // with -f: print the plan, mutate nothing
     },
   });
+  // `up -f cotal.yaml` is a distinct path: bring up a FRESH mesh described by a manifest (broker +
+  // channels + booted agents). It owns the whole space; deploying onto a RUNNING mesh is `spawn -f`.
+  // CLI flags override the manifest (flag > manifest > default) so the same file runs at a different
+  // port / runtime / space / auth without editing it.
+  if (values.file) {
+    await upManifest(values.file, {
+      dryRun: Boolean(values["dry-run"]),
+      server: values.server,
+      host: values.host,
+      space: values.space,
+      runtime: values.runtime,
+      open: values.open,
+    });
+    return;
+  }
   const server = values.server ?? DEFAULT_SERVER;
   const host = values.host ?? "127.0.0.1";
   if (await isReachable(server)) {
@@ -150,6 +173,102 @@ export async function up(argv: string[]): Promise<void> {
   await new Promise<void>(() => {});
 }
 
+/** `cotal up -f cotal.yaml` — bring up a FRESH mesh from a manifest (broker + channels + booted
+ *  agents). `up -f` is a broker-CREATION command: `broker.servers` is the bind address for the NEW
+ *  local broker, never a connect target. A broker already reachable there (local OR remote) means
+ *  "deploy onto it" — refuse and redirect to `spawn -f`; an unbindable/remote address makes the
+ *  broker fail to start (no silent local fallback). It owns the whole space, so `cotal down` tears it
+ *  down and no ownership ledger is needed (that's `spawn -f`). */
+async function upManifest(file: string, opts: UpManifestFlags): Promise<void> {
+  let prepared: PreparedManifest;
+  try {
+    prepared = loadManifest(resolve(file));
+  } catch (e) {
+    failManifest(e);
+  }
+  if (opts.runtime && !["pty", "tmux", "cmux"].includes(opts.runtime)) {
+    console.error(c.red(`✗ unknown --runtime "${opts.runtime}" — expected pty, tmux, or cmux`));
+    process.exit(1);
+  }
+  // Apply CLI overrides to one effective manifest (flag > manifest > default) so render + seed +
+  // broker + launch all agree on the same values.
+  const eff = applyUpOverrides(prepared, opts);
+  const m = eff.manifest;
+  const server = m.broker?.servers ?? DEFAULT_SERVER;
+  const host = m.broker?.host ?? "127.0.0.1";
+  const open = m.broker?.auth === false; // default is auth
+  const runtime = m.runtime ?? "pty";
+
+  if (opts.dryRun) {
+    console.log(renderUpPlan(eff, server));
+    return;
+  }
+
+  // up -f never adopts a running broker. Reachable at the bind address ⇒ redirect to spawn -f.
+  if (await isReachable(server)) {
+    console.error(c.red(`✗ ${server} already has a broker — deploy this manifest onto it with \`cotal spawn -f ${file}\``));
+    process.exit(1);
+  }
+  // Connectors + their required binaries must exist before any mutation (no fallback).
+  const conn = preflightConnectors(prepared);
+  if (conn) {
+    console.error(c.red(`✗ connector preflight failed: ${conn}`));
+    process.exit(1);
+  }
+
+  // 1) fresh broker + space streams + channels seeded from the manifest (in-memory seed).
+  let pid: number;
+  try {
+    ({ pid } = await startMeshDetached({ server, space: m.space, open, host, seed: manifestToChannels(eff) }));
+  } catch (e) {
+    console.error(c.red(`✗ ${(e as Error).message}`));
+    process.exit(1);
+  }
+  console.log(c.green(`✓ mesh "${m.space}" up at ${server}`) + c.dim(` (broker pid ${pid})`));
+  console.log(c.dim(`  seeded ${m.channels.length} channel(s): ${m.channels.map((ch) => "#" + ch.name).join(", ")}`));
+
+  // 2) write the resolved launch spec + boot agents through a manager (it materializes each transient
+  //    persona and mints creds from the resolved policy — never re-reading a file for authority).
+  const specPath = writeLaunchSpec(cotalRoot(), buildLaunchSpec(eff, genRunId()));
+  startManagerDetached({ space: m.space, server, runtime, launch: specPath });
+  console.log(c.green(`✓ launching ${eff.agents.length} agent(s)`) + c.dim(` via manager (${runtime}) — see .cotal/manager.log`));
+
+  // Loud summary: any persona-inherited access an `include` manifest dragged in, plus warnings.
+  const inherited = renderInherited(eff);
+  if (inherited) console.log("\n" + inherited);
+  if (eff.warnings.length) console.log("\n" + renderWarnings(eff.warnings));
+  console.log(c.dim(`\nWatch: \`cotal console --space ${m.space}\` or \`cotal web\`   ·   Tear down: \`cotal down\``));
+}
+
+/** CLI overrides for `up -f` — each wins over the manifest's own value (flag > manifest > default). */
+interface UpManifestFlags {
+  dryRun: boolean;
+  server?: string;
+  host?: string;
+  space?: string;
+  runtime?: string;
+  open?: boolean;
+}
+
+/** Return a copy of the prepared manifest with CLI overrides applied to broker/space/runtime, so the
+ *  whole launch (render, seed, broker, manager, launch spec) runs against one effective manifest. */
+function applyUpOverrides(prepared: PreparedManifest, o: UpManifestFlags): PreparedManifest {
+  const m = prepared.manifest;
+  const broker = { ...m.broker };
+  if (o.server) broker.servers = o.server;
+  if (o.host) broker.host = o.host;
+  if (o.open) broker.auth = false;
+  return {
+    ...prepared,
+    manifest: {
+      ...m,
+      broker: Object.keys(broker).length ? broker : undefined,
+      space: o.space ?? m.space,
+      runtime: (o.runtime as typeof m.runtime) ?? m.runtime,
+    },
+  };
+}
+
 /** Start the server-side delivery daemon alongside the broker (auth mode only): old-manager preflight
  *  first (so an old hosting manager can't double-bind), then the auth-gated daemon (a no-op in open
  *  mode). Coupled to the broker by the daemon's own broker-gone watchdog + the `up`/`down` teardown. */
@@ -169,6 +288,9 @@ export interface DetachOpts {
   open?: boolean;
   channels?: string;
   host?: string;
+  /** Channel-registry seed in memory (the `cotal up -f` manifest path), used instead of reading a
+   *  `--channels` file. Takes precedence over {@link channels}. */
+  seed?: ChannelRegistryFile;
   /** Live boot lines, tailed from the server's log file (safe for a detached child). */
   onLine?: (line: string) => void;
 }
@@ -188,7 +310,7 @@ export async function startMeshDetached(opts: DetachOpts = {}): Promise<{ server
   const space = opts.space ?? resolveSpace(process.cwd());
   assertAuthMatchesSpace(useAuth, space);
   await claimSpace(space, server, cotalRoot());
-  const seedFile = loadChannelsFile(opts.channels);
+  const seedFile = opts.seed ?? loadChannelsFile(opts.channels);
   const host = opts.host ?? "127.0.0.1";
   const setup = useAuth ? await authSetup(storeDir, server, space, host) : undefined;
   const port = Number(new URL(server).port) || 4222;
