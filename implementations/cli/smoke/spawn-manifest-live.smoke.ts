@@ -118,26 +118,38 @@ try {
   ok("#lobby (unmanaged) SURVIVES teardown", reg2.channels?.lobby?.description === "Base lobby — pre-existing, NOT created by the deploy.", reg2.channels?.lobby);
   ok("ledger removed by teardown", ledgerFiles().length === 0, ledgerFiles());
 
-  // 5) Partial-teardown RETENTION (the most dangerous path): re-deploy, kill the broker, then
-  //    `down -f` — an unreachable broker means owned channels can't be proven gone, so the ledger
-  //    must be RETAINED (it used to be erased), and the command exits non-zero.
+  // 5) Partial-teardown RETENTION — the most dangerous path. Re-deploy a fresh run, then force two
+  //    distinct teardown-uncertainty branches; each must RETAIN the ledger (it used to be erased),
+  //    print the follow-up `--run`, and exit non-zero — NEVER crash, NEVER claim success.
   const sp2 = cli("spawn", "-f", deploy, "--server", SERVER);
   ok("re-deploy writes a fresh ledger", ledgerFiles().length === 1, sp2.stdout + sp2.stderr);
   const run2 = ledgerFiles()[0].replace(/\.json$/, "");
-  cli("down"); // kill the whole mesh (broker gone)
+
+  // 5a) Control-plane no-responder (DETERMINISTIC): kill the manager but leave the broker UP, so
+  //     down -f connects but `ps` has no responder. The catch must flow to partial retention.
+  const mgrPid = Number(readFileSync(join(root, ".cotal", "manager.pid"), "utf8").trim());
+  try { process.kill(mgrPid, "SIGTERM"); } catch { /* already gone */ }
+  let mgrDown = false;
+  for (let i = 0; i < 20 && !mgrDown; i++) { await sleep(300); try { process.kill(mgrPid, 0); } catch { mgrDown = true; } }
+  ok("manager is down, broker still up (control-plane no-responder)", mgrDown && (await portOpen(PORT)));
+  const noResp = cli("down", "-f", deploy, "--run", run2);
+  const noRespOut = noResp.stdout + noResp.stderr;
+  ok("down -f does NOT crash on a control-plane no-responder", /partial teardown of run/.test(noRespOut), { status: noResp.status, out: noRespOut });
+  ok("...exits non-zero", noResp.status === 1, noResp.status);
+  ok("...prints the follow-up --run command", /down -f .* --run /.test(noRespOut), noRespOut);
+  ok("...retains the ledger", ledgerFiles().includes(`${run2}.json`), ledgerFiles());
+
+  // 5b) Broker unreachable: kill the whole mesh, then down -f the same run → unreachable branch,
+  //     still retained.
+  cli("down");
   let brokerDown = false;
-  for (let i = 0; i < 20 && !brokerDown; i++) {
-    await sleep(300);
-    brokerDown = !(await portOpen(PORT));
-  }
-  ok("broker is down before the partial teardown", brokerDown);
+  for (let i = 0; i < 20 && !brokerDown; i++) { await sleep(300); brokerDown = !(await portOpen(PORT)); }
+  ok("broker is down for the unreachable case", brokerDown);
   const partial = cli("down", "-f", deploy, "--run", run2);
   const partialOut = partial.stdout + partial.stderr;
-  ok("down -f reports a retained ledger when the broker/control is unavailable", /unreachable|partial|RETAINED|control plane/i.test(partialOut), partialOut);
-  ok("down -f prints the follow-up --run command", /down -f .* --run /.test(partialOut), partialOut);
-  ok("partial teardown exits non-zero", partial.status !== 0, partial.status);
-  ok("the ledger SURVIVES an incomplete teardown", ledgerFiles().includes(`${run2}.json`), { files: ledgerFiles(), out: partialOut });
-  // The retained ledger must still hold the unresolved (un-removed) channels for a later retry.
+  ok("down -f retains the ledger when the broker is unreachable", /partial teardown of run/.test(partialOut), partialOut);
+  ok("...exits non-zero", partial.status === 1, partial.status);
+  ok("the ledger SURVIVES the incomplete teardown", ledgerFiles().includes(`${run2}.json`), { files: ledgerFiles(), out: partialOut });
   const retained = JSON.parse(readFileSync(join(manifestsDir, `${run2}.json`), "utf8"));
   ok("retained ledger keeps the unresolved channels", retained.created.channels.includes("general") && retained.created.channels.includes("decisions"), retained.created);
 
