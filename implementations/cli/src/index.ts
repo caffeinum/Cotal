@@ -175,3 +175,9 @@ registry.register(...baseCommands);
 
 export { runCli } from "./command.js";
 export { c, statusBadge } from "./ui.js";
+
+// Lifecycle helpers for an external composition root (e.g. paw) — this package's exports are
+// restricted to ".", so subpath imports are blocked; re-export from the index instead.
+// `isReachable` (core) is already exported from @cotal-ai/core.
+export { startMeshDetached } from "./commands/up.js";
+export { ensureManager, managerUp } from "./lib/manager-proc.js";
