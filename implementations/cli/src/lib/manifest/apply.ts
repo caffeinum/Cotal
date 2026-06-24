@@ -4,10 +4,10 @@
  * `supervise --launch`), and the connector-availability preflight. No broker lifecycle here (that's
  * the command), so this stays reusable across both verbs.
  */
-import { accessSync, constants, mkdirSync, writeFileSync } from "node:fs";
+import { accessSync, constants, writeFileSync } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import { join, delimiter } from "node:path";
-import { registry, type ChannelRegistryFile, type Connector, type MeshLaunchAgent, type MeshLaunchSpec } from "@cotal-ai/core";
+import { ensureDirNoSymlink, registry, type ChannelRegistryFile, type Connector, type MeshLaunchAgent, type MeshLaunchSpec } from "@cotal-ai/core";
 import type { PreparedManifest } from "./preflight.js";
 import type { PreparedAgent } from "./prepare.js";
 
@@ -63,10 +63,10 @@ export function buildLaunchSpec(prepared: PreparedManifest, runId: string): Mesh
 /** Write the launch spec to `<root>/.cotal/run/<runId>.json` (0600 — it carries persona text +
  *  policy) and return its path. */
 export function writeLaunchSpec(root: string, spec: MeshLaunchSpec): string {
-  const dir = join(root, ".cotal", "run");
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  // 0700 run dir, refusing a symlinked `.cotal`/`run` parent (so the spec can't be written outside
+  // the workspace tree); `wx` guards the final file (runId is random).
+  const dir = ensureDirNoSymlink(root, ".cotal", "run");
   const path = join(dir, `${spec.runId}.json`);
-  // `wx`: exclusive create (runId is random) — won't follow a symlink pre-planted at the path.
   writeFileSync(path, JSON.stringify(spec, null, 2), { mode: 0o600, flag: "wx" });
   return path;
 }

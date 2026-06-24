@@ -14,6 +14,7 @@ export * from "./membership-feed.js";
 export * from "./lease.js";
 export * from "./agent-file.js";
 export * from "./launch.js";
+export * from "./fs-safe.js";
 export * from "./connector-config.js";
 export * from "./endpoint.js";
 export * from "./spaces.js";

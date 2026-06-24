@@ -1,7 +1,7 @@
-import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
-import { join, dirname, resolve } from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { z } from "zod";
-import { assertValidName, type MeshLaunchAgent, type MeshLaunchSpec } from "@cotal-ai/core";
+import { assertValidChannel, assertValidName, ensureDirNoSymlink, isConcreteChannel, type MeshLaunchAgent, type MeshLaunchSpec } from "@cotal-ai/core";
 
 /**
  * Load + materialize a resolved launch spec for `supervise --launch`.
@@ -53,24 +53,45 @@ export function loadLaunchSpec(path: string): MeshLaunchSpec {
   const r = LaunchSpecSchema.safeParse(json);
   if (!r.success)
     throw new Error(`launch spec ${path}: ${r.error.issues.map((i) => `${i.path.join(".") || "<root>"}: ${i.message}`).join("; ")}`);
-  for (const a of r.data.agents) assertValidName(a.name); // names the transient file → must be safe
+  for (const a of r.data.agents) {
+    assertValidName(a.name); // names the transient file → must be safe
+    validateLaunchPolicy(a); // don't let --launch be a looser second manifest format
+  }
   return r.data;
 }
 
-/** The workspace-local run directory for a launch run — NOT `.cotal/agents` (never discovered as a
- *  reusable persona). Deleted by `cotal down`. */
-export function runDir(root: string, runId: string): string {
-  return join(root, ".cotal", "run", runId);
+// Capabilities that actually grant anything in v1 (provisionAgent only acts on `spawn`); an unknown
+// capability is inert downstream, so reject it at the boundary rather than carry a no-op grant.
+const KNOWN_CAPABILITIES = new Set(["spawn"]);
+
+/** Re-enforce the v1 manifest's policy constraints at the manager boundary so a hand-edited/malicious
+ *  launch spec can't smuggle in what the CLI schema would reject: concrete channels only (no wildcard
+ *  scopes — the v1 wildcard deferral), `subscribe ⊆ allowSubscribe`, and known capabilities. Channel
+ *  policies are re-checked again at provision time, but this fails BEFORE any provisioning side effect. */
+function validateLaunchPolicy(a: MeshLaunchAgent): void {
+  const where = `launch agent "${a.name}"`;
+  for (const [field, list] of [["subscribe", a.subscribe], ["allowSubscribe", a.allowSubscribe], ["allowPublish", a.allowPublish]] as const)
+    for (const ch of list) {
+      try {
+        assertValidChannel(ch);
+      } catch (e) {
+        throw new Error(`${where}: ${field}: ${(e as Error).message}`);
+      }
+      if (!isConcreteChannel(ch)) throw new Error(`${where}: ${field} "${ch}" is a wildcard — not allowed in a v1 launch spec`);
+    }
+  const missing = a.subscribe.filter((c) => !a.allowSubscribe.includes(c));
+  if (missing.length) throw new Error(`${where}: subscribe [${missing.join(", ")}] not within allowSubscribe`);
+  for (const cap of a.capabilities ?? [])
+    if (!KNOWN_CAPABILITIES.has(cap)) throw new Error(`${where}: unknown capability "${cap}" (known: ${[...KNOWN_CAPABILITIES].join(", ")})`);
 }
 
 /** Materialize one resolved agent's persona to a transient file the connector reads, and return its
  *  path. Carries only what a connector needs (identity/role/model/description + body) plus a loud
  *  generated-artifact header — never ACL/capability frontmatter (creds come from the spec's policy). */
 export function materializePersona(root: string, runId: string, a: MeshLaunchAgent): string {
-  const dir = join(runDir(root, runId), "agents");
-  // 0700 dir, fresh per run (random runId). Defense-in-depth on top of the spec's assertValidName:
-  // the file must resolve to a direct child of `dir` — never escape it via the name.
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  // 0700 dirs created component-by-component, refusing a symlinked parent (writes can't escape the
+  // run tree); plus a lexical direct-child check on the final path as belt-and-suspenders.
+  const dir = ensureDirNoSymlink(root, ".cotal", "run", runId, "agents");
   const path = resolve(dir, `${a.name}.md`);
   if (dirname(path) !== dir) throw new Error(`unsafe agent name "${a.name}" — persona path escapes ${dir}`);
   const fm = ["---", `name: ${a.name}`];

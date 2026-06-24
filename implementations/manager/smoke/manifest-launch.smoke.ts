@@ -6,7 +6,7 @@
  * (createSpaceAuth + the mint path), a fake runtime + no-op ep stub, decode the minted creds JWT.
  * Run with: pnpm smoke:manifest-launch
  */
-import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Manager } from "../src/manager.js";
@@ -120,6 +120,19 @@ function writeSpec(name: string, body: unknown): string {
   throws("unsafe role token rejected", () => loadLaunchSpec(writeSpec("a2.json", agent1({ role: "a/b" }))));
   throws("unsafe capability token rejected", () => loadLaunchSpec(writeSpec("a3.json", agent1({ capabilities: ["spawn x"] }))));
   throws("non-alphanumeric hash rejected", () => loadLaunchSpec(writeSpec("a4.json", agent1({ hash: "../../etc" }))));
+  // Policy re-validation at the manager boundary — --launch must not be a looser manifest format.
+  throws("wildcard scope in launch policy rejected", () => loadLaunchSpec(writeSpec("p1.json", agent1({ subscribe: ["team.>"], allowSubscribe: ["team.>"] }))));
+  throws("subscribe ⊄ allowSubscribe rejected", () => loadLaunchSpec(writeSpec("p2.json", agent1({ subscribe: ["general"], allowSubscribe: [] }))));
+  throws("unknown capability rejected (not just unsafe token)", () => loadLaunchSpec(writeSpec("p3.json", agent1({ capabilities: ["teleport"] }))));
+}
+
+// --- symlinked parent dir refused (writes can't escape the run tree) ----------------------------
+{
+  const root2 = mkdtempSync(join(tmpdir(), "cotal-launch-sym-"));
+  const external = mkdtempSync(join(tmpdir(), "cotal-launch-ext-"));
+  mkdirSync(join(root2, ".cotal"));
+  symlinkSync(external, join(root2, ".cotal", "run")); // .cotal/run → outside the workspace
+  throws("materialize refuses a symlinked .cotal/run parent", () => materializePersona(root2, "run01", { ...resolved, name: "x" }));
 }
 
 console.log(`\nMANIFEST-LAUNCH SMOKE ${failures === 0 ? "OK ✅" : "FAILED ❌"}`);
