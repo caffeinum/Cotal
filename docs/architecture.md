@@ -318,7 +318,7 @@ shows up and reports status.
 **Spawn via a pluggable `Runtime` (no tmux dependency).** Starting, stopping, and attaching are
 abstracted behind one interface (`spawn → handle`, `stop`, `status`, `attach`, optional
 `interrupt`), like *pm2 or docker for agent TUIs*. `Runtime` is a **core extension contract**
-like `Connector`/`Command`: `pty`/`tmux` ship with the manager, and other backends self-register
+like `Connector`/`Command`: `pty` ships with the manager; `tmux` and `cmux` are extensions that self-register
 a `RuntimeProvider` on import (the manager resolves them from the registry, with no compile-time
 dependency on them). Selectable backends:
 

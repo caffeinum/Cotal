@@ -61,7 +61,7 @@ function isWindowGone(err: unknown): boolean {
 
 /** Open a new tmux window `name` in `session` running `command` (a shell string).
  *  Created detached (unfocused) by default; pass `focus: true` to switch to it.
- *  Returns the target string `session:name`. */
+ *  Returns the stable tmux window ID (`@N`) — use as the ref for later close/refs calls. */
 export function openWindow(
   session: string,
   name: string,
@@ -71,14 +71,16 @@ export function openWindow(
 ): string {
   const args = ["new-window", "-t", session, "-n", name, "-c", cwd];
   if (!(opts.focus ?? false)) args.push("-d");
-  args.push(command);
-  execFileSync("tmux", args, { stdio: "ignore" });
-  return `${session}:${name}`;
+  // -P -F prints the new window's ID before returning — stable across renames and reorders.
+  args.push("-P", "-F", "#{window_id}", command);
+  return execFileSync("tmux", args, { encoding: "utf8" }).trim();
 }
 
-/** Split `target` (session:window) creating a new pane running `command`.
- *  `"horizontal"` stacks panes top/bottom; `"vertical"` places them side by side.
- *  `ratio` is the first pane's fraction of the total — the new pane gets `(1 - ratio)`. */
+/** Split `target` (session:window or window ID) creating a new pane running `command`.
+ *  Direction convention matches {@link Tab.split.direction}:
+ *  `"horizontal"` → top/bottom (tmux `-v`, the default);
+ *  `"vertical"` → side-by-side (tmux `-h`).
+ *  `ratio` is the first pane's fraction — the new pane gets `(1 - ratio)`. */
 export function splitWindow(
   target: string,
   command: string,
@@ -87,18 +89,18 @@ export function splitWindow(
   ratio?: number,
 ): void {
   const args = ["split-window", "-t", target, "-c", cwd];
-  if (direction === "vertical") args.push("-h"); // side-by-side = tmux horizontal (-h)
+  if (direction === "vertical") args.push("-h"); // side-by-side = tmux -h
   if (ratio !== undefined) args.push("-p", String(Math.round((1 - ratio) * 100)));
   args.push(command);
   execFileSync("tmux", args, { stdio: "ignore" });
 }
 
-/** Focus a window by target (`session:name`). */
+/** Focus a window by target (`session:name` or window ID). */
 export function selectWindow(target: string): void {
   execFileSync("tmux", ["select-window", "-t", target], { stdio: "ignore" });
 }
 
-/** Kill a tmux window by target (`session:name`). Idempotent: already-gone is a no-op. */
+/** Kill a tmux window by target (window ID `@N`, or `session:name`). Idempotent: already-gone is a no-op. */
 export function closeWindow(target: string): void {
   try {
     execFileSync("tmux", ["kill-window", "-t", target], { stdio: "pipe" });
@@ -122,11 +124,25 @@ export function listWindows(session: string): string[] {
   }
 }
 
-/** Targets (`session:label`) of every window in `session` whose name is exactly `label`. */
+/** Stable window IDs (`@N`) of every window in `session` whose name is exactly `label`. */
 export function windowRefs(session: string, label: string): string[] {
-  return listWindows(session)
-    .filter((name) => name === label)
-    .map(() => `${session}:${label}`);
+  try {
+    return execFileSync(
+      "tmux",
+      ["list-windows", "-t", session, "-F", "#{window_id} #{window_name}"],
+      { encoding: "utf8" },
+    )
+      .split("\n")
+      .filter(Boolean)
+      .flatMap((line) => {
+        const sp = line.indexOf(" ");
+        const id = line.slice(0, sp);
+        const name = line.slice(sp + 1).trim();
+        return name === label ? [id] : [];
+      });
+  } catch {
+    return [];
+  }
 }
 
 /** Shell command string that runs `command args` with `env -i` isolation — only the given
@@ -150,13 +166,14 @@ export function mergedCommand(
   return ["env", ...pairs, shellQuote(command), ...args.map(shellQuote)].join(" ");
 }
 
-/** Type literal text into a tmux target (`session:window`).
- *  `-l` sends the string as literal keystrokes, bypassing tmux's key-name lookup. */
+/** Type literal text into a tmux target.
+ *  `-l` bypasses tmux's key-name lookup; `--` guards against text starting with `-`. */
 export function send(text: string, target: string): void {
-  execFileSync("tmux", ["send-keys", "-t", target, "-l", text], { stdio: "ignore" });
+  execFileSync("tmux", ["send-keys", "-l", "-t", target, "--", text], { stdio: "ignore" });
 }
 
-/** Send a named key sequence (e.g. `"Enter"`, `"C-c"`) to a tmux target. */
+/** Send a named key sequence (e.g. `"Enter"`, `"C-c"`) to a tmux target.
+ *  `--` guards against key names starting with `-`. */
 export function sendKey(key: string, target: string): void {
-  execFileSync("tmux", ["send-keys", "-t", target, key], { stdio: "ignore" });
+  execFileSync("tmux", ["send-keys", "-t", target, "--", key], { stdio: "ignore" });
 }

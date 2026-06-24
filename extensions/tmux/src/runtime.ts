@@ -12,6 +12,20 @@ import * as tmux from "./driver.js";
 /** Grace window for a clean exit before a graceful stop force-closes the window. */
 const GRACE_MS = 1_500;
 
+/** Schedule Enter keypresses to `target` every second for 5 seconds — auto-clears a
+ *  one-time confirmation prompt (e.g. Claude's dev-channels prompt) without blocking. */
+function scheduleConfirm(target: string): void {
+  for (let i = 1; i <= 5; i++) {
+    setTimeout(() => {
+      try {
+        tmux.sendKey("Enter", target);
+      } catch {
+        /* window may be gone — ignore */
+      }
+    }, i * 1_000);
+  }
+}
+
 /**
  * Spawns each agent into its own new tmux window in a shared per-space session, so
  * spawned teammates get room rather than crowding the spawner. Opened unfocused so the
@@ -40,19 +54,7 @@ export class TmuxRuntime implements Runtime {
 
     const target = `${this.session}:${name}`;
 
-    if (spec.confirm) {
-      // Auto-press Enter a few times to clear a one-time confirmation prompt the agent
-      // may show on startup (e.g. Claude's dev-channels prompt).
-      for (let i = 1; i <= 5; i++) {
-        setTimeout(() => {
-          try {
-            tmux.sendKey("Enter", target);
-          } catch {
-            /* window may be gone — ignore */
-          }
-        }, i * 1_000);
-      }
-    }
+    if (spec.confirm) scheduleConfirm(target);
 
     return {
       name,
@@ -83,7 +85,9 @@ export class TmuxRuntime implements Runtime {
         tmux.sendKey("C-c", target);
       },
       attach: () => {
-        throw new Error(`tmux runtime: attach natively with \`tmux attach -t ${target}\``);
+        throw new Error(
+          `tmux runtime: attach natively with \`tmux attach-session -t ${this.session}\` (window: "${name}")`,
+        );
       },
     };
   }
@@ -115,17 +119,20 @@ function tmuxLayout(session: string, label: string, tab: Tab): void {
       `tmux layout "${label}": ${tab.panes.length} panes need a split (direction + ratio)`,
     );
 
-  const target = `${session}:${label}`;
-  for (const pane of rest) {
+  const winTarget = `${session}:${label}`;
+  if (first.confirm) scheduleConfirm(`${winTarget}.0`);
+
+  rest.forEach((pane, i) => {
     const cmd = tmux.mergedCommand(pane.env ?? {}, pane.command, pane.args ?? []);
-    tmux.splitWindow(target, cmd, pane.cwd ?? ".", tab.split!.direction, tab.split!.ratio);
-  }
+    tmux.splitWindow(winTarget, cmd, pane.cwd ?? ".", tab.split!.direction, tab.split!.ratio);
+    if (pane.confirm) scheduleConfirm(`${winTarget}.${i + 1}`);
+  });
 }
 
 /** Self-registering terminal-layout provider — lets a caller (e.g. `cotal setup`) open/close
  *  tmux windows by resolving `registry.resolve("terminal","tmux")`, so an implementation
  *  drives tmux without importing this package. The session is detected from the ambient `$TMUX`
- *  environment (the caller must be running inside tmux). */
+ *  environment; throws if not inside tmux (per AGENTS.md: no silent fallback). */
 export const tmuxTerminalProvider: TerminalLayout = {
   kind: "terminal",
   name: "tmux",
@@ -135,16 +142,11 @@ export const tmuxTerminalProvider: TerminalLayout = {
     tmuxLayout(session, label, tab);
     const target = `${session}:${label}`;
     if (opts?.focus) tmux.selectWindow(target);
-    return target;
+    // Return the stable window ID so callers can close it even after a rename.
+    return tmux.windowRefs(session, label)[0] ?? target;
   },
   close: (ref) => tmux.closeWindow(ref),
-  refs: (label) => {
-    try {
-      return tmux.windowRefs(tmux.currentSession(), label);
-    } catch {
-      return [];
-    }
-  },
+  refs: (label) => tmux.windowRefs(tmux.currentSession(), label),
 };
 
 registry.register(tmuxTerminalProvider);
