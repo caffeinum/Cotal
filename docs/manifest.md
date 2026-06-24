@@ -23,7 +23,7 @@ A complete, runnable manifest — two agents, two channels, no separate files:
 ```yaml
 apiVersion: cotal/v1
 kind: Mesh
-space: demo-team
+space: main                            # the default space — runnable fresh or right after `cotal setup`
 agent: claude                          # the harness that runs each agent (see note below)
 
 agents:                                # inline personas — no external files needed
@@ -51,8 +51,8 @@ Save it as `cotal.yaml` and run:
 ```bash
 cotal topology view -f cotal.yaml      # validate + render the access graph (no broker needed)
 cotal up -f cotal.yaml                 # broker + channels + agents, all fresh
-cotal ps --space demo-team             # see the agents the manager booted
-cotal web --space demo-team            # ...or watch the live mesh in the browser
+cotal ps --space main                  # see the agents the manager booted
+cotal web --space main                 # ...or watch the live mesh in the browser
 cotal down                             # stop the whole mesh
 ```
 
@@ -60,7 +60,7 @@ cotal down                             # stop the whole mesh
 > `127.0.0.1:4222` from `cotal setup`), `up -f` **refuses** — it never re-seeds a live broker.
 > The check is on the *address*, not the `space:` name, so a different space won't dodge it. Run
 > `cotal down` first, point the manifest at another address
-> (`broker: { servers: nats://127.0.0.1:14999 }`, or the `--server` / `--host` override), or use
+> (`broker: { servers: nats://127.0.0.1:14999 }`, or the `--server` override), or use
 > `cotal spawn -f` to deploy onto the running mesh.
 
 **What that grants.** `topology view -f` inverts the channel lists into per-agent access:
@@ -102,8 +102,8 @@ the whole space). An additive deploy from `spawn -f` is torn down with **`cotal 
 |---|---|---|
 | `apiVersion` | yes | Must be `cotal/v1`. |
 | `kind` | yes | Must be `Mesh`. |
-| `space` | yes | The space name (one per file). `spaces:` is not supported in v1. |
-| `broker` | no | `host` (bind address, no scheme — uses the default NATS port `4222` unless `--host`/`--server` overrides), `servers` (comma-separated URLs, **no embedded creds**), `auth` (bool — JWT auth, default `true`; `false` is an open dev mesh). |
+| `space` | yes | The space name (one per file; `spaces:` is not supported in v1). A space's auth is bound to one root — to run a non-default space in a checkout that already ran `cotal setup` (which sets up `main`), use a fresh directory. |
+| `broker` | no | `servers` (comma-separated broker URLs — this sets the address/port; default `nats://127.0.0.1:4222`; **no embedded creds**), `host` (bind interface only, no scheme — does *not* set the port), `auth` (bool — JWT auth, default `true`; `false` is an open dev mesh). The port comes from `servers`/`--server`, never `host`/`--host`. |
 | `runtime` | no | How the manager runs each agent: `pty` (default) · `tmux` · `cmux`. |
 | `agent` | no | Default harness (`claude` / `opencode` / `hermes` / …) for agents that don't set their own. There is **no silent default** — an agent needs this or its own `agent:`. |
 | `personaPermissions` | no | `reject` (default) — the manifest is the whole truth. `include` — a persona's own channel grants are inherited for channels the manifest doesn't declare. |
@@ -186,8 +186,8 @@ tears down what it owns — foreign actors on a shared mesh are never touched.
 - A fresh mesh from `up -f` → `cotal down` stops all of it.
 - An additive deploy from `spawn -f` records a creation-only **ledger**
   (`.cotal/manifests/<runId>.json`) of exactly the channels and agents it added; `cotal down -f`
-  removes only those. (`.cotal/` is git-ignored — commit your `cotal.yaml` and persona files, not
-  the ledger/creds/runtime artifacts under it.)
+  removes only those. (`.cotal/` holds creds, the ledger, and runtime artifacts — add it to your
+  project's `.gitignore`; commit your `cotal.yaml` and persona files, not what's under it.)
 
 The **run id** for `down -f --run <id>` is printed by `spawn -f` and is the filename under
 `.cotal/manifests/`. You need it when the manifest has changed since the deploy (an edited file
