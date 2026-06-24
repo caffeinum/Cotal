@@ -72,6 +72,9 @@ importers:
       '@cotal-ai/manager':
         specifier: workspace:*
         version: link:../implementations/manager
+      '@cotal-ai/tmux':
+        specifier: workspace:*
+        version: link:../extensions/tmux
 
   examples/01-lateral-coordination:
     dependencies:
@@ -193,6 +196,12 @@ importers:
       tsx:
         specifier: ^4.22.4
         version: 4.22.4
+
+  extensions/tmux:
+    dependencies:
+      '@cotal-ai/core':
+        specifier: workspace:*
+        version: link:../../packages/core
 
   implementations/cli:
     dependencies:
