@@ -16,6 +16,7 @@ import { channels } from "./commands/channels.js";
 import { history } from "./commands/history.js";
 import { feedback } from "./commands/feedback.js";
 import { send, sendComplete } from "./commands/send.js";
+import { topology } from "./commands/topology.js";
 
 /** The minimal mesh CLI: thin NATS clients (up/join/console), plus `spawn` — a
  *  foreground agent launch that reuses the connector's launch recipe. Self-registers
@@ -145,6 +146,13 @@ const baseCommands: Command[] = [
     summary:
       "mint a creds file for a space (auth mode) — mint <name> --profile <agent|observer> [--out <path>]; --signer emits a stripped account-signing file (no operator key) for a containerized manager",
     run: mint,
+  },
+  {
+    kind: "command",
+    name: "topology",
+    group: "Mesh",
+    summary: "validate + view a mesh manifest's access graph — topology view -f <cotal.yaml> (read-only; mutates nothing)",
+    run: topology,
   },
   {
     kind: "command",
