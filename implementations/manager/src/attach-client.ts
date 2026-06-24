@@ -7,11 +7,13 @@ const DETACH = 0x1d;
  * Terminal modes a full-screen child (e.g. Claude's TUI) commonly turns on but that we must undo
  * locally on detach/exit: the agent keeps running after Ctrl-], so it never restores OUR terminal.
  * Without this, detaching from a mouse-tracking TUI leaves the terminal reporting every cursor move
- * as input (a stream of `ESC[<…M` escape codes). Disables all mouse-report modes + bracketed paste,
- * shows the cursor, and resets attributes. Deliberately does NOT toggle the alternate screen.
+ * as input (a stream of `ESC[<…M` escape codes), or its focus in/out as `ESC[I`/`ESC[O`. Disables
+ * all mouse-report modes + focus reporting + bracketed paste, shows the cursor, and resets
+ * attributes. Deliberately does NOT toggle the alternate screen.
  */
 const RESTORE =
   "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l" + // mouse tracking off
+  "\x1b[?1004l" + // focus reporting off
   "\x1b[?2004l" + // bracketed paste off
   "\x1b[?25h" + // show cursor
   "\x1b[0m"; // reset attributes
@@ -26,6 +28,12 @@ export function attachClient(url: string): Promise<void> {
     const ws = new WebSocket(url);
     const stdin = process.stdin;
     const wasRaw = stdin.isRaw ?? false;
+
+    // A broken local pipe (terminal closed / SIGHUP) makes stdout writes async-error on a later
+    // tick; with no listener that EPIPE/EIO becomes an uncaughtException — crashing on the per-frame
+    // PTY write or the on-detach restore write. Register a no-op listener once here (not in cleanup,
+    // so it outlives the async error tick) to turn it into a handled no-op.
+    process.stdout.on("error", () => {});
 
     const sendResize = () =>
       ws.send(`r:${process.stdout.columns ?? 80},${process.stdout.rows ?? 24}`);
