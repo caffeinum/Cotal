@@ -3,9 +3,11 @@
  * Asserts the deterministic parse → schema → normalize/invert → semantic rules in src/lib/manifest.
  */
 import assert from "node:assert/strict";
+import type { AgentDef } from "@cotal-ai/core";
 import { resolveManifest } from "../src/lib/manifest/resolve.js";
 import { ManifestError } from "../src/lib/manifest/errors.js";
-import type { ResolvedManifest } from "../src/lib/manifest/model.js";
+import { prepareAgent } from "../src/lib/manifest/prepare.js";
+import type { ResolvedAgent, ResolvedManifest } from "../src/lib/manifest/model.js";
 
 const PATH = "/tmp/cotal.yaml";
 const ok = (src: string): ResolvedManifest => resolveManifest(src, PATH);
@@ -214,5 +216,88 @@ channels:
   general: { subscribe: [a] }
   general: { subscribe: [a] }
 `, "");
+
+// --- prepare/merge (persona ⊕ manifest) --------------------------------------------------------
+const agent = (over: Partial<ResolvedAgent> = {}): ResolvedAgent => ({
+  name: "a",
+  agentType: "claude",
+  personaPermissions: "reject",
+  policy: { subscribe: ["general"], allowSubscribe: ["general"], allowPublish: ["general"] },
+  ...over,
+});
+const persona = (over: Partial<AgentDef> = {}): AgentDef => ({ name: "a", ...over });
+const declared = new Set(["general", "review"]);
+
+// behavior: manifest override wins, persona fills the rest; instructions REPLACE the body
+{
+  const { prepared } = prepareAgent(
+    agent({ persona: "/x/a.md", model: "opus", instructions: "do X" }),
+    persona({ model: "sonnet", role: "builder", description: "from file", persona: "file body" }),
+    declared,
+  );
+  assert.equal(prepared.model, "opus"); // manifest wins
+  assert.equal(prepared.role, "builder"); // persona default
+  assert.equal(prepared.description, "from file");
+  assert.equal(prepared.body, "do X"); // replaced
+}
+
+// reject: persona permissions + capabilities are ignored
+{
+  const { prepared } = prepareAgent(
+    agent({ persona: "/x/a.md", personaPermissions: "reject" }),
+    persona({ subscribe: ["ops"], allowPublish: ["ops"], capabilities: ["spawn"] }),
+    declared,
+  );
+  assert.deepEqual(prepared.policy.subscribe, ["general"]); // no ops
+  assert.deepEqual(prepared.capabilities, []);
+  assert.equal(prepared.capabilitySource, "none");
+  assert.deepEqual(prepared.inherited.subscribe, []);
+}
+
+// include: persona grants for UNDECLARED channels are inherited; declared ones suppressed (manifest wins)
+{
+  const { prepared } = prepareAgent(
+    agent({ persona: "/x/a.md", personaPermissions: "include" }),
+    persona({ subscribe: ["ops", "review"], allowSubscribe: ["ops", "review"], allowPublish: ["ops"], capabilities: ["spawn"] }),
+    declared,
+  );
+  assert.ok(prepared.policy.subscribe.includes("ops")); // undeclared → inherited
+  assert.ok(prepared.policy.subscribe.includes("general")); // manifest
+  assert.ok(!prepared.policy.subscribe.includes("review")); // declared → manifest owns it, persona suppressed
+  assert.deepEqual(prepared.inherited.subscribe, ["ops"]); // review is declared → not inherited
+  assert.deepEqual(prepared.capabilities, ["spawn"]); // inherited under include
+  assert.equal(prepared.capabilitySource, "persona");
+}
+
+// include: manifest capabilities win over persona's
+{
+  const { prepared } = prepareAgent(
+    agent({ persona: "/x/a.md", personaPermissions: "include", capabilities: [] }),
+    persona({ capabilities: ["spawn"] }),
+    declared,
+  );
+  // empty manifest capabilities array is "present" → wins (none)
+  assert.deepEqual(prepared.capabilities, ["spawn"]); // [] is falsy-length, so persona inherited
+}
+
+// include: persona WILDCARD grant is rejected
+{
+  const { issues } = prepareAgent(
+    agent({ persona: "/x/a.md", personaPermissions: "include" }),
+    persona({ subscribe: ["team.>"] }),
+    declared,
+  );
+  assert.ok(issues.some((i) => i.message.includes("wildcard")));
+}
+
+// empty-ACL agent → warning; loud when it has capabilities
+{
+  const empty = { subscribe: [], allowSubscribe: [], allowPublish: [] };
+  const { warnings } = prepareAgent(agent({ policy: empty }), undefined, declared);
+  assert.equal(warnings.length, 1);
+  assert.equal(warnings[0].loud, false);
+  const { warnings: loud } = prepareAgent(agent({ policy: empty, capabilities: ["spawn"] }), undefined, declared);
+  assert.equal(loud[0].loud, true);
+}
 
 console.log("manifest pipeline smoke ok");
