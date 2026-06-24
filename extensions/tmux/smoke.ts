@@ -49,9 +49,11 @@ console.log(`\n── session: ${SESSION} ────────────�
 tmux.ensureSession(SESSION, "/tmp");
 ok("ensureSession creates session", true);
 
-// openWindow returns a stable window ID (@N), not session:name
-const windowId = tmux.openWindow(SESSION, "test-win", "sleep 10", "/tmp", { focus: false });
+// openWindow returns stable IDs (window @N + initial pane %N), not session:name
+const { windowId, paneId } = tmux.openWindow(SESSION, "test-win", "sleep 10", "/tmp", { focus: false });
 ok(`openWindow returns a window ID (starts with @)`, windowId.startsWith("@"));
+ok(`openWindow returns an initial pane ID (starts with %)`, paneId.startsWith("%"));
+ok("windowAliveRef returns true for the open window ID", tmux.windowAliveRef(windowId));
 ok("windowAlive returns true for open window", tmux.windowAlive(SESSION, "test-win"));
 
 // listWindows / windowRefs
@@ -69,11 +71,39 @@ ok("send + sendKey don't throw", true);
 
 // closeWindow by stable ID
 tmux.closeWindow(windowId);
+ok("windowAliveRef returns false after closeWindow", !tmux.windowAliveRef(windowId));
 ok("windowAlive returns false after closeWindow", !tmux.windowAlive(SESSION, "test-win"));
 
 // idempotent close
 tmux.closeWindow(windowId);
 ok("closeWindow is idempotent (no throw on already-gone)", true);
+
+console.log("\n── layout: stable %pane ids under pane-base-index 1 ──");
+
+// Reproduce the config that broke the old `<win>.0`/`.1` confirm targeting: panes display from 1,
+// not 0. Stable %pane ids are config-independent, so the layout path must key off them. Scope the
+// option to THIS throwaway window (`-w`), never the user's global tmux server.
+const lay = tmux.openWindow(SESSION, "lay-win", "sleep 30", "/tmp", { focus: false });
+execFileSync("tmux", ["set-option", "-w", "-t", lay.windowId, "pane-base-index", "1"], { stdio: "ignore" });
+const secondPane = tmux.splitWindow(lay.windowId, "sleep 30", "/tmp", "vertical", 0.34);
+ok("splitWindow returns a new %pane id", secondPane.startsWith("%"));
+ok("first + second pane ids differ", lay.paneId !== secondPane);
+
+const paneIdx = execFileSync("tmux", ["list-panes", "-t", lay.windowId, "-F", "#{pane_index}"], { encoding: "utf8" })
+  .split("\n").map((l) => l.trim()).filter(Boolean);
+ok("pane display indexes honor pane-base-index 1 (no '.0')", !paneIdx.includes("0"));
+
+// The fix: confirm-Enter targets the stable %ids and lands on both panes…
+tmux.sendKey("Enter", lay.paneId);
+tmux.sendKey("Enter", secondPane);
+ok("sendKey to both %pane ids succeeds (the confirm path)", true);
+
+// …whereas the OLD `<session>:<win>.0` index target is invalid here (the reported hang).
+throws("old `<win>.0` index target is invalid under pane-base-index 1", () =>
+  execFileSync("tmux", ["send-keys", "-t", `${SESSION}:lay-win.0`, "--", "Enter"], { stdio: "pipe" }));
+
+tmux.closeWindow(lay.windowId);
+ok("layout window closes by stable id", !tmux.windowAliveRef(lay.windowId));
 
 console.log("\n── runtime ─────────────────────────────────────");
 
@@ -96,6 +126,7 @@ throws("attach() throws", () => handle.attach());
 handle.stop({ graceful: false });
 await new Promise(r => setTimeout(r, 200));
 ok("window gone after hard stop", !tmux.windowAlive(SESSION, "smoke-agent"));
+ok("handle.status() = exited after stop (id-based, survives rename)", handle.status() === "exited");
 
 console.log("\n── registry registration ────────────────────────");
 

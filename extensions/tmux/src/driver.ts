@@ -40,13 +40,29 @@ export function ensureSession(session: string, cwd: string): void {
     execFileSync("tmux", ["new-session", "-d", "-s", session, "-c", cwd], { stdio: "ignore" });
 }
 
-/** True if a window named `name` exists in `session`. */
+/** True if a window named `name` exists in `session`. Name-based — fragile under renames; prefer
+ *  {@link windowAliveRef} when you hold a stable `@N` ID. Kept for name-based discovery/cleanup. */
 export function windowAlive(session: string, name: string): boolean {
   try {
     const out = execFileSync("tmux", ["list-windows", "-t", session, "-F", "#W"], {
       encoding: "utf8",
     });
     return out.split("\n").map((l) => l.trim()).includes(name);
+  } catch {
+    return false;
+  }
+}
+
+/** True if a window with the stable ID `windowId` (`@N`) still exists. Window IDs are server-global,
+ *  so we test exact membership in the full window list — surviving renames, unlike {@link windowAlive}
+ *  (name match). (Don't use `display-message -t`: for a stale target it silently falls back to the
+ *  current window instead of erroring, so it can't detect a closed window.) */
+export function windowAliveRef(windowId: string): boolean {
+  try {
+    return execFileSync("tmux", ["list-windows", "-a", "-F", "#{window_id}"], { encoding: "utf8" })
+      .split("\n")
+      .map((l) => l.trim())
+      .includes(windowId);
   } catch {
     return false;
   }
@@ -59,27 +75,39 @@ function isWindowGone(err: unknown): boolean {
   return /can't find window|can't find session|no current window|session not found/i.test(msg);
 }
 
+/** The stable refs for a freshly-opened window: its window ID (`@N`) and the ID of its initial
+ *  (only) pane (`%N`). Both survive renames/reorders — drive later close/split/send/refs calls off
+ *  these, not the mutable `session:name` target or pane indexes. */
+export interface WindowRefs {
+  windowId: string;
+  paneId: string;
+}
+
 /** Open a new tmux window `name` in `session` running `command` (a shell string).
  *  Created detached (unfocused) by default; pass `focus: true` to switch to it.
- *  Returns the stable tmux window ID (`@N`) — use as the ref for later close/refs calls. */
+ *  Returns the stable window ID (`@N`) and its initial pane ID (`%N`). */
 export function openWindow(
   session: string,
   name: string,
   command: string,
   cwd: string,
   opts: { focus?: boolean } = {},
-): string {
+): WindowRefs {
   const args = ["new-window", "-t", session, "-n", name, "-c", cwd];
   if (!(opts.focus ?? false)) args.push("-d");
-  // -P -F prints the new window's ID before returning — stable across renames and reorders.
-  args.push("-P", "-F", "#{window_id}", command);
-  return execFileSync("tmux", args, { encoding: "utf8" }).trim();
+  // -P -F prints the new window + pane IDs before returning — stable across renames and reorders.
+  args.push("-P", "-F", "#{window_id} #{pane_id}", command);
+  const out = execFileSync("tmux", args, { encoding: "utf8" }).trim();
+  const [windowId, paneId] = out.split(/\s+/);
+  if (!windowId || !paneId)
+    throw new Error(`tmux: couldn't read window/pane IDs from new-window ("${out}")`);
+  return { windowId, paneId };
 }
 
-/** Split `target` (session:window or window ID) creating a new pane running `command`.
- *  Direction convention matches {@link Tab.split.direction}:
- *  `"horizontal"` → top/bottom (tmux `-v`, the default);
- *  `"vertical"` → side-by-side (tmux `-h`).
+/** Split `target` (a window ID `@N`, or session:window) creating a new pane running `command`.
+ *  Returns the new pane's stable ID (`%N`). Direction convention matches {@link Tab.split.direction}:
+ *  `"horizontal"` → stacked top/bottom rows (tmux `-v`, the default);
+ *  `"vertical"` → side-by-side columns (tmux `-h`).
  *  `ratio` is the first pane's fraction — the new pane gets `(1 - ratio)`. */
 export function splitWindow(
   target: string,
@@ -87,12 +115,14 @@ export function splitWindow(
   cwd: string,
   direction: "vertical" | "horizontal",
   ratio?: number,
-): void {
+): string {
   const args = ["split-window", "-t", target, "-c", cwd];
-  if (direction === "vertical") args.push("-h"); // side-by-side = tmux -h
+  if (direction === "vertical") args.push("-h"); // side-by-side columns = tmux -h
   if (ratio !== undefined) args.push("-p", String(Math.round((1 - ratio) * 100)));
-  args.push(command);
-  execFileSync("tmux", args, { stdio: "ignore" });
+  // -P -F prints the new pane's ID — use it as a stable target (pane indexes shift under
+  // `pane-base-index` and renumber on close).
+  args.push("-P", "-F", "#{pane_id}", command);
+  return execFileSync("tmux", args, { encoding: "utf8" }).trim();
 }
 
 /** Focus a window by target (`session:name` or window ID). */
@@ -145,6 +175,18 @@ export function windowRefs(session: string, label: string): string[] {
   }
 }
 
+/** Render `env` as shell-safe `KEY='value'` pairs. tmux (like cmux) shell-renders env into the
+ *  command line — pty passes it structurally — so reject any KEY that isn't a valid env identifier
+ *  before rendering, rather than splice an attacker-influenced name into the command. Shipped
+ *  connectors only generate safe names today; this is defense-in-depth. */
+function envPairs(env: Record<string, string>): string[] {
+  return Object.entries(env).map(([k, v]) => {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(k))
+      throw new Error(`tmux: refusing to render unsafe env var name ${JSON.stringify(k)}`);
+    return `${k}=${shellQuote(v)}`;
+  });
+}
+
 /** Shell command string that runs `command args` with `env -i` isolation — only the given
  *  `env` entries reach the process (the tmux server's inherited env is stripped). */
 export function isolatedCommand(
@@ -152,8 +194,7 @@ export function isolatedCommand(
   command: string,
   args: string[],
 ): string {
-  const pairs = Object.entries(env).map(([k, v]) => `${k}=${shellQuote(v)}`);
-  return ["env", "-i", ...pairs, shellQuote(command), ...args.map(shellQuote)].join(" ");
+  return ["env", "-i", ...envPairs(env), shellQuote(command), ...args.map(shellQuote)].join(" ");
 }
 
 /** Shell command string that runs `command args` with extra `env` merged into the inherited env. */
@@ -162,8 +203,7 @@ export function mergedCommand(
   command: string,
   args: string[],
 ): string {
-  const pairs = Object.entries(env).map(([k, v]) => `${k}=${shellQuote(v)}`);
-  return ["env", ...pairs, shellQuote(command), ...args.map(shellQuote)].join(" ");
+  return ["env", ...envPairs(env), shellQuote(command), ...args.map(shellQuote)].join(" ");
 }
 
 /** Type literal text into a tmux target.

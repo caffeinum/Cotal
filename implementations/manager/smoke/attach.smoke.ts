@@ -10,6 +10,7 @@
 import { execFileSync } from "node:child_process";
 import { createRuntime } from "../src/index.js";
 import "@cotal-ai/cmux"; // registers the `cmux` runtime provider
+import "@cotal-ai/tmux"; // registers the `tmux` runtime provider
 import type { LaunchSpec } from "@cotal-ai/core";
 
 let failures = 0;
@@ -57,8 +58,8 @@ const cwd = process.cwd();
     const h = rt.spawn("smoke-tmux", spec, cwd);
     const err = attachError(() => h.attach());
     check(
-      "tmux: attach() points to `tmux attach -t cotal-smoke:smoke-tmux` (not a stream)",
-      err.includes("tmux attach -t cotal-smoke:smoke-tmux"),
+      "tmux: attach() points at `tmux attach-session` + a select-window-by-id hint (not a stream)",
+      err.includes("tmux attach-session -t cotal-smoke") && err.includes("select-window"),
     );
     check("tmux: hint is tmux-specific, never a cmux tab", !err.includes("cmux tab"));
     h.stop({ graceful: false });

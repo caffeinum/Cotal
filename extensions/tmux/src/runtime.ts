@@ -50,23 +50,23 @@ export class TmuxRuntime implements Runtime {
     // P3: env -i strips the tmux server's inherited environment; only the connector-declared
     // env reaches the spawned agent (identity, model key, OS allow-list).
     const command = tmux.isolatedCommand(spec.env ?? {}, spec.command, spec.args);
-    tmux.openWindow(this.session, name, command, cwd, { focus: false });
+    // Key the whole lifecycle off the STABLE window ID (@N), not `session:name`. tmux can rename
+    // a window (automatic-rename / a title escape), which would desync a name-based status/stop.
+    const { windowId } = tmux.openWindow(this.session, name, command, cwd, { focus: false });
 
-    const target = `${this.session}:${name}`;
-
-    if (spec.confirm) scheduleConfirm(target);
+    if (spec.confirm) scheduleConfirm(windowId);
 
     return {
       name,
       kind: "tmux",
-      status: () => (tmux.windowAlive(this.session, name) ? "running" : "exited"),
+      status: () => (tmux.windowAliveRef(windowId) ? "running" : "exited"),
       stop: (opts) => {
-        if (opts?.graceful === false) return tmux.closeWindow(target);
+        if (opts?.graceful === false) return tmux.closeWindow(windowId);
         // Graceful: type `/exit` so the Claude session shuts down cleanly (its SessionEnd
         // hook leaves the mesh), then close the now-idle window regardless.
         try {
-          tmux.send("/exit", target);
-          tmux.sendKey("Enter", target);
+          tmux.send("/exit", windowId);
+          tmux.sendKey("Enter", windowId);
         } catch {
           /* window already gone — still ensure it's closed below */
         }
@@ -75,18 +75,19 @@ export class TmuxRuntime implements Runtime {
         // tmux failure rather than let teardown cleanup take the process down.
         setTimeout(() => {
           try {
-            tmux.closeWindow(target);
+            tmux.closeWindow(windowId);
           } catch (err) {
             console.error(`tmux runtime: failed to close window for "${name}":`, err);
           }
         }, GRACE_MS);
       },
       interrupt: () => {
-        tmux.sendKey("C-c", target);
+        tmux.sendKey("C-c", windowId);
       },
       attach: () => {
         throw new Error(
-          `tmux runtime: attach natively with \`tmux attach-session -t ${this.session}\` (window: "${name}")`,
+          `tmux runtime: attach natively — \`tmux attach-session -t ${this.session}\`, then ` +
+            `\`tmux select-window -t ${windowId}\` (window "${name}")`,
         );
       },
     };
@@ -107,26 +108,31 @@ registry.register(tmuxRuntimeProvider);
 /** Translate a backend-agnostic {@link Tab} into a sequence of tmux commands on `session`.
  *  One pane → a bare window; several → a window + splits. These panes inherit the caller's
  *  env (setup panes run further `cotal` subcommands), so no `-i` isolation here. */
-function tmuxLayout(session: string, label: string, tab: Tab): void {
+function tmuxLayout(session: string, label: string, tab: Tab): string {
   const [first, ...rest] = tab.panes;
   if (!first) throw new Error(`tmux layout "${label}": tab has no panes`);
 
   const firstCmd = tmux.mergedCommand(first.env ?? {}, first.command, first.args ?? []);
-  tmux.openWindow(session, label, firstCmd, first.cwd ?? ".", { focus: false });
+  // Drive splits/focus/confirm off the STABLE window/pane IDs returned here — never `session:label`
+  // (labels can collide or be renamed) or pane indexes `.0`/`.1` (shift under `pane-base-index`).
+  const { windowId, paneId: firstPane } = tmux.openWindow(session, label, firstCmd, first.cwd ?? ".", {
+    focus: false,
+  });
 
   if (rest.length > 0 && !tab.split)
     throw new Error(
       `tmux layout "${label}": ${tab.panes.length} panes need a split (direction + ratio)`,
     );
 
-  const winTarget = `${session}:${label}`;
-  if (first.confirm) scheduleConfirm(`${winTarget}.0`);
+  if (first.confirm) scheduleConfirm(firstPane);
 
-  rest.forEach((pane, i) => {
+  rest.forEach((pane) => {
     const cmd = tmux.mergedCommand(pane.env ?? {}, pane.command, pane.args ?? []);
-    tmux.splitWindow(winTarget, cmd, pane.cwd ?? ".", tab.split!.direction, tab.split!.ratio);
-    if (pane.confirm) scheduleConfirm(`${winTarget}.${i + 1}`);
+    const newPane = tmux.splitWindow(windowId, cmd, pane.cwd ?? ".", tab.split!.direction, tab.split!.ratio);
+    if (pane.confirm) scheduleConfirm(newPane);
   });
+
+  return windowId;
 }
 
 /** Self-registering terminal-layout provider — lets a caller (e.g. `cotal setup`) open/close
@@ -139,11 +145,11 @@ export const tmuxTerminalProvider: TerminalLayout = {
   available: () => tmux.available(),
   open: (label, tab, opts) => {
     const session = tmux.currentSession();
-    tmuxLayout(session, label, tab);
-    const target = `${session}:${label}`;
-    if (opts?.focus) tmux.selectWindow(target);
-    // Return the stable window ID so callers can close it even after a rename.
-    return tmux.windowRefs(session, label)[0] ?? target;
+    const windowId = tmuxLayout(session, label, tab);
+    if (opts?.focus) tmux.selectWindow(windowId);
+    // Return the exact window ID we created (stable across renames) — not a label re-lookup, which
+    // could resolve a different same-label window.
+    return windowId;
   },
   close: (ref) => tmux.closeWindow(ref),
   refs: (label) => tmux.windowRefs(tmux.currentSession(), label),

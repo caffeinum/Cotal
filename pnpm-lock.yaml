@@ -29,6 +29,9 @@ importers:
       '@cotal-ai/manager':
         specifier: workspace:*
         version: link:implementations/manager
+      '@cotal-ai/tmux':
+        specifier: workspace:*
+        version: link:extensions/tmux
     devDependencies:
       '@changesets/cli':
         specifier: ^2.31.0
