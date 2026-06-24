@@ -114,7 +114,11 @@ export async function downManifest(file: string, flags: DownManifestFlags): Prom
           console.log(c.yellow(`  ! ${l.name}: stop failed — ${stop.error ?? "unknown"}`));
         }
       }
-      // Channel removal: skip on ANY uncertainty (best-effort, racy — said so in output).
+      // Channel removal: skip on ANY uncertainty (best-effort, racy — said so in output). The
+      // fail-closed "skip when membership is unobservable" rule protects ACL isolation, which exists
+      // only on an AUTH mesh; an open mesh has no isolation and no membership feed by design, so an
+      // owned card is removable there (otherwise `down -f` could never clean an open dev mesh).
+      const openMesh = !creds;
       const stopFailed = ledger.created.agents.some((a) => liveById.has(a.id) && !stoppedIds.has(a.id));
       const snapshot = await ep.readMembership().catch(() => null);
       const ownedIds = new Set(ledger.created.agents.map((a) => a.id));
@@ -124,15 +128,19 @@ export async function downManifest(file: string, flags: DownManifestFlags): Prom
           skipped.push({ channel: ch, why: "an owned agent failed to stop" });
           continue;
         }
-        if (!snapshot) {
-          skipped.push({ channel: ch, why: "membership unknown (no feed)" });
+        if (snapshot) {
+          const others = snapshot.members.filter(
+            (m) => !ownedIds.has(m.id) && (m.durable.includes(ch) || m.live.some((p) => subjectMatches(p, ch))),
+          );
+          if (others.length) {
+            skipped.push({ channel: ch, why: `members present (${others.length})` });
+            continue;
+          }
+        } else if (!openMesh) {
+          skipped.push({ channel: ch, why: "membership unknown (no feed) on an auth mesh" });
           continue;
         }
-        const others = snapshot.members.filter(
-          (m) => !ownedIds.has(m.id) && (m.durable.includes(ch) || m.live.some((p) => subjectMatches(p, ch))),
-        );
-        if (others.length) skipped.push({ channel: ch, why: `members present (${others.length})` });
-        else toRemove.push(ch);
+        toRemove.push(ch);
       }
       if (toRemove.length) {
         await deleteChannels({ servers: ledger.server, space: ledger.space, creds, channels: toRemove });
