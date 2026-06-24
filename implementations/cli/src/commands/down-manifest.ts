@@ -157,42 +157,51 @@ export async function downManifest(file: string, flags: DownManifestFlags): Prom
     console.log(c.yellow(`  ! ${ledger.server} unreachable — can't stop processes or remove channels; the ledger is RETAINED for a later \`down -f --run ${ledger.runId}\``));
   }
 
-  // 5) Resolution: which owned resources are NOT proven handled. An agent is unresolved if the broker
-  //    was unreachable, or it's still live under our recorded id and its stop failed (an id we don't
-  //    see live is gone; a same-name/different-id agent is foreign, not ours). A channel is unresolved
-  //    if it wasn't removed. The ledger is the ONLY durable ownership record, so we never erase it
-  //    while owned resources may remain — we rewrite it down to the unresolved set instead
-  //    (critic/security/engineer/ux PR2 blocker).
+  // 5) Remote resolution: which owned REMOTE resources are NOT proven handled. An agent is unresolved
+  //    if the broker was unreachable, or it's still live under our recorded id and its stop failed (an
+  //    id we don't see live is gone; a same-name/different-id agent is foreign, not ours). A channel
+  //    is unresolved if it wasn't removed.
   const removedSet = new Set(removed);
   const unresolvedAgents = ledger.created.agents.filter((a) => !reachable || (liveById.has(a.id) && !stoppedIds.has(a.id)));
   const unresolvedChannels = ledger.created.channels.filter((ch) => !removedSet.has(ch));
   const unresolvedIds = new Set(unresolvedAgents.map((a) => a.id));
-  const complete = unresolvedAgents.length === 0 && unresolvedChannels.length === 0;
 
-  // 6) Local cleanup of RESOLVED resources only. A resolved (stopped/gone) agent's cred is deleted
-  //    after verifying the cred file's own nkey id matches the recorded id (so a same-name foreign
-  //    agent's cred, or a tampered-ledger cred path, is left alone; fail closed on unverifiable). An
-  //    unresolved agent keeps its cred (still in use / to retry).
+  // 6) Local cred cleanup of RESOLVED agents. A cred is deleted only after its own nkey id matches the
+  //    recorded id. The dispositions, narrowed by review-fact so retention can't strand the ledger:
+  //    - no file (undefined) → proven absent, resolved;
+  //    - sub !== id → a foreign/overwritten cred (OUR cred is already gone) — left in place, reported,
+  //      NOT retained (retaining would re-trigger every retry → a permanently un-downable ledger);
+  //    - unverifiable (null: symlink/corrupt) → left in place, reported, NOT retained (same trap; a
+  //      symlink isn't a cred we wrote) — surfaced loudly so a genuine stale cred isn't silent;
+  //    - id matches but UNLINK THROWS → OUR cred, a recoverable FS error → retained so a retry finishes.
+  const unresolvedCredIds = new Set<string>();
   for (const cp of credPaths) {
-    if (unresolvedIds.has(cp.id)) continue;
+    if (unresolvedIds.has(cp.id)) continue; // remote-unresolved agent keeps its cred (still in use / retry)
     const sub = credSubject(cp.path);
-    if (sub === undefined) continue; // no cred file
+    if (sub === undefined) continue; // no cred file — proven absent
     if (sub === null) {
-      console.error(c.yellow(`  ! ${cp.name} creds: unreadable/unverifiable — left in place`));
+      console.error(c.yellow(`  ! ${cp.name} creds: unreadable/unverifiable — left in place (resolve by hand if it's a stale cred)`));
       continue;
     }
     if (sub !== cp.id) {
-      console.error(c.yellow(`  ~ ${cp.name} creds belong to a different agent (id ${sub.slice(0, 8)} ≠ ${cp.id.slice(0, 8)}) — left in place`));
+      console.error(c.yellow(`  ~ ${cp.name} creds belong to a different agent (id ${sub.slice(0, 8)} ≠ ${cp.id.slice(0, 8)}) — ours is gone, left in place`));
       continue;
     }
     try {
       if (unlinkFileNoFollow(cp.path)) console.log(c.dim(`  • removed creds for ${cp.name}`));
     } catch (e) {
-      console.error(c.yellow(`  ! ${cp.name} creds: ${(e as Error).message}`));
+      console.error(c.yellow(`  ! ${cp.name} creds: ${(e as Error).message} — retained for retry`));
+      unresolvedCredIds.add(cp.id); // OUR id-verified cred, unlink failed (recoverable) → keep the record
     }
   }
 
-  // 7) Summary + ledger disposition.
+  // 7) Disposition. The ledger is deleted only when EVERY owned resource — remote agents, channels,
+  //    AND our own credential files — is removed or proven gone; otherwise it's rewritten DOWN to the
+  //    unresolved set (atomic temp-then-rename) so a later `down -f --run` finishes. Never erase the
+  //    only ownership record while anything owned may remain (critic/security/engineer/ux PR2 gate).
+  const retainIds = new Set([...unresolvedIds, ...unresolvedCredIds]);
+  const complete = retainIds.size === 0 && unresolvedChannels.length === 0;
+
   for (const s of skipped) console.log(c.yellow(`  ~ left ${c.cyan("#" + s.channel)}: ${s.why}`) + c.dim(" (best-effort membership check — racy)"));
   if (openNoFeed.length)
     console.log(c.dim(`  note: removed ${openNoFeed.length} channel(s) on an OPEN mesh with no membership feed — no ACL isolation to protect, no membership proof: ${openNoFeed.map((n) => "#" + n).join(", ")}`));
@@ -212,14 +221,15 @@ export async function downManifest(file: string, flags: DownManifestFlags): Prom
     }
     console.log(c.green(`✓ torn down run ${ledger.runId}`) + (removed.length ? c.dim(` — removed ${removed.length} channel(s): ${removed.map((n) => "#" + n).join(", ")}`) : ""));
   } else {
-    // Partial: rewrite the ledger DOWN to the unresolved resources (atomic temp-then-rename) so a
-    // later `down -f --run` can finish — never erase the only record while owned resources may remain.
-    const remaining: MeshLedger = { ...ledger, created: { channels: unresolvedChannels, agents: unresolvedAgents } };
+    // Partial: rewrite the ledger DOWN to the unresolved resources so a later `down -f --run` finishes.
+    const remainAgents = ledger.created.agents.filter((a) => retainIds.has(a.id));
+    const remaining: MeshLedger = { ...ledger, created: { channels: unresolvedChannels, agents: remainAgents } };
     writeLedger(root, remaining, { update: true });
     console.log(
       c.yellow(`! partial teardown of run ${ledger.runId}`) +
-        c.dim(` — ${unresolvedAgents.length} agent(s) + ${unresolvedChannels.length} channel(s) still owned; ledger kept`),
+        c.dim(` — ${remainAgents.length} agent(s) + ${unresolvedChannels.length} channel(s) still owned; ledger kept`),
     );
+    if (unresolvedCredIds.size) console.log(c.dim(`  local credential cleanup incomplete for ${unresolvedCredIds.size} agent(s) — ledger kept for retry`));
     console.log(c.dim(`  finish later (broker up / members gone): cotal down -f ${ledger.manifestPath} --run ${ledger.runId}`));
     process.exitCode = 1; // not a full success
   }
