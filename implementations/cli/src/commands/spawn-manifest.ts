@@ -74,10 +74,30 @@ export async function spawnManifest(file: string, flags: SpawnManifestFlags): Pr
   const connection = await connectOrExit({ server: m.broker?.servers ?? flags.server, space }, "manager");
 
   const root = cotalRoot();
+  // Same-checkout invariant (security/UX): the launch spec, the ledger, and the manager `spawn -f`
+  // drives all live under THIS checkout's `.cotal`. Deploying onto a mesh recorded by a different
+  // checkout would decouple those local artifacts from that mesh's root/manager. Refuse unless the
+  // resolved mesh is registered to this root; a raw off-registry target (no recorded root) isn't
+  // supported for a manifest deploy.
+  if (!connection.root) {
+    console.error(c.red(`✗ spawn -f needs a mesh registered to this checkout — a raw off-registry target (--server/--space) isn't supported for a manifest deploy`));
+    process.exit(1);
+  }
+  if (resolve(connection.root) !== resolve(root)) {
+    console.error(c.red(`✗ mesh "${space}" belongs to a different checkout (${connection.root}) — \`spawn -f\` / \`down -f\` are same-checkout; run them from ${connection.root}`));
+    process.exit(1);
+  }
   const manifestHash = hashManifestSource(readFileSync(abs, "utf8"));
 
   // A prior ledger for this manifest content ⇒ a re-apply (reuse its runId, classify against it).
-  const priors = listLedgers(root).filter((l) => l.ledger.manifestHash === manifestHash && l.ledger.space === space);
+  // listLedgers fails closed (throws) on a symlinked `.cotal/manifests` — surface it cleanly.
+  let priors: ReturnType<typeof listLedgers>;
+  try {
+    priors = listLedgers(root).filter((l) => l.ledger.manifestHash === manifestHash && l.ledger.space === space);
+  } catch (e) {
+    console.error(c.red(`✗ ${(e as Error).message}`));
+    process.exit(1);
+  }
   if (priors.length > 1) {
     console.error(c.red(`✗ ${priors.length} runs already deployed this manifest (${priors.map((p) => p.ledger.runId).join(", ")}) — tear one down first: \`cotal down -f ${file} --run <id>\``));
     process.exit(1);

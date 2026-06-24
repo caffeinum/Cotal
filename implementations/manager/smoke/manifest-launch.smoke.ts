@@ -160,6 +160,14 @@ function writeSpec(name: string, body: unknown): string {
   check("reply carries runId + resolved hash for the ledger", reply.ok && reply.data?.runId === runId2 && reply.data?.hash === "abc123");
   check("reply carries the spawned nkey id", reply.ok && typeof reply.data?.id === "string" && (reply.data.id as string).length > 0);
   check("creds are filed under the SPAWNED name (ledger-keying invariant)", existsSync(join(root, ".cotal", "auth", "creds", "scout-2.creds")));
+  // The cred file's OWN nkey subject equals the reply id — the invariant `down -f` relies on to
+  // verify a cred belongs to the recorded agent before deleting it (name+id ownership).
+  {
+    const credText = readFileSync(join(root, ".cotal", "auth", "creds", "scout-2.creds"), "utf8");
+    const jwt = credText.split("\n").find((l) => l && !l.startsWith("-") && l.split(".").length === 3)!;
+    const sub = JSON.parse(Buffer.from(jwt.split(".")[1], "base64url").toString("utf8")).sub;
+    check("minted cred's JWT subject == the reply id (down -f cred-ownership check)", reply.ok && sub === reply.data?.id, { sub, id: reply.ok && reply.data?.id });
+  }
   const bad = await op({ runId: runId2, name: "ghost" });
   check("opLaunch rejects an unknown agent name", bad.ok === false);
 }

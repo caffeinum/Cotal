@@ -14,10 +14,10 @@
  *      caller takes any destructive action — fail closed, globally.
  */
 import { createHash, randomBytes } from "node:crypto";
-import { readFileSync, writeFileSync, readdirSync, renameSync } from "node:fs";
+import { readFileSync, writeFileSync, readdirSync, renameSync, lstatSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { z } from "zod";
-import { assertValidChannel, assertValidName, authDir, ensureDirNoSymlink, isConcreteChannel } from "@cotal-ai/core";
+import { assertValidChannel, assertValidName, authDir, ensureDirNoSymlink, isConcreteChannel, realDirNoSymlink } from "@cotal-ai/core";
 
 export const LEDGER_VERSION = "cotal-ledger/v1";
 
@@ -116,6 +116,16 @@ export function writeLedger(root: string, ledger: MeshLedger, opts: { update?: b
  *  ledger is proven before the caller deletes anything (no partial "validated the class I'm about to
  *  delete" flow). Throws on any deviation. */
 export function loadLedger(path: string): MeshLedger {
+  // No-follow: the ledger drives destructive teardown, so refuse a symlinked ledger file (a symlink
+  // could redirect `down -f` to attacker-chosen content). Callers also prove the parent dir chain.
+  let st;
+  try {
+    st = lstatSync(path);
+  } catch (e) {
+    throw new Error(`ledger ${path}: ${(e as Error).message}`);
+  }
+  if (st.isSymbolicLink()) throw new Error(`refusing to read ledger "${path}": it is a symlink`);
+  if (!st.isFile()) throw new Error(`refusing to read ledger "${path}": not a regular file`);
   let json: unknown;
   try {
     json = JSON.parse(readFileSync(path, "utf8"));
@@ -146,7 +156,10 @@ export function loadLedger(path: string): MeshLedger {
  *  targeted `down -f --run <id>` names one directly); used to resolve a `down -f cotal.yaml` to its
  *  run by `manifestHash`. */
 export function listLedgers(root: string): Array<{ path: string; ledger: MeshLedger }> {
-  const dir = join(root, ".cotal", "manifests");
+  // Prove `.cotal/manifests` is a real (non-symlink) directory chain before reading under it — a
+  // symlinked parent could redirect `down -f` to attacker-chosen ledgers.
+  const dir = realDirNoSymlink(root, ".cotal", "manifests");
+  if (!dir) return [];
   let names: string[];
   try {
     names = readdirSync(dir);
@@ -181,8 +194,10 @@ export function findLedgerByHash(root: string, manifestHash: string): { path: st
  *  before deriving the path. */
 export function findLedgerByRun(root: string, runId: string): { path: string; ledger: MeshLedger } {
   assertValidName(runId);
-  const path = join(root, ".cotal", "manifests", `${runId}.json`);
-  return { path, ledger: loadLedger(path) };
+  const dir = realDirNoSymlink(root, ".cotal", "manifests"); // refuse a symlinked manifests parent
+  if (!dir) throw new Error(`no ledger for run ${runId} (.cotal/manifests is absent)`);
+  const path = join(dir, `${runId}.json`);
+  return { path, ledger: loadLedger(path) }; // loadLedger refuses a symlinked ledger file
 }
 
 /** Derive an owned agent's cred path under the known auth root — `<root>/.cotal/auth/creds/<name>.creds`

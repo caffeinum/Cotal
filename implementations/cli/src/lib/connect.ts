@@ -51,6 +51,13 @@ export interface Connection {
    *  open mesh or a raw off-registry connection (`--creds` or `--server`+unregistered `--space`).
    *  (web keeps it for its per-delete manager mint.) */
   auth?: SpaceAuth;
+  /** The resolved mesh's recorded checkout root, for a REGISTERED mesh — undefined for a raw
+   *  off-registry connection (`--creds`, or `--server`+unregistered `--space`). `spawn -f`/`down -f`
+   *  use it to enforce the same-checkout invariant: local launch artifacts + the ledger live under
+   *  this checkout, so deploying onto a mesh recorded by another checkout would decouple them. */
+  root?: string;
+  /** How the target was resolved (registry / current / flag-space / …) — undefined for raw. */
+  source?: MeshTarget["source"];
 }
 
 /**
@@ -80,7 +87,7 @@ export async function connectOrExit(flags: ConnectFlags, role: Profile): Promise
   const target = await resolveTargetOrExit({ server: flags.server, space: flags.space });
   const creds = target.auth ? await mintCreds(target.auth, newIdentity(), role) : undefined;
   await preflightOrExit(target, creds);
-  return { server: target.server, space: target.space, creds, auth: target.auth };
+  return { server: target.server, space: target.space, creds, auth: target.auth, root: target.root, source: target.source };
 }
 
 /** Reachability check for a RAW (off-registry) connection — one plain sentence, never a registry/

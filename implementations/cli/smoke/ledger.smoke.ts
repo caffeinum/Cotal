@@ -14,6 +14,7 @@ import {
   loadLedger,
   findLedgerByHash,
   findLedgerByRun,
+  listLedgers,
   ownedCredPath,
   hashManifestSource,
   type MeshLedger,
@@ -130,6 +131,24 @@ function writeRaw(name: string, body: unknown): string {
   mkdirSync(join(r4, ".cotal"));
   symlinkSync(ext, join(r4, ".cotal", "run"));
   throws("realDirNoSymlink refuses a symlinked component", () => realDirNoSymlink(r4, ".cotal", "run", "run01"));
+}
+
+// --- ledger reads are no-follow (destructive-path contract) -------------------------------------
+{
+  // A symlinked ledger FILE is refused by loadLedger.
+  const r5 = mkdtempSync(join(tmpdir(), "cotal-ledger-symfile-"));
+  const real = writeLedger(r5, ledgerOf({ runId: "real01" }));
+  const linkPath = join(r5, ".cotal", "manifests", "link01.json");
+  symlinkSync(real, linkPath);
+  throws("loadLedger refuses a symlinked ledger file", () => loadLedger(linkPath));
+
+  // A symlinked .cotal/manifests parent is refused: listLedgers returns [], findLedgerByRun throws.
+  const r6 = mkdtempSync(join(tmpdir(), "cotal-ledger-symdir-"));
+  const ext = mkdtempSync(join(tmpdir(), "cotal-ledger-symdir-ext-"));
+  mkdirSync(join(r6, ".cotal"));
+  symlinkSync(ext, join(r6, ".cotal", "manifests"));
+  throws("listLedgers refuses a symlinked .cotal/manifests (fail-closed)", () => listLedgers(r6));
+  throws("findLedgerByRun refuses a symlinked .cotal/manifests", () => findLedgerByRun(r6, "anything"));
 }
 
 console.log(`\nLEDGER SMOKE ${failures === 0 ? "OK ✅" : "FAILED ❌"}`);

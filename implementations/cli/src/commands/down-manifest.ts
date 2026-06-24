@@ -14,7 +14,7 @@
  *    skipped (best-effort, racy) on ANY uncertainty, including an owned agent that failed to stop;
  *  - `--allow-stale` is apply-only and has no effect here.
  */
-import { readFileSync, rmSync } from "node:fs";
+import { lstatSync, readFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
   CONTROL_ADMIN,
@@ -89,6 +89,7 @@ export async function downManifest(file: string, flags: DownManifestFlags): Prom
   //    channels. The broker may be down — then we still do local cleanup and say what we couldn't reach.
   const stoppedIds = new Set<string>();
   const removed: string[] = [];
+  const openNoFeed: string[] = []; // owned channels removed on an open mesh with no membership proof
   const skipped: Array<{ channel: string; why: string }> = [];
   const creds = await mintIfAuth(root, ledger.space);
   const reachable = await isReachable(ledger.server, creds ? { creds } : undefined);
@@ -139,6 +140,8 @@ export async function downManifest(file: string, flags: DownManifestFlags): Prom
         } else if (!openMesh) {
           skipped.push({ channel: ch, why: "membership unknown (no feed) on an auth mesh" });
           continue;
+        } else {
+          openNoFeed.push(ch); // open mesh, no feed: removable (no isolation), but no membership proof
         }
         toRemove.push(ch);
       }
@@ -157,6 +160,19 @@ export async function downManifest(file: string, flags: DownManifestFlags): Prom
   // 5) Local cleanup (always): owned cred files (no-follow), the run dir + launch spec, then the
   //    ledger LAST (after everything it described is handled).
   for (const cp of credPaths) {
+    // Verify the cred file's OWN nkey id matches the recorded id before deleting — so a same-named
+    // foreign agent that reused the name (different id), or a tampered ledger pointing at an unrelated
+    // safe-token cred, can't get its creds unlinked. Fail closed: don't delete what we can't verify.
+    const sub = credSubject(cp.path);
+    if (sub === undefined) continue; // no cred file
+    if (sub === null) {
+      console.error(c.yellow(`  ! ${cp.name} creds: unreadable/unverifiable — left in place`));
+      continue;
+    }
+    if (sub !== cp.id) {
+      console.error(c.yellow(`  ~ ${cp.name} creds belong to a different agent (id ${sub.slice(0, 8)} ≠ ${cp.id.slice(0, 8)}) — left in place`));
+      continue;
+    }
     try {
       if (unlinkFileNoFollow(cp.path)) console.log(c.dim(`  • removed creds for ${cp.name}`));
     } catch (e) {
@@ -177,7 +193,33 @@ export async function downManifest(file: string, flags: DownManifestFlags): Prom
 
   // 6) Summary.
   for (const s of skipped) console.log(c.yellow(`  ~ left ${c.cyan("#" + s.channel)}: ${s.why}`) + c.dim(" (best-effort membership check — racy)"));
+  if (openNoFeed.length)
+    console.log(c.dim(`  note: removed ${openNoFeed.length} channel(s) on an OPEN mesh with no membership feed — no ACL isolation to protect, no membership proof: ${openNoFeed.map((n) => "#" + n).join(", ")}`));
   console.log(c.green(`✓ torn down run ${ledger.runId}`) + (removed.length ? c.dim(` — removed ${removed.length} channel(s): ${removed.map((n) => "#" + n).join(", ")}`) : ""));
+}
+
+/** Extract the nkey subject (the agent id) from a NATS creds file's user JWT — to verify a cred file
+ *  belongs to the recorded agent before `down -f` deletes it. Returns `undefined` if the file is
+ *  absent, or `null` if it can't be verified (symlink / not a regular file / no JWT / unparseable) so
+ *  the caller fails closed and leaves it. */
+function credSubject(path: string): string | undefined | null {
+  let raw: string;
+  try {
+    const st = lstatSync(path);
+    if (st.isSymbolicLink() || !st.isFile()) return null;
+    raw = readFileSync(path, "utf8");
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    return null;
+  }
+  const jwt = raw.split("\n").find((l) => l && !l.startsWith("-") && l.split(".").length === 3);
+  if (!jwt) return null;
+  try {
+    const claims = JSON.parse(Buffer.from(jwt.split(".")[1], "base64url").toString("utf8")) as { sub?: unknown };
+    return typeof claims.sub === "string" ? claims.sub : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Mint a manager (admin-control) cred for the ledger's space from the local trust material, or
