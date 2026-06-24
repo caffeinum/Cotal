@@ -37,7 +37,7 @@
   const recent = [];
   const feed = { asOf: undefined, available: false }; // membership-feed freshness
   const cam = { x: 0, y: 0, scale: 1, ready: false, user: false };
-  const filter = { chat: true, unicast: true, anycast: true, window: 30, paused: false };
+  const filter = { chat: true, unicast: true, anycast: true, window: 30, paused: false, hideOffline: true };
   let W = 0, H = 0, DPR = 1, hover = null, sel = null, lastT = 0, alpha = 1;
 
   // ── utils ──
@@ -109,7 +109,8 @@
   function link(a, b, len, k) { let dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1; const f = (d - len) * k * alpha, fx = (dx / d) * f, fy = (dy / d) * f; a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy; }
   function physics() {
     if (alpha < 0.004 || filter.paused) return;
-    const ns = [...hubs.values(), ...agents.values()];
+    // while hiding, ghosts leave the sim entirely so the visible graph isn't laid out around invisible nodes (reheat on toggle re-settles)
+    const ns = [...hubs.values(), ...agents.values()].filter((n) => !isHidden(n));
     for (let i = 0; i < ns.length; i++) {
       const a = ns[i];
       for (let j = i + 1; j < ns.length; j++) {
@@ -120,10 +121,10 @@
         a.vx += (dx / d) * q; a.vy += (dy / d) * q; b.vx -= (dx / d) * q; b.vy -= (dy / d) * q;
       }
     }
-    for (const e of edges.values()) { const h = hubs.get(e.chan); if (h) link(e.a, h, 105, 0.08); }
-    for (const d of dms.values()) link(d.a, d.b, 165, 0.03);
+    for (const e of edges.values()) { const h = hubs.get(e.chan); if (h && !isHiddenMember(e)) link(e.a, h, 105, 0.08); }
+    for (const d of dms.values()) if (!isHidden(d.a) && !isHidden(d.b)) link(d.a, d.b, 165, 0.03);
     // small graphs: faint tangential nudge so agents form a loose ring around their hub instead of a line (decays with alpha)
-    if (hubs.size <= 2) for (const a of agents.values()) { const h = (primaryChan(a) && hubs.get(primaryChan(a))) || [...hubs.values()][0]; if (h) { const dx = a.x - h.x, dy = a.y - h.y, d = Math.hypot(dx, dy) || 1; a.vx += (-dy / d) * 0.4 * alpha; a.vy += (dx / d) * 0.4 * alpha; } }
+    if (hubs.size <= 2) for (const a of agents.values()) { if (isHidden(a)) continue; const h = (primaryChan(a) && hubs.get(primaryChan(a))) || [...hubs.values()][0]; if (h) { const dx = a.x - h.x, dy = a.y - h.y, d = Math.hypot(dx, dy) || 1; a.vx += (-dy / d) * 0.4 * alpha; a.vy += (dx / d) * 0.4 * alpha; } }
     // collision: position-based min-distance — prevents the 1/d² charge singularity + node overlap
     const pad = 10;
     for (let i = 0; i < ns.length; i++) {
@@ -220,7 +221,7 @@
     // Prune cold traffic-only spokes (a non-member's post that has faded). Membership spokes persist by
     // membership, never on a timer — they're the resting skeleton, faint at rest, glowing on traffic.
     for (const [k, e] of edges) if (!e.mem && e.heat <= TRAFFIC_COLD && now() - e.last > 1000) { edges.delete(k); reheat(); }
-    for (const h of hubs.values()) h.empty = ![...edges.values()].some((e) => e.chan === h.name && e.mem); // no members = dormant (silent readers keep it live)
+    for (const h of hubs.values()) h.empty = ![...edges.values()].some((e) => e.chan === h.name && e.mem && !isHiddenMember(e)); // no VISIBLE members = dormant (hidden offline ghosts don't keep it lit)
     physics();
     // re-frame only once the sim has cooled, so the camera doesn't chase the re-settle wobble
     if (!cam.user && alpha < 0.12) { const f = fitTarget(); const e = 1 - Math.pow(0.02, dt); cam.x += (f.x - cam.x) * e; cam.y += (f.y - cam.y) * e; cam.scale += (f.scale - cam.scale) * e; }
@@ -237,13 +238,25 @@
   // Hover/select a hub or agent → highlight its membership fan, dim the rest (dandelion mitigation).
   function fanFocus() { return hover && hover.kind === "hub" ? hover : sel && sel.kind === "hub" ? sel : hover && hover.kind === "agent" ? hover : sel && sel.kind === "agent" ? sel : null; }
   function inFan(e, f) { if (!f) return true; return f.kind === "hub" ? e.chan === f.name : e.a === f; }
+  // "hide offline" (on by default): collapse a "member, currently offline" — an agent that is NOT a live
+  // presence. Two shapes reach this: presence explicitly `offline`, OR a member the broker no longer sees
+  // connected, i.e. it has NO live subscription and survives only by durable membership (`live` empty +
+  // still a member). The latter is the common ghost — a peer that posted then left, kept at default `idle`
+  // status with dashed durable-only spokes. Hiding is render-only (node, spokes, DM curves, fan-out comets,
+  // hit-testing, camera frame, detail list): the node stays in the model + sim, so toggling reveals it instantly.
+  const isHidden = (n) => filter.hideOffline && n.kind === "agent" &&
+    (n.status === "offline" || ((n.live || []).length === 0 && n.memberOf && n.memberOf.size > 0));
+  // Per-CHANNEL visibility: a membership edge is "offline" if the agent is a ghost (isHidden) OR this
+  // particular membership is durable-only (the agent may be live elsewhere — keep its node, but drop this
+  // dashed spoke + its seat in this channel's roster/count, so "hide offline" holds per channel, not just per node).
+  const isHiddenMember = (e) => filter.hideOffline && (e.durableOnly || isHidden(e.a));
 
   function drawSpokes() {
     ctx.lineCap = "round";
     const f = fanFocus();
     // structure layer: a constant-faint spoke per membership (solid = live, dashed-dim = member-offline)
     for (const e of edges.values()) {
-      if (!e.mem) continue;
+      if (!e.mem || isHiddenMember(e)) continue;
       const h = hubs.get(e.chan); if (!h) continue;
       const off = e.durableOnly || e.a.status === "offline";
       const lit = inFan(e, f);
@@ -255,12 +268,13 @@
     ctx.setLineDash([]);
     // activity layer: traffic glow on top (members + transient non-member posts)
     ctx.globalCompositeOperation = "lighter";
-    for (const e of edges.values()) { const h = hubs.get(e.chan); if (!h || e.heat <= 0.02) continue; const lit = inFan(e, f); ctx.beginPath(); ctx.moveTo(e.a.x, e.a.y); ctx.lineTo(h.x, h.y); ctx.strokeStyle = rgba(MODE.chat, Math.min(0.55, e.heat * 0.55) * (lit ? 1 : 0.35)); ctx.lineWidth = 1 + e.heat * 1.6; ctx.stroke(); }
+    for (const e of edges.values()) { const h = hubs.get(e.chan); if (!h || e.heat <= 0.02 || isHiddenMember(e)) continue; const lit = inFan(e, f); ctx.beginPath(); ctx.moveTo(e.a.x, e.a.y); ctx.lineTo(h.x, h.y); ctx.strokeStyle = rgba(MODE.chat, Math.min(0.55, e.heat * 0.55) * (lit ? 1 : 0.35)); ctx.lineWidth = 1 + e.heat * 1.6; ctx.stroke(); }
     ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1;
   }
   function drawDmEdges() {
     ctx.setLineDash([3, 4]);
     for (const d of dms.values()) {
+      if (isHidden(d.a) || isHidden(d.b)) continue;
       const mx = (d.a.x + d.b.x) / 2, my = (d.a.y + d.b.y) / 2, nx = -(d.b.y - d.a.y), ny = d.b.x - d.a.x, len = Math.hypot(nx, ny) || 1;
       const cx = mx + (nx / len) * 24, cy = my + (ny / len) * 24;
       ctx.beginPath(); ctx.moveTo(d.a.x, d.a.y); ctx.quadraticCurveTo(cx, cy, d.b.x, d.b.y);
@@ -280,6 +294,7 @@
       ctx.fillStyle = rgba("#cfe2ff", dim); ctx.font = "600 12.5px var(--font), sans-serif"; ctx.fillText("#" + h.name, h.x, h.y + h.r + 13);
     }
     for (const a of agents.values()) {
+      if (isHidden(a)) continue;
       const col = STAT[a.status] || STAT.idle, focus = a === hover || a === sel, off = a.status === "offline";
       const r = a.r + Math.sin(t * 0.8 + a.phase) * 0.4;
       if (a.status === "waiting") { const pulse = 0.5 + 0.5 * Math.sin(t * 1.7); for (const o of [0, 0.5]) { ctx.beginPath(); ctx.arc(a.x, a.y, r + 5 + ((pulse + o) % 1) * 9, 0, 2 * Math.PI); ctx.strokeStyle = rgba(STAT.waiting, (1 - ((pulse + o) % 1)) * 0.45); ctx.lineWidth = 1.6; ctx.stroke(); } }
@@ -311,7 +326,10 @@
   function drawParticles(dt) {
     ctx.globalCompositeOperation = "lighter"; ctx.lineCap = "round";
     for (let i = particles.length - 1; i >= 0; i--) {
-      const p = particles[i]; if (!filter.paused) p.t += dt / p.dur; const t = ease(Math.min(1, p.t)); let x, y;
+      const p = particles[i]; if (!filter.paused) p.t += dt / p.dur;
+      // a fan-out comet to a hidden offline member would fly to empty space — still tick + retire it, just don't draw
+      if (isHidden(p.a) || isHidden(p.b)) { if (p.t >= 1) { if (p.onArrive) p.onArrive(); particles.splice(i, 1); } continue; }
+      const t = ease(Math.min(1, p.t)); let x, y;
       if (p.curve) { const mx = (p.a.x + p.b.x) / 2, my = (p.a.y + p.b.y) / 2, nx = -(p.b.y - p.a.y), ny = p.b.x - p.a.x, len = Math.hypot(nx, ny) || 1, cx = mx + (nx / len) * 24, cy = my + (ny / len) * 24, u = 1 - t; x = u * u * p.a.x + 2 * u * t * cx + t * t * p.b.x; y = u * u * p.a.y + 2 * u * t * cy + t * t * p.b.y; }
       else { x = p.a.x + (p.b.x - p.a.x) * t; y = p.a.y + (p.b.y - p.a.y) * t; }
       if (!filter.paused) { p.trail.push(x, y); if (p.trail.length > 12) p.trail.splice(0, p.trail.length - 12); }
@@ -338,7 +356,7 @@
   function fitTarget() {
     const ns = [...hubs.values(), ...agents.values()]; if (!ns.length) return { x: W / 2, y: H / 2, scale: 1 };
     // content nodes drive the frame; empty hubs only nudge the padding so one stray node can't shrink the live graph
-    const content = ns.filter((n) => !(n.kind === "hub" && n.empty)), frame = content.length ? content : ns;
+    const content = ns.filter((n) => !(n.kind === "hub" && n.empty) && !isHidden(n)), frame = content.length ? content : ns;
     let a = 1e9, b = 1e9, c = -1e9, d = -1e9;
     for (const n of frame) { const r = n.r + 40; a = Math.min(a, n.x - r); c = Math.max(c, n.x + r); b = Math.min(b, n.y - r); d = Math.max(d, n.y + r); }
     for (const h of hubs.values()) if (h.empty) { a = Math.min(a, h.x - 20); c = Math.max(c, h.x + 20); b = Math.min(b, h.y - 20); d = Math.max(d, h.y + 20); }
@@ -347,7 +365,7 @@
     return { x: W / 2 - ((a + c) / 2) * scale, y: H / 2 - ((b + d) / 2) * scale, scale };
   }
   const toWorld = (sx, sy) => ({ x: (sx - cam.x) / cam.scale, y: (sy - cam.y) / cam.scale });
-  function pick(sx, sy) { const w = toWorld(sx, sy); let best = null, bd = 1e9; for (const n of [...hubs.values(), ...agents.values()]) { const d = Math.hypot(n.x - w.x, n.y - w.y); if (d < n.r + 8 && d < bd) { bd = d; best = n; } } return best; }
+  function pick(sx, sy) { const w = toWorld(sx, sy); let best = null, bd = 1e9; for (const n of [...hubs.values(), ...agents.values()]) { if (isHidden(n)) continue; const d = Math.hypot(n.x - w.x, n.y - w.y); if (d < n.r + 8 && d < bd) { bd = d; best = n; } } return best; }
 
   // ── membership freshness pill ──
   function setFeed() {
@@ -371,17 +389,19 @@
     if (sel.kind === "hub") {
       // members from the broker feed (subscribed), split into live vs member-currently-offline; plus a
       // "recently active" subset (who actually posted here) vs just-subscribed.
-      const mem = [...edges.values()].filter((e) => e.chan === sel.name && e.mem).map((e) => e.a);
-      mem.sort((x, y) => x.name.localeCompare(y.name));
+      const memEdges = [...edges.values()].filter((e) => e.chan === sel.name && e.mem);
+      // hide per MEMBERSHIP edge: an agent live elsewhere but durable-only here is offline FOR THIS channel
+      const mem = memEdges.filter((e) => !isHiddenMember(e)).map((e) => e.a).sort((x, y) => x.name.localeCompare(y.name));
+      const hiddenOff = memEdges.length - mem.length;
       const activeIds = new Set(recent.filter((m) => m.chan === sel.name && m.fromId).map((m) => m.fromId));
       const memberRow = (a) => { const off = a.status === "offline" || (a.memberOf && a.memberOf.get(sel.name) === "durable"); const dotCol = STAT[a.status] || STAT.idle; return `<span class="mtag"><span class="dot" style="background:${off ? MEM_OFF : dotCol}"></span>${esc(a.name)}${activeIds.has(a.id) ? '<span class="act">active</span>' : ""}${off ? '<span class="off">offline</span>' : ""}</span>`; };
-      const memberList = mem.length ? `<div class="d-tags">${mem.map(memberRow).join("")}</div>` : `<div class="d-block muted">no subscribers yet</div>`;
+      const memberList = mem.length ? `<div class="d-tags">${mem.map(memberRow).join("")}</div>` : `<div class="d-block muted">${hiddenOff ? `${hiddenOff} member${hiddenOff === 1 ? "" : "s"} offline (hidden)` : "no subscribers yet"}</div>`;
       el.innerHTML = `<span class="x" id="dx">✕</span>
         <div class="d-kind">channel</div>
         <div class="d-who">#${esc(sel.name)}</div>
         ${sel.desc ? `<div class="d-block">${esc(sel.desc)}</div>` : ""}
         <div class="d-rows">
-          <div class="d-row"><span class="k">subscribers</span><span class="v">${mem.length} agent${mem.length === 1 ? "" : "s"}</span></div>
+          <div class="d-row"><span class="k">subscribers</span><span class="v">${hiddenOff ? `${mem.length} shown <span style="color:var(--faint)">+${hiddenOff} offline hidden</span>` : `${mem.length} agent${mem.length === 1 ? "" : "s"}`}</span></div>
           <div class="d-row"><span class="k">messages</span><span class="v">${sel.msgs || 0}</span></div>
         </div>
         <div class="d-section"><div class="d-label">members</div>${memberList}</div>
@@ -416,6 +436,7 @@
   window.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDetail(); });
   $("modes").onclick = (e) => { const c = e.target.closest(".chip"); if (!c) return; const m = c.dataset.mode; filter[m] = !filter[m]; c.classList.toggle("on", filter[m]); };
   $("pause").onclick = () => { filter.paused = !filter.paused; $("pause").classList.toggle("on", filter.paused); $("pause").textContent = filter.paused ? "▶ resume" : "⏸ pause"; };
+  $("hideOffline").onclick = () => { filter.hideOffline = !filter.hideOffline; $("hideOffline").classList.toggle("on", filter.hideOffline); if (sel && isHidden(sel)) closeDetail(); if (hover && isHidden(hover)) hover = null; reheat(); if (sel) renderDetail(); };
   $("legendToggle").onclick = () => $("legend").classList.toggle("collapsed");
   function setConn(live) { const el = $("conn"); el.classList.toggle("down", !live); el.querySelector(".t").textContent = live ? "live" : "disconnected"; }
 

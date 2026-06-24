@@ -73,6 +73,7 @@
       .chip.mode.chat.on { color: var(--chat); } .chip.mode.unicast.on { color: var(--unicast); }
       .chip.mode.anycast.on { color: var(--anycast); }
       .chip.pause.on { color: var(--waiting); border-color: var(--waiting); }
+      .chip.offline.on { color: var(--idle); border-color: var(--line); }
 
       /* ── legend (bottom-left, collapsible) ── */
       #legend { position: fixed; left: 14px; bottom: 14px; z-index: 10; padding: 0;
@@ -175,6 +176,7 @@
           <span class="chip mode unicast on" data-mode="unicast">direct</span>
           <span class="chip mode anycast on" data-mode="anycast">anycast</span>
         </div>
+        <span class="chip offline on" id="hideOffline">hide offline</span>
         <span class="chip pause" id="pause">⏸ pause</span>
       </div>
     </header>

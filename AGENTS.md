@@ -30,6 +30,7 @@ implementation is **TypeScript**.
 ```bash
 pnpm cotal <cmd>   # run the CLI via tsx bin/cotal.ts (base + manager commands)
 pnpm smoke         # core smoke test
+pnpm smoke:ci      # security/protocol smoke suite (the CI gate); needs nats-server on PATH
 pnpm typecheck     # tsc --noEmit across all packages
 pnpm build         # tsc build across all packages
 ```
@@ -42,7 +43,7 @@ ESM only (`"type": "module"`); run TS directly with `tsx`, no build step for dev
 |---|---|
 | `packages/*` | The protocol (the standard). Generic; depends on nothing else in the repo. |
 | `extensions/*` | Pluggable adapters (connectors, runtimes). Peer-depend core; self-register on import. |
-| `implementations/*` | Opinionated surfaces over core (CLI, manager). Self-contained; never import each other. |
+| `implementations/*` | Opinionated surfaces over core (CLI, manager, delivery daemon). Self-contained; never import each other. |
 | `examples/*` | Use-cases / composition roots. Private, never published. Each self-documents in its README. |
 | `bin/` | The `cotal` binary (the published `cotal-ai` package): the composition root. |
 | `docs/` | Protocol documentation (start at `docs/README.md`). |
@@ -78,6 +79,9 @@ with no silent fallback.
 - **`@cotal-ai/manager`** (`implementations/manager`): the agent supervisor: spawns and manages
   nodes via a pluggable Runtime (`pty` / `tmux` / `cmux`), with `start`/`stop`/`ps`/`attach` and
   a WebSocket attach endpoint.
+- **`@cotal-ai/delivery`** (`implementations/delivery`): the server-side Plane-3 delivery daemon
+  — the durable backstop (fan-out writer + trusted reader + membership/ACL authority), a scoped,
+  least-privilege NATS client co-located with the broker. Self-registers the `deliver` command.
 
 An example only *configures and orchestrates* (roles, config, space name, runbook, optional
 driver) and picks which extensions to register. It never adds message kinds, subjects, or
