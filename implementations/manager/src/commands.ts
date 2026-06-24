@@ -12,6 +12,7 @@ import {
   mintCreds,
   newIdentity,
   registry,
+  findMesh,
   resolveMeshTarget,
   CONTROL_PRIVILEGED,
   CONTROL_ADMIN,
@@ -46,6 +47,13 @@ function spaceFor(v: Values): string {
 export async function resolveManagerTarget(v: Values): Promise<{ space: string; server: string; creds?: string }> {
   if (v.creds) {
     return { space: spaceFor(v), server: v.server ?? DEFAULT_SERVER, creds: readFileSync(v.creds, "utf8") };
+  }
+  // A raw OPEN off-registry mesh: explicit `--server` + a `--space` that isn't registered. Naming
+  // both is as deliberate as `--creds`, but an open broker has no creds to pass — connect bare,
+  // off-registry (no registry lookup). Mirrors `connectOrExit`'s same-shaped escape hatch; a
+  // registered `--space` still goes through the resolver below (which honors `--server` as override).
+  if (v.server && v.space && !findMesh(v.space)) {
+    return { space: v.space, server: v.server, creds: undefined };
   }
   let target: MeshTarget;
   try {

@@ -49,6 +49,15 @@ check("bare resolves the single registered mesh", bare.server === OTHER, bare.se
 const override = await resolveManagerTarget({ space: "team-alpha", server: OVERRIDE });
 check("--server overrides the registry", override.server === OVERRIDE, override.server);
 
+// 4. Raw OPEN off-registry escape hatch (parity with connectOrExit): `--server` + an UNregistered
+//    `--space` → a bare connection, no registry lookup, no creds.
+const rawOpen = await resolveManagerTarget({ server: OTHER, space: "not-registered" });
+check(
+  "--server + unregistered --space → raw open (no creds, no registry)",
+  rawOpen.server === OTHER && rawOpen.space === "not-registered" && rawOpen.creds === undefined,
+  rawOpen,
+);
+
 rmSync(home, { recursive: true, force: true });
 rmSync(cwd, { recursive: true, force: true });
 rmSync(projectRoot, { recursive: true, force: true });
