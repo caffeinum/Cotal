@@ -43,7 +43,7 @@ const ledgerOf = (over: Partial<MeshLedger> = {}): MeshLedger => ({
   manifestHash: "abc123",
   manifestPath: "/work/cotal.yaml",
   teardownMode: "ledger-scoped",
-  created: { channels: ["general", "review"], agents: [{ name: "scout", id: "UABC", hash: "deadbeef" }] },
+  created: { channels: ["general", "review"], agents: [{ requested: "scout", name: "scout", id: "UABC", hash: "deadbeef" }] },
   ...over,
 });
 
@@ -57,7 +57,7 @@ const root = mkdtempSync(join(tmpdir(), "cotal-ledger-"));
   check("round-trips", back.runId === "run01" && back.created.agents[0].id === "UABC" && back.created.channels.length === 2);
   throws("exclusive create — a second write of the same runId is refused", () => writeLedger(root, ledgerOf()));
   // Atomic additive update (re-apply) replaces it via temp-then-rename.
-  const p2 = writeLedger(root, ledgerOf({ created: { channels: ["general"], agents: [{ name: "scout-2", id: "UDEF", hash: "feed01" }] } }), { update: true });
+  const p2 = writeLedger(root, ledgerOf({ created: { channels: ["general"], agents: [{ requested: "scout", name: "scout-2", id: "UDEF", hash: "feed01" }] } }), { update: true });
   check("update replaces atomically", loadLedger(p2).created.agents[0].name === "scout-2");
 }
 
@@ -74,13 +74,15 @@ function writeRaw(name: string, body: unknown): string {
   throws("unknown top-level key rejected (strict)", () => loadLedger(writeRaw("u.json", { ...(ledgerOf() as object), bogus: 1 })));
   throws("path-traversal runId rejected", () => loadLedger(writeRaw("r.json", ledgerOf({ runId: "../evil" }))));
   throws("unsafe owned agent name rejected", () =>
-    loadLedger(writeRaw("n.json", ledgerOf({ created: { channels: [], agents: [{ name: "../x", id: "U1", hash: "h" }] } }))));
+    loadLedger(writeRaw("n.json", ledgerOf({ created: { channels: [], agents: [{ requested: "ok", name: "../x", id: "U1", hash: "h" }] } }))));
+  throws("unsafe requested name rejected", () =>
+    loadLedger(writeRaw("rq.json", ledgerOf({ created: { channels: [], agents: [{ requested: "../x", name: "ok", id: "U1", hash: "h" }] } }))));
   throws("non-alphanumeric hash rejected", () =>
-    loadLedger(writeRaw("h.json", ledgerOf({ created: { channels: [], agents: [{ name: "a", id: "U1", hash: "../../etc" }] } }))));
+    loadLedger(writeRaw("h.json", ledgerOf({ created: { channels: [], agents: [{ requested: "a", name: "a", id: "U1", hash: "../../etc" }] } }))));
   throws("wildcard owned channel rejected (concrete-only)", () =>
     loadLedger(writeRaw("w.json", ledgerOf({ created: { channels: ["team.>"], agents: [] } }))));
   throws("duplicate owned agent rejected", () =>
-    loadLedger(writeRaw("da.json", ledgerOf({ created: { channels: [], agents: [{ name: "a", id: "U1", hash: "h" }, { name: "a", id: "U2", hash: "h" }] } }))));
+    loadLedger(writeRaw("da.json", ledgerOf({ created: { channels: [], agents: [{ requested: "a", name: "a", id: "U1", hash: "h" }, { requested: "a", name: "a", id: "U2", hash: "h" }] } }))));
   throws("duplicate owned channel rejected", () =>
     loadLedger(writeRaw("dc.json", ledgerOf({ created: { channels: ["general", "general"], agents: [] } }))));
 }

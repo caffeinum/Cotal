@@ -709,6 +709,9 @@ export class Manager {
     const roster = new Map(this.ep.getRoster().map((p) => [p.card.name, p]));
     return [...this.agents.values()].map((a) => ({
       name: a.name,
+      // The spawned agent's nkey — lets an operator tool (e.g. `cotal down -f`) match a ledger entry
+      // by name AND id before stopping, so it never stops a same-named foreign agent.
+      id: a.id,
       role: a.role,
       agent: a.agent,
       space: this.space,

@@ -27,6 +27,9 @@ const TOKEN = /^[A-Za-z0-9_-]+$/;
 const HASH = /^[A-Za-z0-9]+$/;
 
 const LedgerAgentSchema = z.strictObject({
+  /** The manifest agent key (`agents:` name) — display + the stable key a re-apply matches a declared
+   *  agent against (the spawned name may collision-number, so it can't be that key). */
+  requested: z.string().regex(TOKEN, "requested name must be a path-safe token ([A-Za-z0-9_-])"),
   /** The manager-reply SPAWNED name (collision-numbered, e.g. `socrates-2`) — what creds are filed
    *  under; the cred path derives from THIS, never the manifest key. */
   name: z.string().regex(TOKEN, "agent name must be a path-safe token ([A-Za-z0-9_-])"),
@@ -56,6 +59,31 @@ const LedgerSchema = z.strictObject({
 
 export type MeshLedger = z.infer<typeof LedgerSchema>;
 export type LedgerAgent = z.infer<typeof LedgerAgentSchema>;
+
+/** Assemble a ledger from a `spawn -f` apply result. `agents` carry the manager-reply SPAWNED name
+ *  (cred-keying) + manifest `requested` key + nkey id + resolved hash; `channels` are the brand-new
+ *  registry keys this run created. */
+export function buildLedger(opts: {
+  runId: string;
+  space: string;
+  server: string;
+  manifestHash: string;
+  manifestPath: string;
+  channels: string[];
+  agents: LedgerAgent[];
+}): MeshLedger {
+  return {
+    apiVersion: LEDGER_VERSION,
+    kind: "MeshLedger",
+    runId: opts.runId,
+    space: opts.space,
+    server: opts.server,
+    manifestHash: opts.manifestHash,
+    manifestPath: opts.manifestPath,
+    teardownMode: "ledger-scoped",
+    created: { channels: opts.channels, agents: opts.agents },
+  };
+}
 
 /** Stable index hash of the manifest source text — ties a `down -f cotal.yaml` back to its ledger
  *  (an edited file no longer matches, so `down -f` fails rather than guessing; `--run` is the

@@ -26,6 +26,7 @@ import {
 import { c } from "../ui.js";
 import { preflightOrExit, resolveTargetOrExit } from "../lib/connect.js";
 import { listPersonas } from "../lib/personas.js";
+import { spawnManifest } from "./spawn-manifest.js";
 
 /** Completion for `cotal spawn` — `--space <TAB>` lists the running meshes, and the first positional
  *  is a persona from the mesh this spawn would target. Resolved OFFLINE (registry + `current`, no
@@ -131,9 +132,26 @@ export async function spawn(argv: string[]): Promise<void> {
       subscribe: { type: "string" }, // read set override (comma-separated)
       "allow-subscribe": { type: "string" }, // read ACL override
       "allow-publish": { type: "string" }, // post ACL override
+      file: { type: "string", short: "f" }, // a mesh manifest (cotal.yaml) — deploy onto the running mesh
+      "dry-run": { type: "boolean" }, // with -f: print the plan, mutate nothing
+      "allow-stale": { type: "string" }, // with -f: waive named stale agents (apply-only)
+      runtime: { type: "string" }, // with -f: override the manifest's runtime (pty | tmux | cmux)
     },
   });
   const splitFlag = (v?: string) => (v ? v.split(",").map((s) => s.trim()).filter(Boolean) : undefined);
+
+  // `spawn -f cotal.yaml` is a distinct path: deploy a manifest onto a RUNNING mesh (additive,
+  // ownership-scoped). The broker must already be reachable; bringing up a fresh mesh is `up -f`.
+  if (values.file) {
+    await spawnManifest(values.file, {
+      dryRun: Boolean(values["dry-run"]),
+      server: values.server,
+      space: values.space,
+      runtime: values.runtime,
+      allowStale: splitFlag(values["allow-stale"]),
+    });
+    return;
+  }
   // Transcript mirroring to `tr-<name>` is OFF by default; `--transcript` opts in
   // (`--no-transcript` is accepted too, to be explicit about the default).
   const transcript = values.transcript ? true : values["no-transcript"] ? false : false;

@@ -48,7 +48,7 @@ const baseCommands: Command[] = [
     kind: "command",
     name: "down",
     group: "Mesh",
-    summary: "stop a background mesh started with `up --detach` (run from its project — local only)",
+    summary: "stop a background mesh started with `up --detach` — or `-f <cotal.yaml>` / `--run <id>` for an ownership-scoped teardown of a `spawn -f` deploy [--dry-run] (run from its project — local only)",
     run: down,
   },
   {
