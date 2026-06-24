@@ -11,7 +11,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { createConnection } from "node:net";
-import { mkdtempSync, rmSync, writeFileSync, existsSync, readdirSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -133,9 +133,13 @@ try {
   ok("broker is down before the partial teardown", brokerDown);
   const partial = cli("down", "-f", deploy, "--run", run2);
   const partialOut = partial.stdout + partial.stderr;
-  ok("down -f reports a retained ledger when the broker is unreachable", /unreachable|partial|RETAINED/i.test(partialOut), partialOut);
-  ok("the ledger SURVIVES an incomplete teardown", ledgerFiles().includes(`${run2}.json`), { files: ledgerFiles(), out: partialOut });
+  ok("down -f reports a retained ledger when the broker/control is unavailable", /unreachable|partial|RETAINED|control plane/i.test(partialOut), partialOut);
+  ok("down -f prints the follow-up --run command", /down -f .* --run /.test(partialOut), partialOut);
   ok("partial teardown exits non-zero", partial.status !== 0, partial.status);
+  ok("the ledger SURVIVES an incomplete teardown", ledgerFiles().includes(`${run2}.json`), { files: ledgerFiles(), out: partialOut });
+  // The retained ledger must still hold the unresolved (un-removed) channels for a later retry.
+  const retained = JSON.parse(readFileSync(join(manifestsDir, `${run2}.json`), "utf8"));
+  ok("retained ledger keeps the unresolved channels", retained.created.channels.includes("general") && retained.created.channels.includes("decisions"), retained.created);
 
   console.log(`\nSPAWN-MANIFEST LIVE SMOKE OK ✅ (${pass} checks)`);
 } finally {

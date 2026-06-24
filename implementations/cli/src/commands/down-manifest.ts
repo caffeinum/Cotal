@@ -94,64 +94,73 @@ export async function downManifest(file: string, flags: DownManifestFlags): Prom
   const creds = await mintIfAuth(root, ledger.space);
   const reachable = await isReachable(ledger.server, creds ? { creds } : undefined);
   let liveById = new Map<string, { name: string; id: string }>();
+  // controlOk: we completed the live ps/stop/channel pass. A control-plane error (no manager
+  // responder, a thrown ps/stop/membership/delete) is teardown UNCERTAINTY, not a crash — we catch
+  // it, mark everything unresolved below, and fall through to ledger retention (engineer/security/ux).
+  let controlOk = false;
   if (reachable) {
-    const ep = await connectProbe({ space: ledger.space, server: ledger.server, creds });
     try {
-      const ps = await ep.requestControl(CONTROL_ADMIN, { op: "ps" });
-      const live = (ps.ok ? (ps.data as Array<{ name: string; id: string }>) : []) ?? [];
-      liveById = new Map(live.map((r) => [r.id, r]));
-      for (const a of ledger.created.agents) {
-        const l = liveById.get(a.id);
-        if (!l) {
-          const sameName = live.find((r) => r.name === a.name);
-          if (sameName) console.log(c.yellow(`  ~ ${a.name}: a different agent (id ${sameName.id.slice(0, 8)}) holds this name — NOT ours, left running`));
-          else console.log(c.dim(`  • ${a.name}: not running`));
-          continue;
-        }
-        const stop = await ep.requestControl(CONTROL_ADMIN, { op: "stop", args: { name: l.name } });
-        if (stop.ok) {
-          stoppedIds.add(a.id);
-          console.log(c.green(`  ✓ stopped ${l.name}`));
-        } else {
-          console.log(c.yellow(`  ! ${l.name}: stop failed — ${stop.error ?? "unknown"}`));
-        }
-      }
-      // Channel removal: skip on ANY uncertainty (best-effort, racy — said so in output). The
-      // fail-closed "skip when membership is unobservable" rule protects ACL isolation, which exists
-      // only on an AUTH mesh; an open mesh has no isolation and no membership feed by design, so an
-      // owned card is removable there (otherwise `down -f` could never clean an open dev mesh).
-      const openMesh = !creds;
-      const stopFailed = ledger.created.agents.some((a) => liveById.has(a.id) && !stoppedIds.has(a.id));
-      const snapshot = await ep.readMembership().catch(() => null);
-      const ownedIds = new Set(ledger.created.agents.map((a) => a.id));
-      const toRemove: string[] = [];
-      for (const ch of ledger.created.channels) {
-        if (stopFailed) {
-          skipped.push({ channel: ch, why: "an owned agent failed to stop" });
-          continue;
-        }
-        if (snapshot) {
-          const others = snapshot.members.filter(
-            (m) => !ownedIds.has(m.id) && (m.durable.includes(ch) || m.live.some((p) => subjectMatches(p, ch))),
-          );
-          if (others.length) {
-            skipped.push({ channel: ch, why: `members present (${others.length})` });
+      const ep = await connectProbe({ space: ledger.space, server: ledger.server, creds });
+      try {
+        const ps = await ep.requestControl(CONTROL_ADMIN, { op: "ps" });
+        const live = (ps.ok ? (ps.data as Array<{ name: string; id: string }>) : []) ?? [];
+        liveById = new Map(live.map((r) => [r.id, r]));
+        for (const a of ledger.created.agents) {
+          const l = liveById.get(a.id);
+          if (!l) {
+            const sameName = live.find((r) => r.name === a.name);
+            if (sameName) console.log(c.yellow(`  ~ ${a.name}: a different agent (id ${sameName.id.slice(0, 8)}) holds this name — NOT ours, left running`));
+            else console.log(c.dim(`  • ${a.name}: not running`));
             continue;
           }
-        } else if (!openMesh) {
-          skipped.push({ channel: ch, why: "membership unknown (no feed) on an auth mesh" });
-          continue;
-        } else {
-          openNoFeed.push(ch); // open mesh, no feed: removable (no isolation), but no membership proof
+          const stop = await ep.requestControl(CONTROL_ADMIN, { op: "stop", args: { name: l.name } });
+          if (stop.ok) {
+            stoppedIds.add(a.id);
+            console.log(c.green(`  ✓ stopped ${l.name}`));
+          } else {
+            console.log(c.yellow(`  ! ${l.name}: stop failed — ${stop.error ?? "unknown"}`));
+          }
         }
-        toRemove.push(ch);
+        // Channel removal: skip on ANY uncertainty (best-effort, racy — said so in output). The
+        // fail-closed "skip when membership is unobservable" rule protects ACL isolation, which exists
+        // only on an AUTH mesh; an open mesh has no isolation and no membership feed by design, so an
+        // owned card is removable there (otherwise `down -f` could never clean an open dev mesh).
+        const openMesh = !creds;
+        const stopFailed = ledger.created.agents.some((a) => liveById.has(a.id) && !stoppedIds.has(a.id));
+        const snapshot = await ep.readMembership().catch(() => null);
+        const ownedIds = new Set(ledger.created.agents.map((a) => a.id));
+        const toRemove: string[] = [];
+        for (const ch of ledger.created.channels) {
+          if (stopFailed) {
+            skipped.push({ channel: ch, why: "an owned agent failed to stop" });
+            continue;
+          }
+          if (snapshot) {
+            const others = snapshot.members.filter(
+              (m) => !ownedIds.has(m.id) && (m.durable.includes(ch) || m.live.some((p) => subjectMatches(p, ch))),
+            );
+            if (others.length) {
+              skipped.push({ channel: ch, why: `members present (${others.length})` });
+              continue;
+            }
+          } else if (!openMesh) {
+            skipped.push({ channel: ch, why: "membership unknown (no feed) on an auth mesh" });
+            continue;
+          } else {
+            openNoFeed.push(ch); // open mesh, no feed: removable (no isolation), but no membership proof
+          }
+          toRemove.push(ch);
+        }
+        if (toRemove.length) {
+          await deleteChannels({ servers: ledger.server, space: ledger.space, creds, channels: toRemove });
+          removed.push(...toRemove);
+        }
+        controlOk = true; // got all the way through — the live pass is trustworthy
+      } finally {
+        await ep.stop();
       }
-      if (toRemove.length) {
-        await deleteChannels({ servers: ledger.server, space: ledger.space, creds, channels: toRemove });
-        removed.push(...toRemove);
-      }
-    } finally {
-      await ep.stop();
+    } catch (e) {
+      console.log(c.yellow(`  ! ${ledger.server}: control plane unavailable (${(e as Error).message}) — nothing torn down remotely; the ledger is RETAINED for a later \`down -f --run ${ledger.runId}\``));
     }
   } else {
     console.log(c.yellow(`  ! ${ledger.server} unreachable — can't stop processes or remove channels; the ledger is RETAINED for a later \`down -f --run ${ledger.runId}\``));
@@ -161,8 +170,12 @@ export async function downManifest(file: string, flags: DownManifestFlags): Prom
   //    if the broker was unreachable, or it's still live under our recorded id and its stop failed (an
   //    id we don't see live is gone; a same-name/different-id agent is foreign, not ours). A channel
   //    is unresolved if it wasn't removed.
+  // An agent is resolved only when we explicitly stopped it, OR the control pass was trustworthy and
+  // its id isn't live (gone). If the broker was unreachable or the control plane failed, only the
+  // agents we actually stopped are resolved — everything else is assumed maybe-running (safe).
+  const controlReliable = reachable && controlOk;
   const removedSet = new Set(removed);
-  const unresolvedAgents = ledger.created.agents.filter((a) => !reachable || (liveById.has(a.id) && !stoppedIds.has(a.id)));
+  const unresolvedAgents = ledger.created.agents.filter((a) => !stoppedIds.has(a.id) && (!controlReliable || liveById.has(a.id)));
   const unresolvedChannels = ledger.created.channels.filter((ch) => !removedSet.has(ch));
   const unresolvedIds = new Set(unresolvedAgents.map((a) => a.id));
 
