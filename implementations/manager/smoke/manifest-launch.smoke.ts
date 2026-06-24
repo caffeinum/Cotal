@@ -114,6 +114,12 @@ function writeSpec(name: string, body: unknown): string {
   throws("unknown top-level key rejected (strict)", () => loadLaunchSpec(writeSpec("k.json", { ...(specOf() as object), bogus: 1 })));
   throws("unsafe agent name rejected", () =>
     loadLaunchSpec(writeSpec("n.json", specOf({ agents: [{ name: "../x", agent: "claude", subscribe: [], allowSubscribe: [], allowPublish: [], hash: "h" }] }))));
+  // Tightened untrusted-input contract: connector / role / capability / hash must be safe tokens.
+  const agent1 = (over: Record<string, unknown>) => specOf({ agents: [{ name: "a", agent: "claude", subscribe: [], allowSubscribe: [], allowPublish: [], hash: "h", ...over }] });
+  throws("injection-y connector token rejected", () => loadLaunchSpec(writeSpec("a1.json", agent1({ agent: "claude;rm -rf" }))));
+  throws("unsafe role token rejected", () => loadLaunchSpec(writeSpec("a2.json", agent1({ role: "a/b" }))));
+  throws("unsafe capability token rejected", () => loadLaunchSpec(writeSpec("a3.json", agent1({ capabilities: ["spawn x"] }))));
+  throws("non-alphanumeric hash rejected", () => loadLaunchSpec(writeSpec("a4.json", agent1({ hash: "../../etc" }))));
 }
 
 console.log(`\nMANIFEST-LAUNCH SMOKE ${failures === 0 ? "OK ✅" : "FAILED ❌"}`);

@@ -13,22 +13,25 @@ import { assertValidName, type MeshLaunchAgent, type MeshLaunchSpec } from "@cot
  * not from this file, so the file carries no ACL/capability frontmatter.
  */
 
-// Path-safe (no `/`, `..`, whitespace) — it names a directory under `.cotal/run`.
-const RunId = z.string().regex(/^[A-Za-z0-9_-]+$/, "runId must be a path-safe token ([A-Za-z0-9_-])");
+// A NATS-/path-safe token: connector type, role (a route token), capability, run id. Keeps a
+// hand-edited/malicious launch spec from feeding rewritten route/capability strings into the manager
+// path (channel policies are re-validated at provision time; these complete the untrusted contract).
+const TOKEN = /^[A-Za-z0-9_-]+$/;
+const RunId = z.string().regex(TOKEN, "runId must be a path-safe token ([A-Za-z0-9_-])");
 
 const LaunchAgentSchema = z.strictObject({
   name: z.string().min(1),
-  agent: z.string().min(1),
-  role: z.string().optional(),
+  agent: z.string().regex(TOKEN, "agent must be a connector token ([A-Za-z0-9_-])"),
+  role: z.string().regex(TOKEN, "role must be a route-safe token ([A-Za-z0-9_-])").optional(),
   model: z.string().optional(),
   description: z.string().optional(),
   body: z.string().optional(),
-  capabilities: z.array(z.string()).optional(),
+  capabilities: z.array(z.string().regex(TOKEN, "capability must be a safe token ([A-Za-z0-9_-])")).optional(),
   subscribe: z.array(z.string()),
   allowSubscribe: z.array(z.string()),
   allowPublish: z.array(z.string()),
   personaPath: z.string().optional(),
-  hash: z.string(),
+  hash: z.string().regex(/^[A-Za-z0-9]+$/, "hash must be alphanumeric"),
 });
 
 const LaunchSpecSchema = z.strictObject({
