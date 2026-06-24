@@ -18,6 +18,9 @@ const PersonaPermissions = z.enum(["reject", "include"]);
 const AgentEntryObject = z
   .strictObject({
     persona: z.string().min(1).optional(),
+    /** Connector type to spawn this agent with (claude / opencode / hermes / …). Overrides the
+     *  top-level `agent:` default; one of the two must be set (no silent default — matches roster). */
+    agent: z.string().min(1).optional(),
     model: z.string().min(1).optional(),
     role: z.string().min(1).optional(),
     description: z.string().optional(),
@@ -31,7 +34,11 @@ const AgentEntryObject = z
       "inline agent (no `persona:`) needs at least `model` or `instructions` — otherwise reference a persona file",
   });
 
-const AgentEntry = z.union([z.string().min(1), AgentEntryObject]);
+/** An `agents:` value is a string (bare persona path) OR the object above. A plain `z.union`
+ *  collapses an object with a bad key to a useless "Invalid input", so normalize the string form to
+ *  `{ persona }` first and validate the one strict object — its real errors (unrecognized key, …)
+ *  then surface with their path. */
+const AgentEntry = z.preprocess((v) => (typeof v === "string" ? { persona: v } : v), AgentEntryObject);
 
 /** A channel carries its registry card (description/instructions + replay knobs — the existing
  *  ChannelConfig fields) plus the three native access verbs listed per-channel (agents under it). */
@@ -66,6 +73,8 @@ export const MeshManifestSchema = z.strictObject({
   space: z.string().min(1),
   broker: Broker.optional(),
   runtime: z.enum(["pty", "tmux", "cmux"]).optional(),
+  /** Default connector for agents that don't set their own `agent:`. */
+  agent: z.string().min(1).optional(),
   personaPermissions: PersonaPermissions.optional(),
   agents: z.record(z.string().min(1), AgentEntry),
   defaults: Defaults.optional(),

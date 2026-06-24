@@ -20,6 +20,7 @@ function fails(src: string, needle: string): void {
 const HEAD = `apiVersion: cotal/v1
 kind: Mesh
 space: experiment-1
+agent: claude
 `;
 
 // --- happy path: inversion + allowSubscribe defaulting -----------------------------------------
@@ -53,6 +54,7 @@ channels:
   // string form → persona path resolved relative to the manifest dir; no overrides.
   assert.equal(planner.persona, "/tmp/agents/planner.md");
   assert.equal(planner.model, undefined);
+  assert.equal(planner.agentType, "claude"); // inherits the top-level `agent:` default
   // override form → persona + model.
   assert.equal(builder.persona, "/tmp/agents/builder.md");
   assert.equal(builder.model, "sonnet");
@@ -95,6 +97,26 @@ channels:
   assert.equal(m.agents.find((a) => a.name === "b")!.personaPermissions, "reject");
 }
 
+// --- connector (agent) resolution --------------------------------------------------------------
+{
+  const m = ok(`${HEAD}
+agents:
+  a: ./a.md
+  b: { persona: ./b.md, agent: opencode }
+channels: { general: { subscribe: [a, b] } }
+`);
+  assert.equal(m.agents.find((x) => x.name === "a")!.agentType, "claude"); // top-level default
+  assert.equal(m.agents.find((x) => x.name === "b")!.agentType, "opencode"); // per-agent override
+}
+
+// no connector anywhere (no top-level `agent:`, none on the entry) → hard error
+fails(`apiVersion: cotal/v1
+kind: Mesh
+space: x
+agents: { a: ./a.md }
+channels: { general: { subscribe: [a] } }
+`, "no connector");
+
 // --- semantic errors ---------------------------------------------------------------------------
 
 // allowSubscribe ⊉ subscribe
@@ -136,6 +158,32 @@ fails(`${HEAD}
 agents: { a: ./a.md }
 channels: { general: { subscribe: [a], canPublish: [a] } }
 `, "Unrecognized key");
+
+// unknown key inside an agent object (strict)
+fails(`${HEAD}
+agents: { a: { persona: ./a.md, bogus: 1 } }
+channels: { general: { subscribe: [a] } }
+`, "Unrecognized key");
+
+// undeclared name inside allowPublish specifically
+fails(`${HEAD}
+agents: { a: ./a.md }
+channels: { general: { subscribe: [a], allowPublish: [a, ghost] } }
+`, "ghost\" is not declared in agents:");
+
+// broker.servers with embedded credentials
+fails(`${HEAD}
+broker: { servers: "nats://user:secret@127.0.0.1:4222" }
+agents: { a: ./a.md }
+channels: { general: { subscribe: [a] } }
+`, "must not embed credentials");
+
+// broker.host with a scheme (it's a bind address, not a URL)
+fails(`${HEAD}
+broker: { host: "nats://0.0.0.0" }
+agents: { a: ./a.md }
+channels: { general: { subscribe: [a] } }
+`, "bind address");
 
 // inline agent with neither model nor instructions
 fails(`${HEAD}

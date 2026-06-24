@@ -38,6 +38,8 @@ export interface AgentPolicy {
 export interface ResolvedAgent {
   /** The `agents:` key — also the requested spawn name in v1. */
   name: string;
+  /** Connector type to spawn with (agent-entry `agent:` ?? top-level `agent:`). */
+  agentType: string;
   /** Resolved persona path (absolute), or undefined for an inline agent. */
   persona?: string;
   /** Manifest override of the persona's model (or the inline model). */

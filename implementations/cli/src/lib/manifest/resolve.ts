@@ -19,12 +19,21 @@ import { ManifestError, type ManifestIssue } from "./errors.js";
 export function resolveManifest(src: string, sourcePath: string): ResolvedManifest {
   const lc = new LineCounter();
   const doc = parseDocument(src, { lineCounter: lc });
+  // Best-effort location: try the exact node, then walk up the path (union/object-level errors
+  // often have no node of their own), finally the document root. Diagnostics only — never on the
+  // resolved model (engineer, round-6).
   const locate = (path?: (string | number)[]): { line?: number; col?: number } => {
     if (!path) return {};
-    const node = doc.getIn(path, true) as { range?: [number, number, number] } | undefined;
-    if (!node?.range) return {};
-    const { line, col } = lc.linePos(node.range[0]);
-    return { line, col };
+    const p = [...path];
+    for (;;) {
+      const node = doc.getIn(p, true) as { range?: [number, number, number] } | undefined;
+      if (node?.range) {
+        const { line, col } = lc.linePos(node.range[0]);
+        return { line, col };
+      }
+      if (p.length === 0) return {};
+      p.pop();
+    }
   };
 
   // 1. Parse. Syntax errors + duplicate map keys (yaml enforces unique keys) surface here.
@@ -47,7 +56,10 @@ export function resolveManifest(src: string, sourcePath: string): ResolvedManife
       sourcePath,
       parsed.error.issues.map((iss) => {
         const path = iss.path.filter((p): p is string | number => typeof p !== "symbol");
-        return { message: iss.message, path, ...locate(path) };
+        // Point the line at the offending unknown key, not just its containing object.
+        const keys = (iss as { keys?: string[] }).keys;
+        const locPath = iss.code === "unrecognized_keys" && keys?.length ? [...path, keys[0]] : path;
+        return { message: iss.message, path, ...locate(locPath) };
       }),
     );
   const raw = parsed.data;
@@ -64,8 +76,9 @@ export function resolveManifest(src: string, sourcePath: string): ResolvedManife
       add((e as Error).message, ["agents", name]);
     }
 
+  if (raw.broker) validateBroker(raw.broker, add);
   const channels = normalizeChannels(raw, agentNames, add);
-  const agents = resolveAgents(raw, channels, sourcePath);
+  const agents = resolveAgents(raw, channels, sourcePath, add);
 
   if (issues.length) throw new ManifestError(sourcePath, issues);
 
@@ -128,26 +141,37 @@ function normalizeChannels(
 /** Build each agent's resolved form: its persona source (file/inline) + the per-agent ACLs inverted
  *  from channel membership. Behavior overrides are carried verbatim; the persona default is filled
  *  in during preflight (which reads the file). */
-function resolveAgents(raw: RawManifest, channels: ResolvedChannel[], sourcePath: string): ResolvedAgent[] {
+function resolveAgents(
+  raw: RawManifest,
+  channels: ResolvedChannel[],
+  sourcePath: string,
+  add: (message: string, path?: (string | number)[]) => void,
+): ResolvedAgent[] {
   const topPolicy: PersonaPermissions = raw.personaPermissions ?? "reject";
   const dir = dirname(sourcePath);
   const personaPath = (ref: string) => (isAbsolute(ref) ? ref : resolvePath(dir, ref));
+  // No silent default connector (matches roster.yaml): an agent needs its own `agent:` or the
+  // top-level default. Fail loud rather than guessing claude/opencode.
+  const connector = (name: string, own?: string): string => {
+    const t = own ?? raw.agent;
+    if (!t) add(`no connector for "${name}" — set \`agent:\` on it or a top-level \`agent:\` default`, ["agents", name]);
+    return t ?? "";
+  };
 
-  return Object.entries(raw.agents).map(([name, entry]) => {
-    const policy = invertPolicy(name, channels);
-    if (typeof entry === "string") return { name, persona: personaPath(entry), personaPermissions: topPolicy, policy };
-    return {
-      name,
-      persona: entry.persona ? personaPath(entry.persona) : undefined,
-      model: entry.model,
-      role: entry.role,
-      description: entry.description,
-      instructions: entry.instructions,
-      capabilities: entry.capabilities,
-      personaPermissions: entry.personaPermissions ?? topPolicy,
-      policy,
-    };
-  });
+  // After schema preprocessing every entry is the object form (a bare string was normalized to
+  // `{ persona }`), so there's a single shape to read here.
+  return Object.entries(raw.agents).map(([name, entry]) => ({
+    name,
+    agentType: connector(name, entry.agent),
+    persona: entry.persona ? personaPath(entry.persona) : undefined,
+    model: entry.model,
+    role: entry.role,
+    description: entry.description,
+    instructions: entry.instructions,
+    capabilities: entry.capabilities,
+    personaPermissions: entry.personaPermissions ?? topPolicy,
+    policy: invertPolicy(name, channels),
+  }));
 }
 
 /** Invert channel-centric membership into one agent's per-channel ACLs (the channels it appears in). */
@@ -157,6 +181,26 @@ function invertPolicy(name: string, channels: ResolvedChannel[]): AgentPolicy {
     allowSubscribe: channels.filter((c) => c.allowSubscribe.includes(name)).map((c) => c.name),
     allowPublish: channels.filter((c) => c.allowPublish.includes(name)).map((c) => c.name),
   };
+}
+
+/** Reject inline credentials in the broker config: a `nats://user:pass@host` URL must use the
+ *  auth creds/profile path, not embedded secrets (critic, round-6); `host` is a bind address, not
+ *  a URL. Each server entry must parse as a URL (no silent fallback). */
+function validateBroker(broker: NonNullable<RawManifest["broker"]>, add: (m: string, p?: (string | number)[]) => void): void {
+  if (broker.host?.includes("://"))
+    add(`broker.host is a bind address (e.g. 127.0.0.1), not a URL — drop the scheme`, ["broker", "host"]);
+  if (broker.servers)
+    for (const s of broker.servers.split(",").map((x) => x.trim()).filter(Boolean)) {
+      let u: URL;
+      try {
+        u = new URL(s);
+      } catch {
+        add(`broker.servers entry "${s}" is not a valid URL (e.g. nats://127.0.0.1:4222)`, ["broker", "servers"]);
+        continue;
+      }
+      if (u.username || u.password)
+        add(`broker.servers must not embed credentials ("${u.username}:***@…") — use auth creds/profile, not inline secrets`, ["broker", "servers"]);
+    }
 }
 
 function dedupe<T>(xs: T[]): T[] {
