@@ -90,9 +90,9 @@ the whole space). An additive deploy from `spawn -f` is torn down with **`cotal 
 `up -f` and `spawn -f` accept `--dry-run` (preview the plan, change nothing). `up -f` also takes
 `--server` / `--host` / `--space` / `--runtime` / `--open` to override the file for one run.
 
-> The manager commands `cotal ps` / `start` / `stop` / `attach` default to
-> `nats://127.0.0.1:4222`. They work as-is for a default-port mesh; for a manifest mesh on
-> another port, pass `--server` (see [Operating a manifest mesh](#operating-a-manifest-mesh)).
+> The manager commands `cotal ps` / `start` / `stop` / `attach` resolve the broker from the mesh
+> registry too, so `--space <name>` reaches a manifest mesh on any port; `--server` is an override
+> (see [Operating a manifest mesh](#operating-a-manifest-mesh)).
 
 ## Fields
 
@@ -225,18 +225,16 @@ it before deleting anything:
 
 ## Operating a manifest mesh
 
-The mesh-level commands (`send`, `channels`, `console`, `web`, plus `up -f` / `spawn -f` /
-`down -f` themselves) resolve the broker from the mesh registry, so `--space <name>` is enough.
-
-**Known limitation:** the manager control commands — `cotal ps` / `start` / `stop` / `attach` —
-do **not** yet registry-resolve the broker, and default to `nats://127.0.0.1:4222`. For a
-manifest mesh on a non-default port, pass an explicit `--server`:
+Every mesh-touching command resolves the broker from the mesh registry, so `--space <name>` is
+enough — `send`, `channels`, `console`, `web`, the manifest verbs (`up -f` / `spawn -f` /
+`down -f`), and the manager control commands (`cotal ps` / `start` / `stop` / `attach`) all reach
+a manifest mesh on any port without a `--server` flag:
 
 ```bash
-cotal ps --space research-team --server nats://127.0.0.1:14999
+cotal ps --space research-team        # finds research-team's broker via the registry
 ```
 
-A follow-up will route these through the same resolution as the rest of the CLI.
+`--server` remains an explicit override for an off-registry broker.
 
 ## Today / not yet
 
@@ -244,7 +242,7 @@ A follow-up will route these through the same resolution as the rest of the CLI.
 |---|---|
 | Single space per file (`space:` scalar) | ✅ today |
 | `up -f` / `spawn -f` / `down -f` / `topology view -f` | ✅ today |
-| `--server` resolution for `ps`/`start`/`stop`/`attach` | follow-up |
+| Registry server-resolution for `ps`/`start`/`stop`/`attach` | ✅ today |
 | Multiple spaces per manifest (`spaces:`) | not in v1 |
 
 ---
