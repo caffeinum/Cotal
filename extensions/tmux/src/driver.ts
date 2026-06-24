@@ -53,8 +53,10 @@ export function windowAlive(session: string, name: string): boolean {
 }
 
 function isWindowGone(err: unknown): boolean {
-  const msg = `${String((err as { stderr?: unknown }).stderr ?? "")}${String((err as { message?: unknown }).message ?? "")}`;
-  return /can't find window|no current window|session not found/i.test(msg);
+  // Use both stderr (captured when stdio:"pipe") and message (contains the command + code).
+  const e = err as { stderr?: unknown; message?: unknown };
+  const msg = `${String(e.stderr ?? "")}${String(e.message ?? "")}`;
+  return /can't find window|can't find session|no current window|session not found/i.test(msg);
 }
 
 /** Open a new tmux window `name` in `session` running `command` (a shell string).
@@ -99,7 +101,7 @@ export function selectWindow(target: string): void {
 /** Kill a tmux window by target (`session:name`). Idempotent: already-gone is a no-op. */
 export function closeWindow(target: string): void {
   try {
-    execFileSync("tmux", ["kill-window", "-t", target], { stdio: "ignore" });
+    execFileSync("tmux", ["kill-window", "-t", target], { stdio: "pipe" });
   } catch (err) {
     if (isWindowGone(err)) return;
     throw err;
