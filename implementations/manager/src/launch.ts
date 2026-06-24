@@ -1,7 +1,7 @@
-import { readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { readFileSync, writeFileSync, lstatSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
-import { assertValidChannel, assertValidName, ensureDirNoSymlink, isConcreteChannel, type MeshLaunchAgent, type MeshLaunchSpec } from "@cotal-ai/core";
+import { assertValidChannel, assertValidName, ensureDirNoSymlink, isConcreteChannel, realDirNoSymlink, type MeshLaunchAgent, type MeshLaunchSpec } from "@cotal-ai/core";
 
 /**
  * Load + materialize a resolved launch spec for `supervise --launch`.
@@ -58,6 +58,29 @@ export function loadLaunchSpec(path: string): MeshLaunchSpec {
     validateLaunchPolicy(a); // don't let --launch be a looser second manifest format
   }
   return r.data;
+}
+
+/** Resolve + load the launch spec for a run id, deriving the path from a known root rather than
+ *  accepting one. The `launch` control op (`spawn -f` onto a running manager) passes a `runId`, NOT a
+ *  path — so a (admin-only) caller can never make the manager read an arbitrary host-local JSON: the
+ *  id must be a safe token, `.cotal/run` must be a real (non-symlink) dir chain, and the spec file
+ *  itself must not be a symlink. Then the usual untrusted-input validation ({@link loadLaunchSpec})
+ *  applies, and the spec's self-declared `runId` must match the requested one. */
+export function launchSpecForRun(root: string, runId: string): MeshLaunchSpec {
+  if (!TOKEN.test(runId)) throw new Error(`unsafe runId ${JSON.stringify(runId)} (allowed: letters, digits, _ -)`);
+  const runDir = realDirNoSymlink(root, ".cotal", "run"); // refuse a symlinked .cotal / run parent
+  if (!runDir) throw new Error(`no launch spec for run ${runId} (.cotal/run is absent)`);
+  const path = join(runDir, `${runId}.json`);
+  let st;
+  try {
+    st = lstatSync(path);
+  } catch {
+    throw new Error(`no launch spec for run ${runId} at ${path}`);
+  }
+  if (st.isSymbolicLink()) throw new Error(`refusing to read launch spec "${path}": it is a symlink`);
+  const spec = loadLaunchSpec(path);
+  if (spec.runId !== runId) throw new Error(`launch spec runId "${spec.runId}" does not match requested "${runId}"`);
+  return spec;
 }
 
 // Capabilities that actually grant anything in v1 (provisionAgent only acts on `spawn`); an unknown

@@ -10,7 +10,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, symlin
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Manager } from "../src/manager.js";
-import { loadLaunchSpec, materializePersona, launchAgentToStartOpts } from "../src/launch.js";
+import { loadLaunchSpec, materializePersona, launchAgentToStartOpts, launchSpecForRun } from "../src/launch.js";
 import { createSpaceAuth, registry, type Connector, type LaunchSpec, type AgentHandle, type MeshLaunchAgent, type MeshLaunchSpec } from "@cotal-ai/core";
 
 let failures = 0;
@@ -124,6 +124,52 @@ function writeSpec(name: string, body: unknown): string {
   throws("wildcard scope in launch policy rejected", () => loadLaunchSpec(writeSpec("p1.json", agent1({ subscribe: ["team.>"], allowSubscribe: ["team.>"] }))));
   throws("subscribe ⊄ allowSubscribe rejected", () => loadLaunchSpec(writeSpec("p2.json", agent1({ subscribe: ["general"], allowSubscribe: [] }))));
   throws("unknown capability rejected (not just unsafe token)", () => loadLaunchSpec(writeSpec("p3.json", agent1({ capabilities: ["teleport"] }))));
+  // Belt-and-suspenders (review-fact): allowPublish-only wildcard is rejected too (same validateLaunchPolicy loop).
+  throws("wildcard allowPublish rejected", () => loadLaunchSpec(writeSpec("p4.json", agent1({ allowPublish: ["team.>"] }))));
+}
+
+// --- launchSpecForRun + the `launch` control op: spawn -f onto a RUNNING manager ----------------
+{
+  const runId2 = "feedface02";
+  const spec2: MeshLaunchSpec = {
+    apiVersion: "cotal-launch/v1",
+    space: "demo",
+    runId: runId2,
+    agents: [{
+      name: "scout", agent: "smoke-launch", role: "researcher", model: "opus", description: "Quick researcher.",
+      body: "Research; 3 bullets.", capabilities: ["spawn"], subscribe: ["general"], allowSubscribe: ["general", "ops"],
+      allowPublish: ["general"], personaPath: undefined, hash: "abc123",
+    }],
+  };
+  mkdirSync(join(root, ".cotal", "run"), { recursive: true });
+  writeFileSync(join(root, ".cotal", "run", `${runId2}.json`), JSON.stringify(spec2));
+
+  // The op takes a runId, NOT a path — the manager derives + validates the spec location itself.
+  check("launchSpecForRun derives + loads the spec by runId", launchSpecForRun(root, runId2).agents[0].name === "scout");
+  throws("launchSpecForRun rejects an unsafe runId token", () => launchSpecForRun(root, "../evil"));
+  throws("launchSpecForRun rejects a missing run", () => launchSpecForRun(root, "nosuchrun"));
+
+  type LaunchReply = { ok: boolean; data?: Record<string, unknown>; error?: string };
+  const op = (a: Record<string, unknown>) =>
+    (mgr as unknown as { opLaunch(a: Record<string, unknown>, c: string): Promise<LaunchReply> }).opLaunch(a, "smoke-caller");
+  const reply = await op({ runId: runId2, name: "scout" });
+  check("opLaunch boots the resolved agent", reply.ok === true, reply.error);
+  // `scout` is already on the (fake) mesh from the startAgent test above, so it collision-numbers.
+  check("reply.name is the SPAWNED collision-numbered name (scout-2)", reply.ok && reply.data?.name === "scout-2", reply.ok && reply.data?.name);
+  check("reply carries the manifest requested name", reply.ok && reply.data?.requested === "scout");
+  check("reply carries runId + resolved hash for the ledger", reply.ok && reply.data?.runId === runId2 && reply.data?.hash === "abc123");
+  check("reply carries the spawned nkey id", reply.ok && typeof reply.data?.id === "string" && (reply.data.id as string).length > 0);
+  check("creds are filed under the SPAWNED name (ledger-keying invariant)", existsSync(join(root, ".cotal", "auth", "creds", "scout-2.creds")));
+  // The cred file's OWN nkey subject equals the reply id — the invariant `down -f` relies on to
+  // verify a cred belongs to the recorded agent before deleting it (name+id ownership).
+  {
+    const credText = readFileSync(join(root, ".cotal", "auth", "creds", "scout-2.creds"), "utf8");
+    const jwt = credText.split("\n").find((l) => l && !l.startsWith("-") && l.split(".").length === 3)!;
+    const sub = JSON.parse(Buffer.from(jwt.split(".")[1], "base64url").toString("utf8")).sub;
+    check("minted cred's JWT subject == the reply id (down -f cred-ownership check)", reply.ok && sub === reply.data?.id, { sub, id: reply.ok && reply.data?.id });
+  }
+  const bad = await op({ runId: runId2, name: "ghost" });
+  check("opLaunch rejects an unknown agent name", bad.ok === false);
 }
 
 // --- symlinked parent dir refused (writes can't escape the run tree) ----------------------------
@@ -133,6 +179,13 @@ function writeSpec(name: string, body: unknown): string {
   mkdirSync(join(root2, ".cotal"));
   symlinkSync(external, join(root2, ".cotal", "run")); // .cotal/run → outside the workspace
   throws("materialize refuses a symlinked .cotal/run parent", () => materializePersona(root2, "run01", { ...resolved, name: "x" }));
+  throws("launchSpecForRun refuses a symlinked .cotal/run parent", () => launchSpecForRun(root2, "run01"));
+
+  // Belt-and-suspenders (review-fact): a symlinked <runId> dir is refused too (same per-component lstat).
+  const root3 = mkdtempSync(join(tmpdir(), "cotal-launch-sym2-"));
+  mkdirSync(join(root3, ".cotal", "run", "agents"), { recursive: true });
+  symlinkSync(mkdtempSync(join(tmpdir(), "cotal-launch-ext2-")), join(root3, ".cotal", "run", "rid"));
+  throws("materialize refuses a symlinked .cotal/run/<runId> dir", () => materializePersona(root3, "rid", { ...resolved, name: "y" }));
 }
 
 console.log(`\nMANIFEST-LAUNCH SMOKE ${failures === 0 ? "OK ✅" : "FAILED ❌"}`);

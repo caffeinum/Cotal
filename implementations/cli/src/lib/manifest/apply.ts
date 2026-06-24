@@ -4,12 +4,13 @@
  * `supervise --launch`), and the connector-availability preflight. No broker lifecycle here (that's
  * the command), so this stays reusable across both verbs.
  */
-import { accessSync, constants, writeFileSync } from "node:fs";
+import { accessSync, constants, renameSync, writeFileSync } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import { join, delimiter } from "node:path";
-import { ensureDirNoSymlink, registry, type ChannelRegistryFile, type Connector, type MeshLaunchAgent, type MeshLaunchSpec } from "@cotal-ai/core";
+import { ensureDirNoSymlink, registry, type ChannelConfig, type ChannelRegistryFile, type Connector, type MeshLaunchAgent, type MeshLaunchSpec } from "@cotal-ai/core";
 import type { PreparedManifest } from "./preflight.js";
 import type { PreparedAgent } from "./prepare.js";
+import type { ResolvedChannel } from "./model.js";
 
 /** A path-safe run id naming the transient `.cotal/run/<runId>/` dir and tying to the ledger. */
 export function genRunId(): string {
@@ -61,29 +62,50 @@ export function buildLaunchSpec(prepared: PreparedManifest, runId: string): Mesh
 }
 
 /** Write the launch spec to `<root>/.cotal/run/<runId>.json` (0600 — it carries persona text +
- *  policy) and return its path. */
-export function writeLaunchSpec(root: string, spec: MeshLaunchSpec): string {
-  // 0700 run dir, refusing a symlinked `.cotal`/`run` parent (so the spec can't be written outside
-  // the workspace tree); `wx` guards the final file (runId is random).
+ *  policy) and return its path. A fresh run is exclusive-create (`wx`); a `spawn -f` re-apply reuses
+ *  the runId, so `update` rewrites it atomically (temp-then-rename, exclusive temp — never follows a
+ *  pre-planted symlink). Both refuse a symlinked `.cotal`/`run` parent. */
+export function writeLaunchSpec(root: string, spec: MeshLaunchSpec, opts: { update?: boolean } = {}): string {
   const dir = ensureDirNoSymlink(root, ".cotal", "run");
   const path = join(dir, `${spec.runId}.json`);
-  writeFileSync(path, JSON.stringify(spec, null, 2), { mode: 0o600, flag: "wx" });
+  const body = JSON.stringify(spec, null, 2);
+  if (opts.update) {
+    const tmp = join(dir, `.${spec.runId}.${randomBytes(4).toString("hex")}.tmp`);
+    writeFileSync(tmp, body, { mode: 0o600, flag: "wx" });
+    renameSync(tmp, path);
+  } else {
+    writeFileSync(path, body, { mode: 0o600, flag: "wx" });
+  }
   return path;
 }
 
-/** The channel-registry seed (defaults + per-channel cards) — the manifest's channels in the shape
- *  `seedChannelRegistry` writes. Oversize description/instructions are rejected at the write path. */
+/** A channel's registry card (description/instructions/replay…) in the shape `seedChannelRegistry`
+ *  writes. Oversize description/instructions are rejected at the write path. */
+function cardOf(ch: ResolvedChannel): ChannelConfig {
+  return {
+    ...(ch.description !== undefined ? { description: ch.description } : {}),
+    ...(ch.instructions !== undefined ? { instructions: ch.instructions } : {}),
+    ...(ch.replay !== undefined ? { replay: ch.replay } : {}),
+    ...(ch.replayWindow !== undefined ? { replayWindow: ch.replayWindow } : {}),
+    ...(ch.deliveryClass !== undefined ? { deliveryClass: ch.deliveryClass } : {}),
+  };
+}
+
+/** The channel-registry seed (defaults + every per-channel card) — used by `up -f`, which owns the
+ *  whole space. */
 export function manifestToChannels(prepared: PreparedManifest): ChannelRegistryFile {
-  const channels: ChannelRegistryFile["channels"] = {};
-  for (const ch of prepared.manifest.channels)
-    channels[ch.name] = {
-      ...(ch.description !== undefined ? { description: ch.description } : {}),
-      ...(ch.instructions !== undefined ? { instructions: ch.instructions } : {}),
-      ...(ch.replay !== undefined ? { replay: ch.replay } : {}),
-      ...(ch.replayWindow !== undefined ? { replayWindow: ch.replayWindow } : {}),
-      ...(ch.deliveryClass !== undefined ? { deliveryClass: ch.deliveryClass } : {}),
-    };
+  const channels: Record<string, ChannelConfig> = {};
+  for (const ch of prepared.manifest.channels) channels[ch.name] = cardOf(ch);
   return { ...(prepared.manifest.defaults ? { defaults: prepared.manifest.defaults } : {}), channels };
+}
+
+/** A seed of ONLY the given channels and NO defaults — for `spawn -f`, which seeds the brand-new
+ *  keys it creates onto a shared mesh and must never rewrite the mesh-wide defaults or a pre-existing
+ *  (unmanaged) card. */
+export function channelsSeed(channels: ResolvedChannel[]): ChannelRegistryFile {
+  const out: Record<string, ChannelConfig> = {};
+  for (const ch of channels) out[ch.name] = cardOf(ch);
+  return { channels: out };
 }
 
 /** Preflight the connectors: every distinct connector type must be registered and have its required
