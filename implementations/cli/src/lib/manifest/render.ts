@@ -58,6 +58,21 @@ export function renderTopology(p: PreparedManifest): string {
   return out.join("\n");
 }
 
+/** The `cotal up -f --dry-run` plan: a fresh mesh creates everything, so the grouping is simply
+ *  "will create" — broker + channels + agents — followed by the full access view. Mutates nothing. */
+export function renderUpPlan(p: PreparedManifest, server: string): string {
+  const m = p.manifest;
+  const head = [
+    c.bold("Plan — cotal up -f (fresh mesh)"),
+    c.bold("Will create:"),
+    `  ${c.green("+")} broker + space ${c.cyan(`"${m.space}"`)} at ${server}`,
+    `  ${c.green("+")} ${m.channels.length} channel(s): ${m.channels.map((ch) => c.cyan("#" + ch.name)).join(", ")}`,
+    `  ${c.green("+")} ${p.agents.length} agent(s): ${p.agents.map((a) => a.name).join(", ")}`,
+    "",
+  ].join("\n");
+  return `${head}${renderTopology(p)}\n\n${c.dim("Dry run — nothing was changed. Re-run without --dry-run to apply.")}`;
+}
+
 /** The loud "persona grants outside manifest channels" section — unmanaged credential scopes that
  *  an old persona ref drags in under `personaPermissions: include`. Returns "" when there are none. */
 export function renderInherited(p: PreparedManifest): string {

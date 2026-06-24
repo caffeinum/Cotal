@@ -76,7 +76,9 @@ export const MeshManifestSchema = z.strictObject({
   /** Default connector for agents that don't set their own `agent:`. */
   agent: z.string().min(1).optional(),
   personaPermissions: PersonaPermissions.optional(),
-  agents: z.record(z.string().min(1), AgentEntry),
+  // `agents` is optional — a channels-first manifest can seed the rooms now and add agents later.
+  // A channel that references an undeclared name is still a hard error (in resolve.ts).
+  agents: z.record(z.string().min(1), AgentEntry).optional(),
   defaults: Defaults.optional(),
   channels: z.record(z.string().min(1), ChannelEntry),
 });

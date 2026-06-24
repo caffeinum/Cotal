@@ -68,7 +68,7 @@ export function resolveManifest(src: string, sourcePath: string): ResolvedManife
   const issues: ManifestIssue[] = [];
   const add = (message: string, path?: (string | number)[]) => issues.push({ message, path, ...locate(path) });
 
-  const agentNames = new Set(Object.keys(raw.agents));
+  const agentNames = new Set(Object.keys(raw.agents ?? {}));
   for (const name of agentNames)
     try {
       assertValidName(name);
@@ -160,7 +160,7 @@ function resolveAgents(
 
   // After schema preprocessing every entry is the object form (a bare string was normalized to
   // `{ persona }`), so there's a single shape to read here.
-  return Object.entries(raw.agents).map(([name, entry]) => ({
+  return Object.entries(raw.agents ?? {}).map(([name, entry]) => ({
     name,
     agentType: connector(name, entry.agent),
     persona: entry.persona ? personaPath(entry.persona) : undefined,

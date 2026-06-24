@@ -41,7 +41,7 @@ const baseCommands: Command[] = [
     kind: "command",
     name: "up",
     group: "Mesh",
-    summary: "start a local nats-server (JetStream, JWT auth by default; --open for an unauthenticated dev mesh)",
+    summary: "start a local nats-server (JetStream, JWT auth by default; --open for an unauthenticated dev mesh) — or `-f <cotal.yaml>` to launch a whole mesh from a manifest [--dry-run]",
     run: up,
   },
   {

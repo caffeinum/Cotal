@@ -20,6 +20,7 @@ import {
 } from "@cotal-ai/core";
 import { Manager } from "./manager.js";
 import { loadRoster } from "./roster.js";
+import { loadLaunchSpec, materializePersona, launchAgentToStartOpts } from "./launch.js";
 import { type RuntimeMode } from "./runtime/index.js";
 import { attachClient } from "./attach-client.js";
 import { c } from "./ui.js";
@@ -52,6 +53,7 @@ function parse(argv: string[]): Values {
       transcript: { type: "boolean" },
       "no-transcript": { type: "boolean" },
       spawn: { type: "string" }, // comma-separated agent names to pre-spawn at startup
+      launch: { type: "string" }, // supervise: a resolved mesh-manifest launch spec (cotal up -f / spawn -f)
     },
   });
   // These commands are flags-only — reject stray positionals instead of silently ignoring them
@@ -238,9 +240,10 @@ async function runManager(argv: string[], defaultRuntime: RuntimeMode): Promise<
   }
   const space = spaceFor(v);
   const server = v.server ?? DEFAULT_SERVER;
-  // Parse the roster before touching the network — a malformed file should fail fast,
+  // Parse the roster + launch spec before touching the network — a malformed file should fail fast,
   // before the manager comes up or any agent is spawned.
   const roster = v.roster ? loadRoster(v.roster) : [];
+  const launchSpec = v.launch ? loadLaunchSpec(v.launch) : undefined;
   if (!(await isReachable(server))) {
     console.error(c.red(`Can't reach NATS at ${server}. Run: cotal up`));
     process.exit(1);
@@ -292,6 +295,33 @@ async function runManager(argv: string[], defaultRuntime: RuntimeMode): Promise<
       }
     }
   }
+  // Declarative manifest boot (`cotal up -f` / `spawn -f`): materialize each resolved agent's
+  // transient persona, then spawn it with its resolved ACLs/identity. Staggered like `--spawn` so
+  // heavy cold-starts don't pile up. A failed entry is logged, non-fatal — healthy agents stay up.
+  if (launchSpec) {
+    const root = findCotalRoot();
+    for (let i = 0; i < launchSpec.agents.length; i++) {
+      const la = launchSpec.agents[i];
+      let configPath: string;
+      try {
+        configPath = materializePersona(root, launchSpec.runId, la);
+      } catch (e) {
+        console.error(c.red(`✗ ${la.name}: ${(e as Error).message}`));
+        continue;
+      }
+      const reply = await mgr.startAgent(launchAgentToStartOpts(la, configPath));
+      if (!reply.ok) {
+        console.error(c.red(`✗ ${la.name}: ${reply.error}`));
+        continue;
+      }
+      const spawned = (reply.data as { name?: string } | undefined)?.name ?? la.name;
+      console.log(c.green(`✓ launched ${spawned}`) + c.dim(` (${la.agent})`));
+      if (i < launchSpec.agents.length - 1) {
+        const joined = await mgr.waitForPresence(spawned);
+        console.log(c.dim(joined ? `  ${spawned} joined; starting next` : `  ${spawned} still starting; continuing`));
+      }
+    }
+  }
   await new Promise<void>(() => {});
 }
 
@@ -304,7 +334,7 @@ const managerCommands: Command[] = [
     name: "supervise",
     group: "Manager",
     summary:
-      "run a manager — [--runtime <pty|tmux|cmux>] (default auto-detect; cmux gives each teammate its own cmux tab) [--space <s>] [--server <url>] [--console-port <n>] [--roster <file>]",
+      "run a manager — [--runtime <pty|tmux|cmux>] (default auto-detect; cmux gives each teammate its own cmux tab) [--space <s>] [--server <url>] [--console-port <n>] [--roster <file>] [--launch <spec>]",
     run: (argv) => runManager(argv, "auto"),
   },
   {
