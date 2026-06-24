@@ -1,16 +1,24 @@
 implementations/manager/src/commands.ts
   s_738283b8830ace::t_3f63e9e0b8ac2e 55
   s_738283b8830ace::t_3599c0345065d7 144
+  s_738283b8830ace::t_a1f96369ff4f31 317
 .changeset/per-agent-cwd.md
   s_738283b8830ace::t_1a101da68e23f4 1-18
 extensions/connector-core/src/tool-specs.ts
   s_738283b8830ace::t_820fbbcdb4a4b7 490-495
+  s_738283b8830ace::t_f1a7941e2ccd64 497,499
 implementations/manager/src/manager.ts
   s_738283b8830ace::t_d608625a643feb 96-99
+  s_738283b8830ace::t_8f2e1681f2b66b 485-488,500,502
+  s_738283b8830ace::t_19d74608b2c90f 2
+  s_738283b8830ace::t_43bcef71387896 376
 implementations/manager/src/roster.ts
   s_738283b8830ace::t_0f6738bdce1c51 40
+  s_738283b8830ace::t_29034ee530b894 16-18
 packages/core/src/connector.ts
   s_738283b8830ace::t_61b3af4af922cd 39-42
+extensions/connector-core/src/agent.ts
+  s_738283b8830ace::t_b8a153639921eb 492-494,496,500
 ---
 {
   "schema_version": "authorship/3.0.0",
