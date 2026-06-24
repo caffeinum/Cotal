@@ -56,9 +56,12 @@ cotal web --space demo-team            # ...or watch the live mesh in the browse
 cotal down                             # stop the whole mesh
 ```
 
-> If you already have a Cotal mesh running on the default address (e.g. from `cotal setup`),
-> `up -f` **refuses** — it never re-seeds a live broker. Run `cotal down` first, give the
-> manifest its own `broker` host/port, or use `cotal spawn -f` to deploy onto the running mesh.
+> If a Cotal mesh is already running at the manifest's broker address (e.g. the default
+> `127.0.0.1:4222` from `cotal setup`), `up -f` **refuses** — it never re-seeds a live broker.
+> The check is on the *address*, not the `space:` name, so a different space won't dodge it. Run
+> `cotal down` first, point the manifest at another address
+> (`broker: { servers: nats://127.0.0.1:14999 }`, or the `--server` / `--host` override), or use
+> `cotal spawn -f` to deploy onto the running mesh.
 
 **What that grants.** `topology view -f` inverts the channel lists into per-agent access:
 
@@ -214,7 +217,8 @@ it before deleting anything:
 - An owned agent is stopped only when the live agent's recorded **name *and* id** match (a
   same-name, different-id agent is foreign and left alone).
 - Credential files are derived from the auth root and deleted without following symlinks.
-- An owned channel is removed only when no other members remain.
+- An owned channel is removed only when no other members remain (on an auth mesh; an open mesh
+  has no membership feed, so the owned card is simply removed).
 - If the broker is unreachable or anything is uncertain, nothing remote is removed and the ledger
   is **retained** so a later `cotal down -f <file> --run <id>` finishes the job.
 - `down -f` is local-only — run it from the same checkout that created the run.

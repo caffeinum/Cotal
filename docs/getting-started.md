@@ -107,9 +107,10 @@ cotal down                           # tear it down
 ```
 
 If setup already started the default mesh, `cotal up -f` will refuse a second one on the same
-address — run `cotal down` first, give the manifest its own broker port, or use
-`cotal spawn -f cotal.yaml` to deploy the team onto the running mesh (and
-`cotal down -f cotal.yaml` to remove just what that deploy created). See
+address — run `cotal down` first, point the manifest at another address (e.g.
+`broker: { servers: nats://127.0.0.1:14999 }`), or use `cotal spawn -f cotal.yaml` to deploy the
+team onto the running mesh (and `cotal down -f cotal.yaml` to remove just what that deploy
+created). See
 **[manifest.md](manifest.md)** for the file format and the full lifecycle.
 
 ## For agents and CI
