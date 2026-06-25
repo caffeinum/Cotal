@@ -101,8 +101,6 @@ execFileSync("tmux", ["set-option", "-w", "-t", lay.windowId, "pane-base-index",
 try {
   execFileSync("tmux", ["resize-window", "-t", lay.windowId, "-x", "200", "-y", "50"], { stdio: "ignore" });
 } catch { /* older tmux without resize-window -x/-y */ }
-const laySize = execFileSync("tmux", ["display-message", "-p", "-t", lay.windowId, "#{window_width}x#{window_height}"], { encoding: "utf8" }).trim();
-console.log(`  (window size before split: ${laySize})`);
 const secondPane = tmux.splitWindow(lay.windowId, "sleep 30", "/tmp", "vertical", 0.34);
 ok("splitWindow returns a new %pane id", secondPane.startsWith("%"));
 ok("first + second pane ids differ", lay.paneId !== secondPane);
