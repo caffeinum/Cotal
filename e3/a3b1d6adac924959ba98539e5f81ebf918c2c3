@@ -1,0 +1,38 @@
+implementations/manager/src/commands.ts
+  s_738283b8830ace::t_3f63e9e0b8ac2e 140
+  s_738283b8830ace::t_3599c0345065d7 212
+  s_738283b8830ace::t_a1f96369ff4f31 416
+.changeset/per-agent-cwd.md
+  s_738283b8830ace::t_1a101da68e23f4 1-18
+extensions/connector-core/src/tool-specs.ts
+  s_738283b8830ace::t_820fbbcdb4a4b7 490-495
+  s_738283b8830ace::t_f1a7941e2ccd64 497,499
+implementations/manager/src/manager.ts
+  s_738283b8830ace::t_d608625a643feb 102-105
+  s_738283b8830ace::t_8f2e1681f2b66b 555-558,570,572
+  s_738283b8830ace::t_19d74608b2c90f 2
+  s_738283b8830ace::t_43bcef71387896 390
+implementations/manager/src/roster.ts
+  s_738283b8830ace::t_0f6738bdce1c51 40
+  s_738283b8830ace::t_29034ee530b894 16-18
+packages/core/src/connector.ts
+  s_738283b8830ace::t_61b3af4af922cd 39-42
+extensions/connector-core/src/agent.ts
+  s_738283b8830ace::t_b8a153639921eb 492-494,496,500
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.8",
+  "base_commit_sha": "e3a3b1d6adac924959ba98539e5f81ebf918c2c3",
+  "prompts": {},
+  "sessions": {
+    "s_738283b8830ace": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "993b92e7-a931-4755-86de-c7a57281e828",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
