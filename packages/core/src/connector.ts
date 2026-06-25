@@ -14,6 +14,16 @@ export interface LaunchOpts {
    *  as `id`; absent when the mesh runs open. */
   creds?: string;
   servers?: string;
+  /** The agent's resolved access policy — the SAME read/post set the manager mints the agent's
+   *  creds from. The connector forwards it (`COTAL_SUBSCRIBE` / `COTAL_ALLOW_SUBSCRIBE` /
+   *  `COTAL_ALLOW_PUBLISH`) so the session's runtime read set matches its credentials. Essential
+   *  for manifest spawns, whose materialized persona carries NO access frontmatter: without it the
+   *  connector falls back to `["general"]`, which the scoped creds deny — so the agent joins
+   *  nothing. Empty/absent lists are omitted (the connector then defers to the persona file or the
+   *  `general` baseline — the no-channel case). */
+  subscribe?: string[];
+  allowSubscribe?: string[];
+  allowPublish?: string[];
   /** Path to an agent definition file (`.cotal/agents/<name>.md`). The connector
    *  passes it through (`COTAL_AGENT_FILE`) so the joined session reads its own
    *  card from it, and applies the file's persona/model at launch. */
