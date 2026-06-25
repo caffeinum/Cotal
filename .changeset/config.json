@@ -6,6 +6,7 @@
     [
       "cotal-ai",
       "@cotal-ai/core",
+      "@cotal-ai/workspace",
       "@cotal-ai/cli",
       "@cotal-ai/manager",
       "@cotal-ai/delivery",

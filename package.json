@@ -84,16 +84,16 @@
   "dependencies": {
     "@cotal-ai/cli": "workspace:*",
     "@cotal-ai/cmux": "workspace:*",
-    "@cotal-ai/tmux": "workspace:*",
     "@cotal-ai/connector-claude-code": "workspace:*",
     "@cotal-ai/connector-hermes": "workspace:*",
     "@cotal-ai/connector-opencode": "workspace:*",
     "@cotal-ai/core": "workspace:*",
-    "@cotal-ai/manager": "workspace:*"
+    "@cotal-ai/manager": "workspace:*",
+    "@cotal-ai/tmux": "workspace:*"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
-    "@types/node": "^22.19.21",
+    "@types/node": "^22.20.0",
     "ts-json-schema-generator": "^2.9.0",
     "tsx": "^4.22.4",
     "typescript": "^5.9.3"

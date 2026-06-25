@@ -239,7 +239,7 @@ claude --strict-mcp-config --mcp-config '{"mcpServers":{"cotal":{"command":"node
   `cotal-mesh` in both, and the channel ref depends on it. `cotal setup` is two-tier: the
   first run (no `~/.cotal/onboarded.json` marker) does this install as a narrated step; later
   runs just verify it in the compact status. The plugin install is local-scope, so the
-  enablement lives in the working dir's `.claude/settings.local.json`. See
+  two keys it writes land in the working dir's `.claude/settings.local.json` — `enabledPlugins` (`"cotal@cotal-mesh": true`, turns the plugin on) and `extraKnownMarketplaces` (`"cotal-mesh"`, points at the materialized marketplace dir: `~/.cotal/claude-plugin/` after `cotal setup`, the repo root in a clone); the marketplace pointer may instead sit in user-global `~/.claude/settings.json`. See
   [setup-internals.md](setup-internals.md) for the full flow and the invariants that keep
   this install working.
 - **Bundled.** The MCP server and hooks are esbuild-bundled to `dist/*.cjs` and run with
