@@ -14,10 +14,8 @@ import "@cotal-ai/tmux";
 ```
 
 **Migration:** the built-in `tmux` manager runtime is removed — `tmux` is now resolved from the
-`@cotal-ai/tmux` extension, like `cmux`. An explicit `--runtime tmux` (or `--runtime cmux`) with
-the matching extension not imported fails loud with a clear `"import @cotal-ai/<runtime>"` error —
-no silent fallback. The default `auto` mode stays safe for manager-only composition roots: it
-selects tmux only when running inside `$TMUX` **and** `@cotal-ai/tmux` is imported + available,
-otherwise pty (so a root that doesn't import the extension no longer breaks inside tmux). To run
-examples under tmux, import `@cotal-ai/tmux` in the composition root and pass `--runtime tmux` to
-`cotal supervise`.
+`@cotal-ai/tmux` extension, exactly like `cmux`. The default `auto` mode is deterministic `pty`;
+tmux and cmux are never auto-selected. Choose them explicitly with `--runtime tmux`/`cmux`, which
+fails loud with a clear `"import @cotal-ai/<runtime>"` error if the matching extension isn't
+imported — no silent fallback to pty. To run examples under tmux, import `@cotal-ai/tmux` in the
+composition root and pass `--runtime tmux` to `cotal supervise`.

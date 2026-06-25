@@ -47,7 +47,7 @@ function parse(argv: string[]): Values {
       model: { type: "string" }, // start: model override, wins over the agent file's `model:`
       roster: { type: "string" },
       creds: { type: "string" },
-      runtime: { type: "string" }, // supervise: force pty | tmux | cmux (default auto-detects)
+      runtime: { type: "string" }, // supervise: force pty | tmux | cmux (default pty)
       "console-port": { type: "string" },
       drive: { type: "boolean" },
       transcript: { type: "boolean" },
@@ -223,7 +223,7 @@ async function attach(argv: string[]): Promise<void> {
  *  `pty` ships with the manager; `tmux` and `cmux` need their integration imported by
  *  the composition root (the `cotal` binary does). Stays alive until SIGINT/SIGTERM. */
 // `--runtime` forces the manager runtime; honored only on the `supervise` path (default
-// auto-detect). `cmux` gives each teammate its own cmux tab — `cotal supervise --runtime cmux` is
+// pty). `cmux` gives each teammate its own cmux tab — `cotal supervise --runtime cmux` is
 // the cmux-tab manager. The session machinery launches it with `--runtime cmux --space <space>`
 // contiguous, which is what `cmuxManagerRunning` pgreps for.
 const RUNTIME_OVERRIDES: readonly RuntimeMode[] = ["pty", "tmux", "cmux"];
@@ -334,7 +334,7 @@ const managerCommands: Command[] = [
     name: "supervise",
     group: "Manager",
     summary:
-      "run a manager — [--runtime <pty|tmux|cmux>] (default auto-detect; cmux gives each teammate its own cmux tab) [--space <s>] [--server <url>] [--console-port <n>] [--roster <file>] [--launch <spec>]",
+      "run a manager — [--runtime <pty|tmux|cmux>] (default pty; tmux/cmux are explicit-only, each teammate in its own window/tab) [--space <s>] [--server <url>] [--console-port <n>] [--roster <file>] [--launch <spec>]",
     run: (argv) => runManager(argv, "auto"),
   },
   {

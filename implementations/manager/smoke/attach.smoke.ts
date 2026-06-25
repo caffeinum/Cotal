@@ -46,6 +46,18 @@ const cwd = process.cwd();
   h.stop({ graceful: false });
 }
 
+// Runtime-selection contract (no fallbacks): `auto` is deterministic pty — even inside $TMUX. tmux
+// and cmux are explicit-only, so being in a tmux session must NOT auto-select tmux.
+{
+  const prevTmux = process.env.TMUX;
+  delete process.env.TMUX;
+  check("auto resolves to pty (no $TMUX)", createRuntime("auto", SESSION).kind === "pty");
+  process.env.TMUX = "/tmp/fake-tmux-socket";
+  check("auto resolves to pty even inside $TMUX (no auto-detect, no fallback)", createRuntime("auto", SESSION).kind === "pty");
+  if (prevTmux === undefined) delete process.env.TMUX;
+  else process.env.TMUX = prevTmux;
+}
+
 // tmux — watched natively: attach() points you at `tmux attach -t <session>:<name>`.
 {
   let rt: ReturnType<typeof createRuntime> | null = null;
