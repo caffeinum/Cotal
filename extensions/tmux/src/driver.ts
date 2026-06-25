@@ -122,7 +122,9 @@ export function splitWindow(
 ): string {
   const args = ["split-window", "-t", target, "-c", cwd];
   if (direction === "vertical") args.push("-h"); // side-by-side columns = tmux -h
-  if (ratio !== undefined) args.push("-p", String(Math.round((1 - ratio) * 100)));
+  // `-l <n>%` is the modern size syntax; the old `-p <n>` is deprecated and errors "size missing"
+  // on tmux 3.4. The new pane gets (1 - ratio); the first keeps `ratio`.
+  if (ratio !== undefined) args.push("-l", `${Math.round((1 - ratio) * 100)}%`);
   // -P -F prints the new pane's ID — use it as a stable target (pane indexes shift under
   // `pane-base-index` and renumber on close).
   args.push("-P", "-F", "#{pane_id}", command);
