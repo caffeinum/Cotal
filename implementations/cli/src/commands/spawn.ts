@@ -212,6 +212,13 @@ export async function spawn(argv: string[]): Promise<void> {
   // Open mode (no `.cotal/auth`): unchanged — the session connects without creds.
   let id: string | undefined;
   let credsPath: string | undefined;
+  // The agent's access policy (flags > persona file) — minted into the creds AND forwarded to the
+  // connector (COTAL_SUBSCRIBE / COTAL_ALLOW_*) so the session's runtime read/post set matches its
+  // credentials. One source, so a `--subscribe` override can't land in the creds yet be lost at
+  // runtime (the connector would otherwise read only the persona file / fall back to `general`).
+  const subscribe = splitFlag(values.subscribe) ?? def.subscribe;
+  const allowSubscribe = splitFlag(values["allow-subscribe"]) ?? def.allowSubscribe ?? subscribe;
+  const allowPublish = splitFlag(values["allow-publish"]) ?? def.allowPublish;
   if (auth) {
     const identity = newIdentity();
     const prov = new CotalEndpoint({
@@ -226,7 +233,6 @@ export async function spawn(argv: string[]): Promise<void> {
     });
     prov.on("error", (e: Error) => console.error(`! provisioner: ${e.message}`));
     await prov.start();
-    const subscribe = splitFlag(values.subscribe) ?? def.subscribe;
     // Direct foreground spawn is LIVE-ONLY: this short-lived provisioner is not a managing Plane-3 host,
     // and no long-lived manager knows this agent (it's in no manager's `agents` ledger), so a durable
     // boot membership could be neither authorized for reader delivery nor leaved via self-service. Skip
@@ -234,8 +240,8 @@ export async function spawn(argv: string[]): Promise<void> {
     // (`cotal start` / `cotal up`).
     const creds = await provisionAgent(prov, auth, identity, {
       subscribe,
-      allowSubscribe: splitFlag(values["allow-subscribe"]) ?? def.allowSubscribe ?? subscribe,
-      allowPublish: splitFlag(values["allow-publish"]) ?? def.allowPublish,
+      allowSubscribe,
+      allowPublish,
       role,
       capabilities: def.capabilities,
       durableMembership: false,
@@ -267,6 +273,9 @@ export async function spawn(argv: string[]): Promise<void> {
     creds: credsPath,
     servers: server,
     configPath: path,
+    subscribe,
+    allowSubscribe,
+    allowPublish,
     prompt: values.prompt,
     transcript,
     mcpServers,

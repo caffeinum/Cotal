@@ -556,6 +556,13 @@ export class Manager {
         servers: this.servers,
         configPath,
         model,
+        // The SAME access set the creds were minted from (above) — forwarded so the session's
+        // runtime read/post set matches its credentials. Without this a manifest-spawned agent
+        // (materialized persona has no access frontmatter) falls back to `["general"]`, which its
+        // scoped creds deny, and it joins nothing.
+        subscribe,
+        allowSubscribe,
+        allowPublish,
         transcript: opts.transcript,
         mcpServers,
       });
