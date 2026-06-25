@@ -24,7 +24,7 @@ const projectRoot = mkdtempSync(join(tmpdir(), "cotal-ps-resolve-root-"));
 process.env.COTAL_HOME = home;
 process.chdir(cwd); // a dir with no `.cotal` up-tree, so bare resolution falls through to the registry
 
-const { recordMesh, loadMeshes, probeConnect, DEFAULT_SERVER } = await import("@cotal-ai/core");
+const { recordMesh, loadMeshes, probeConnect, resolveMeshTarget, DEFAULT_SERVER } = await import("@cotal-ai/core");
 const { resolveManagerTarget } = await import("../src/commands.js");
 
 let pass = 0;
@@ -75,6 +75,14 @@ try {
   // 3. `--server` stays an explicit override (preflighted against the override broker).
   ok("--server overrides the registry", (await resolveManagerTarget({ space: "team-alpha", server: OVERRIDE })).server === OVERRIDE);
 
+  // 3b. B1 prune-authority: an explicit `--server` override of a registered `--space` is the operator's
+  //     endpoint, marked `flag-space-override` — so a probe failure there can NEVER prune the recorded
+  //     entry (a dead override must not delete a LIVE registered mesh). resolveMeshTarget is pure (no
+  //     probe/exit), so assert the source + survival directly against the still-live recorded mesh.
+  const ovTarget = resolveMeshTarget(cwd, { space: "team-alpha", server: "nats://127.0.0.1:19998" });
+  ok("--space + overriding --server → source flag-space-override (not registry-owned)", ovTarget.source === "flag-space-override", ovTarget.source);
+  ok("recorded team-alpha entry intact after override resolution", loadMeshes().some((m) => m.space === "team-alpha"), loadMeshes());
+
   // 4. Raw OPEN off-registry escape hatch (parity with connectOrExit): `--server` + an UNregistered
   //    `--space` → a bare connection, no registry lookup, no creds (reachability-checked live).
   const rawOpen = await resolveManagerTarget({ server: OVERRIDE, space: "not-registered" });
@@ -84,18 +92,23 @@ try {
     rawOpen,
   );
 
-  // 5. prune-on-death wired through the manager's resolve path: kill the recorded broker, then the
-  //    shared stale-prune (which `resolveManagerTarget` now runs before resolving) drops the entry.
-  kids[0]!.kill("SIGTERM");
+  // 5. Recovery path (the regression guard): kill team-alpha's RECORDED broker, then `--space` +
+  //    a live `--server` override still resolves — an explicit `--space` is NOT pre-pruned away, so
+  //    an operator can point a dead-recorded mesh at a replacement broker.
+  kids[0]!.kill("SIGTERM"); // team-alpha's recorded broker (:14999)
   for (let i = 0; i < 50 && kids[0]!.exitCode === null && kids[0]!.signalCode === null; i++) await sleep(100);
   const dead = await probeConnect(OTHER, { timeoutMs: 800 });
-  ok("killed broker → unreachable", !dead.ok && dead.reason === "unreachable", dead);
-  // A second registered mesh stays live so the bare resolver doesn't error after the dead one prunes;
-  // resolveManagerTarget({space:team-alpha}) would now exit(1) (correct), so drive the prune via the
-  // override broker as the survivor and assert the dead entry is gone.
+  ok("recorded broker is now dead", !dead.ok && dead.reason === "unreachable", dead);
+  const recovered = await resolveManagerTarget({ space: "team-alpha", server: OVERRIDE });
+  ok("--space (dead recorded) + live --server override resolves (recovery path)", recovered.server === OVERRIDE, recovered);
+  ok("recovery did NOT pre-prune the named --space entry", loadMeshes().some((m) => m.space === "team-alpha"), loadMeshes());
+
+  // 6. Bare resolution DOES run the global sweep: with a live survivor registered, a bare (no-flags)
+  //    resolve prunes the dead team-alpha and returns the survivor.
   recordMesh({ space: "survivor", server: OVERRIDE, root: projectRoot, mode: "open", ts });
-  await resolveManagerTarget({ space: "survivor" }); // its preflight runs the prune sweep
-  ok("dead recorded entry is pruned through the manager resolve path", !loadMeshes().some((m) => m.space === "team-alpha"), loadMeshes());
+  const bareAfter = await resolveManagerTarget({});
+  ok("bare resolve prunes the dead entry (global sweep)", !loadMeshes().some((m) => m.space === "team-alpha"), loadMeshes());
+  ok("bare resolve returns the surviving live mesh", bareAfter.server === OVERRIDE, bareAfter);
 
   console.log(`\nmanager server-resolution live e2e: ${pass} checks passed`);
 } finally {

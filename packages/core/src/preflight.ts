@@ -26,14 +26,18 @@ export type PreflightFailure =
   | "open-wants-auth";
 
 /** Pure decision tree — separated from I/O so the whole branch tree is unit-testable (it's the
- *  riskiest logic: a wrong branch prunes a LIVE registry entry). A non-registry source
- *  (`flag-server`/`local-space`, or a raw `--creds` connection) is NEVER pruned; the user owns that
- *  diagnosis. */
+ *  riskiest logic: a wrong branch prunes a LIVE registry entry). Only a registry-OWNED source
+ *  (`registry`/`current`/`flag-space`/`local-recorded`) is ever pruned. A non-registry source —
+ *  `flag-server`/`local-space`, a raw `--creds` connection, or `flag-space-override` (a `--space`
+ *  whose `--server` overrides the recorded broker) — is NEVER pruned: the probed endpoint is
+ *  operator-supplied, so a failure there is the user's to diagnose, not a stale-registry signal. */
 export function classifyPreflightFailure(
   source: MeshTarget["source"],
   reason: "auth-required" | "unreachable",
   hasAuth: boolean,
 ): { prune: boolean; kind: PreflightFailure } {
+  // `flag-space-override` and `flag-server` are deliberately absent: the probe hit an operator-named
+  // endpoint, not the registry-recorded broker, so its failure must not delete the recorded entry.
   const fromRegistry =
     source === "registry" ||
     source === "current" ||

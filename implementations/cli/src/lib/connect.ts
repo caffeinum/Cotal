@@ -110,12 +110,15 @@ export async function reachableOrExit(server: string, auth: RawAuth = {}): Promi
 
 /** Resolve the mesh a command targets, exiting with one human sentence on an unresolved/ambiguous
  *  registry rather than a stack trace. Prunes dead registry entries first so a crashed mesh doesn't
- *  block a bare command or get offered by `--space`. */
+ *  block a bare command or appear in the "pick one" list — but ONLY when resolving without an
+ *  explicit `--space`. A named `--space` is resolved + preflighted directly, so pre-pruning can't
+ *  erase a dead-recorded mesh the operator is recovering with a live `--server` override; preflight
+ *  still prunes it (with the friendly message) when no override revives it. */
 export async function resolveTargetOrExit(flags: {
   server?: string;
   space?: string;
 }): Promise<MeshTarget> {
-  await pruneStaleMeshes();
+  if (!flags.space) await pruneStaleMeshes();
   let target: MeshTarget;
   try {
     target = resolveMeshTarget(process.cwd(), flags);

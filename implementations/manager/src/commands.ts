@@ -79,7 +79,9 @@ async function preflightOrExit(target: MeshTarget, probeCreds?: string): Promise
  *       the RESOLVED mesh's own recorded root (so `--space other` loads other's auth, guarded by
  *       `targetFromEntry`'s `auth.space === m.space` check), or none for an open mesh.
  *  Shares core's `preflightTarget`/`pruneStaleMeshes` with the CLI, so a dead/mismatched entry gets
- *  the same one-sentence message + stale-prune the rest of the CLI gives — not a raw NATS trace.
+ *  the same one-sentence message + stale-prune the rest of the CLI gives — not a raw NATS trace. The
+ *  pre-resolution sweep runs only for bare / `--server`-only resolution; an explicit `--space` is
+ *  resolved + preflighted directly (so a `--server` override can recover a dead-recorded mesh).
  *  `ask()` can therefore trust the target is reachable + auth-valid. */
 export async function resolveManagerTarget(v: Values): Promise<{ space: string; server: string; creds?: string }> {
   if (v.creds) {
@@ -96,7 +98,12 @@ export async function resolveManagerTarget(v: Values): Promise<{ space: string; 
     await reachableOrExit(v.server, {});
     return { space: v.space, server: v.server, creds: undefined };
   }
-  await pruneStaleMeshes();
+  // Sweep dead entries before resolving ONLY when we must CHOOSE one (bare / `--server`-only). An
+  // explicit `--space` names its target, so pre-pruning would erase a dead-recorded mesh that the
+  // operator is recovering with a live `--server` override — resolve it and let preflight verify +
+  // prune-on-dead (with the friendly message), honoring the override. Without `--space`, a dead
+  // entry must not be offered, so the sweep stays.
+  if (!v.space) await pruneStaleMeshes();
   let target: MeshTarget;
   try {
     target = resolveMeshTarget(process.cwd(), { server: v.server, space: v.space });
