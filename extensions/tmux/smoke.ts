@@ -54,6 +54,10 @@ ok("available() returns true", tmux.available());
 
 console.log(`\n── session: ${SESSION} ──────────────────────────`);
 tmux.ensureSession(SESSION, "/tmp");
+// This throwaway session is never attached. `window-size manual` makes tmux honor the session's
+// explicit -x/-y size with no client, so headless `split-window` doesn't fail "size missing" on CI.
+// (Production per-space sessions keep the default `latest` so they resize to the user on attach.)
+execFileSync("tmux", ["set-option", "-t", SESSION, "window-size", "manual"], { stdio: "ignore" });
 ok("ensureSession creates session", true);
 
 // openWindow returns stable IDs (window @N + initial pane %N), not session:name
