@@ -42,7 +42,7 @@ a new NATS client). The reviewer caught that a fixed 60-column render shoved the
 off-screen on narrow terminals; the fix sizes the bars from the available width
 (`tail={Math.floor(width/4)}`).
 
-## Run it on stage (cmux)
+## Run it on stage (cmux or tmux)
 From inside a cmux terminal:
 ```bash
 ./launch.sh --drive    # mesh + a workspace: live console on top, orchestrator below
@@ -50,6 +50,10 @@ From inside a cmux terminal:
 Give the orchestrator a goal (see [`GOAL.md`](./GOAL.md) for the format). It spawns the team
 into their own tabs, dispatches, and brings in a reviewer. Watch the swarm work through the old
 console, live.
+
+To run under **tmux** instead, import `@cotal-ai/tmux` in the composition root and pass
+`--runtime tmux` to `cotal supervise`. With neither extension imported, the manager throws a
+clear `"import @cotal-ai/<runtime>"` error — no silent fallback.
 
 ## Run it overnight (headless self-optimizing loop)
 `harness/run-once.sh <iter>` runs the whole swarm **headless** (PTY runtime, throwaway git

@@ -167,3 +167,19 @@ pnpm smoke
 
 Runs a non-interactive end-to-end check against a running mesh: two endpoints exchange a
 broadcast and a DM, observe a `working` state change, and detect `offline` on leave.
+
+## Runtime options
+
+The manager defaults to `pty`. To spawn agents into a **tmux window** or **cmux tab** instead,
+import the matching extension in the composition root and select it at launch:
+
+```bash
+# tmux — each agent gets its own window in the cotal session
+cotal supervise --runtime tmux   # requires: import "@cotal-ai/tmux" in the composition root
+
+# cmux — each agent gets its own tab
+cotal supervise --runtime cmux   # requires: import "@cotal-ai/cmux" in the composition root
+```
+
+With `--runtime tmux` or `--runtime cmux` and the matching package not imported, the manager
+throws a clear `"import @cotal-ai/<runtime>"` error — no silent fallback to pty.

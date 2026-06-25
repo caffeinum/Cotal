@@ -57,7 +57,7 @@ Under the hood it is the existing pieces, so you can also run them by hand:
 
 - `cotal setup` (one-time plugin install)
 - `cotal up --open`
-- `cotal supervise --runtime cmux --space <s>` (the manager daemon, each teammate in its own cmux tab; drop `--runtime` for the auto-detected pty/tmux runtime)
+- `cotal supervise --runtime cmux --space <s>` (the manager daemon, each teammate in its own cmux tab; drop `--runtime` for the default pty runtime)
 - `cotal spawn <name> --space <s>` (a foreground Claude on the mesh; a bare name with no
   agent file launches a personaless session)
 

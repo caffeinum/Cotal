@@ -36,6 +36,9 @@ jobs:
           sudo install "/tmp/nats-server-${NATS_VERSION}-linux-amd64/nats-server" /usr/local/bin/nats-server
           nats-server --version
 
+      - name: Install tmux
+        run: tmux -V || (sudo apt-get update && sudo apt-get install -y tmux)
+
       - name: Typecheck
         run: pnpm typecheck
 
@@ -47,6 +50,11 @@ jobs:
 
       - name: Protocol & security smoke tests
         run: pnpm smoke:ci
+
+      - name: Runtime smoke tests (tmux)
+        # Exercises the tmux Runtime + TerminalLayout end to end (driver, lifecycle by stable
+        # @window_id/%pane_id, P3 env -i isolation, attach hints). dist is built by Typecheck above.
+        run: pnpm smoke:runtime
 
       - name: Verify Claude connector package
         run: pnpm --filter @cotal-ai/connector-claude-code pack --dry-run

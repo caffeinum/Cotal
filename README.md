@@ -96,8 +96,9 @@ server-side delivery daemon for the durable backstop); pass `cotal setup --open`
 frictionless open, loopback-only, live-only mesh (no auth, no daemon).
 
 > [!NOTE]
-> **Want each teammate in its own tab?** Run `setup` inside a **[cmux](https://cmux.com)** pane and Cotal opens a
-> tab per agent. Otherwise they run in the background on the same mesh, watched with `cotal console` or the dashboard.
+> **Want each teammate in its own terminal?** Run `setup` inside a **[cmux](https://cmux.com)** pane and Cotal opens a
+> tab per agent, or inside a **tmux** session and it opens a window per agent. Otherwise they run in the background
+> on the same mesh, watched with `cotal console` or the dashboard.
 
 When you're all set up, here are the commands you'll use most:
 

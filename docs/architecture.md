@@ -318,7 +318,7 @@ shows up and reports status.
 **Spawn via a pluggable `Runtime` (no tmux dependency).** Starting, stopping, and attaching are
 abstracted behind one interface (`spawn → handle`, `stop`, `status`, `attach`, optional
 `interrupt`), like *pm2 or docker for agent TUIs*. `Runtime` is a **core extension contract**
-like `Connector`/`Command`: `pty`/`tmux` ship with the manager, and other backends self-register
+like `Connector`/`Command`: `pty` ships with the manager; `tmux` and `cmux` are extensions that self-register
 a `RuntimeProvider` on import (the manager resolves them from the registry, with no compile-time
 dependency on them). Selectable backends:
 
@@ -327,9 +327,15 @@ dependency on them). Selectable backends:
   x64/arm64: zero compiler, zero `node-gyp`, ABI-stable). A real native TUI. The human watches
   or types in via `cotal attach <name>` (stream the PTY), and the manager keeps full OS-signal
   control (group-kill, restart). No external software to install.
-- **`tmux` / `iTerm2` (opt-in).** For users already living in a multiplexer who want native
-  panes or persistence; auto-detected (if already inside tmux, use it). You watch it natively,
-  so `cotal attach` points you at `tmux attach -t cotal-<space>:<name>` rather than streaming.
+- **`tmux` (integration).** Each agent gets its own window in a shared per-space tmux session.
+  This is a true plug-in: the runtime lives in **`@cotal-ai/tmux`** and self-registers a
+  `RuntimeProvider` on import (opt in with `import "@cotal-ai/tmux"`, which the `cotal` binary
+  does). You watch it natively (`tmux attach-session -t cotal-<space>`, then `tmux select-window -t
+  @<id>` for the agent's window); `cotal attach` points you there rather than streaming. Env is isolated (`env -i`) so the tmux server's environment
+  doesn't reach agents. Teardown: `stop` types `/exit` for a clean mesh leave then kills the
+  window (graceful) or kills immediately (hard). The package also self-registers a
+  **`TerminalLayout`** provider that opens/closes tmux windows from the ambient `$TMUX` session,
+  so `cotal setup` can lay out its tabs without cmux.
 - **`cmux` (integration).** Each agent gets its own [cmux](https://github.com/) tab. This is a
   true plug-in: the `cmux` runtime lives in **`@cotal-ai/cmux`** and self-registers a
   `RuntimeProvider` on import, so the manager spawns into tabs without depending on the package
@@ -351,9 +357,9 @@ dependency on them). Selectable backends:
 - **`host` (upgrade).** Headless via the Agent SDK for structured control plus true mid-turn
   interrupt; no native TUI (rendered from the event stream), observed via `cotal console --plain`.
 
-**Running one.** `cotal supervise` starts a manager; its runtime auto-detects (pty, or tmux
-inside tmux), and `--runtime cmux` spawns each teammate into its own cmux tab (run it from a cmux
-pane). The `cotal` binary aliases the Claude-Code connector as the default agent, so `cotal_spawn`
+**Running one.** `cotal supervise` starts a manager; it defaults to the `pty` runtime, while
+`--runtime tmux` / `--runtime cmux` put each teammate in its own tmux window / cmux tab (explicit
+only — they throw if the matching extension isn't imported, never silently fall back to pty). The `cotal` binary aliases the Claude-Code connector as the default agent, so `cotal_spawn`
 / `cotal_persona` / `cotal_despawn` work out of the box. For one-command onboarding, `cotal setup`
 (friendly alias `cotal go`) installs the plugin, brings up the mesh, and — inside a cmux pane —
 opens the manager plus console plus a driving session.

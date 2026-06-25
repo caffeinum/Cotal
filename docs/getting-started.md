@@ -12,7 +12,7 @@ cotal                      # runs setup
 
 Prefer `npx`? `npx cotal-ai` works too. Setup then offers to install `cotal` globally
 (default yes) so you can just type `cotal`. Decline and the hints stay `npx cotal-ai …`;
-everything still works, because the cmux session and background processes invoke their own
+everything still works, because the cmux/tmux session and background processes invoke their own
 resolved path, not a global `cotal`.
 
 Requirements:
@@ -40,18 +40,18 @@ Requirements:
    The experts can help you set up and experiment, and hand off to each other.
 5. **Offers a demo.** A Claude you drive, with david and sven helping (manager-owned
    teammates you can `cotal_despawn`). Inside [cmux](https://github.com/) they get their own
-   tabs alongside your focused `cotal-main` pane. Otherwise david, sven, and the manager run
-   in the background, and your terminal is handed to the driving session. Either way the
-   demo needs **Claude Code**. Decline or lack it, and you get the `cotal · ready` card
-   instead.
+   tabs alongside your focused `cotal-main` pane; inside a **tmux** session they get their own
+   windows. Otherwise david, sven, and the manager run in the background, and your terminal is
+   handed to the driving session. Either way the demo needs **Claude Code**. Decline or lack
+   it, and you get the `cotal · ready` card instead.
 
 `cotal down` stops the mesh, web, and background manager. In cmux, also close the tabs or
-quit cmux.
+quit cmux; in tmux, close the windows or the session.
 
-**To reopen the session later,** run **`cotal go`** from inside cmux (or just `cotal setup`
-again). It reuses the live manager plus david and sven, and opens only what is missing, so
-there are no duplicate managers. `cotal go` is the friendly "open/resume" name; `cotal
-setup` is the same flow under its install/update name.
+**To reopen the session later,** run **`cotal go`** from inside cmux or a tmux session (or
+just `cotal setup` again). It reuses the live manager plus david and sven, and opens only
+what is missing, so there are no duplicate managers. `cotal go` is the friendly "open/resume"
+name; `cotal setup` is the same flow under its install/update name.
 
 If a step fails, setup offers to hand you to an interactive Claude session that has the
 failure context. Type `/exit` to return, and it retries.
