@@ -299,10 +299,11 @@
     ctx.setLineDash([]);
     // activity layer: traffic glow on top (members + transient non-member posts)
     ctx.globalCompositeOperation = "lighter";
-    for (const e of edges.values()) { const h = hubs.get(e.chan); if (!h || isHidden(h) || e.heat <= 0.02 || isHiddenMember(e)) continue; const lit = inFan(e, f); ctx.beginPath(); ctx.moveTo(e.a.x, e.a.y); ctx.lineTo(h.x, h.y); ctx.strokeStyle = rgba(MODE.chat, Math.min(0.55, e.heat * 0.55) * (lit ? 1 : 0.35)); ctx.lineWidth = 1 + e.heat * 1.6; ctx.stroke(); }
+    for (const e of edges.values()) { const h = hubs.get(e.chan); if (!filter.chat || !h || isHidden(h) || e.heat <= 0.02 || isHiddenMember(e)) continue; const lit = inFan(e, f); ctx.beginPath(); ctx.moveTo(e.a.x, e.a.y); ctx.lineTo(h.x, h.y); ctx.strokeStyle = rgba(MODE.chat, Math.min(0.55, e.heat * 0.55) * (lit ? 1 : 0.35)); ctx.lineWidth = 1 + e.heat * 1.6; ctx.stroke(); }
     ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1;
   }
   function drawDmEdges() {
+    if (!filter.unicast) return; // the `direct` chip filters DM traffic — including the persistent DM curves
     ctx.setLineDash([3, 4]);
     for (const d of dms.values()) {
       if (isHidden(d.a) || isHidden(d.b)) continue;
