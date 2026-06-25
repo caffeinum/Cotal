@@ -96,6 +96,13 @@ console.log("\n── layout: stable %pane ids under pane-base-index 1 ──");
 // option to THIS throwaway window (`-w`), never the user's global tmux server.
 const lay = tmux.openWindow(SESSION, "lay-win", "sleep 30", "/tmp", { focus: false });
 execFileSync("tmux", ["set-option", "-w", "-t", lay.windowId, "pane-base-index", "1"], { stdio: "ignore" });
+// Headless/CI: no client means split-window can't size the new pane ("size missing"). Force a
+// concrete window size first (window-size manual, set above, lets the resize stick).
+try {
+  execFileSync("tmux", ["resize-window", "-t", lay.windowId, "-x", "200", "-y", "50"], { stdio: "ignore" });
+} catch { /* older tmux without resize-window -x/-y */ }
+const laySize = execFileSync("tmux", ["display-message", "-p", "-t", lay.windowId, "#{window_width}x#{window_height}"], { encoding: "utf8" }).trim();
+console.log(`  (window size before split: ${laySize})`);
 const secondPane = tmux.splitWindow(lay.windowId, "sleep 30", "/tmp", "vertical", 0.34);
 ok("splitWindow returns a new %pane id", secondPane.startsWith("%"));
 ok("first + second pane ids differ", lay.paneId !== secondPane);
