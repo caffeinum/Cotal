@@ -189,7 +189,9 @@ export async function web(argv: string[]): Promise<void> {
 
     const file = PAGE[path];
     if (file) {
-      res.writeHead(200, { "content-type": file.type });
+      // no-cache: always revalidate so a `cotal` upgrade's new dashboard code is picked up on
+      // reload — a stale cached graph.js silently runs old behavior (e.g. pre-fix filters).
+      res.writeHead(200, { "content-type": file.type, "cache-control": "no-cache" });
       res.end(readFileSync(file.path));
       return;
     }
