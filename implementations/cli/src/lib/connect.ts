@@ -6,7 +6,11 @@ import {
   getCurrent,
   mintCreds,
   newIdentity,
+  preflightMessage,
+  preflightTarget,
   probeConnect,
+  pruneStaleMeshes,
+  reachableMessage,
   removeMesh,
   resolveMeshTarget,
   type MeshTarget,
@@ -14,7 +18,11 @@ import {
   type SpaceAuth,
 } from "@cotal-ai/core";
 import { c } from "../ui.js";
-import { pruneStaleMeshes } from "./meshes.js";
+
+// The preflight mechanics (probe → classify → message text + stale-prune) now live in
+// `@cotal-ai/core`, shared with the manager control commands. Re-exported here so existing importers
+// — and `connect.smoke.ts` — keep resolving them from this module unchanged.
+export { classifyPreflightFailure, type PreflightFailure } from "@cotal-ai/core";
 
 /**
  * The one way every command that touches a running mesh figures out WHICH mesh + with what creds,
@@ -96,24 +104,21 @@ export async function connectOrExit(flags: ConnectFlags, role: Profile): Promise
 export async function reachableOrExit(server: string, auth: RawAuth = {}): Promise<void> {
   const probe = await probeConnect(server, auth);
   if (probe.ok) return;
-  console.error(
-    c.red(
-      probe.reason === "auth-required"
-        ? `✗ credentials rejected at ${server} — check your creds, or the broker wants different auth`
-        : `✗ can't reach a broker at ${server} — is it running? (\`cotal up\`)`,
-    ),
-  );
+  console.error(c.red(reachableMessage(probe.reason, server)));
   process.exit(1);
 }
 
 /** Resolve the mesh a command targets, exiting with one human sentence on an unresolved/ambiguous
  *  registry rather than a stack trace. Prunes dead registry entries first so a crashed mesh doesn't
- *  block a bare command or get offered by `--space`. */
+ *  block a bare command or appear in the "pick one" list — but ONLY when resolving without an
+ *  explicit `--space`. A named `--space` is resolved + preflighted directly, so pre-pruning can't
+ *  erase a dead-recorded mesh the operator is recovering with a live `--server` override; preflight
+ *  still prunes it (with the friendly message) when no override revives it. */
 export async function resolveTargetOrExit(flags: {
   server?: string;
   space?: string;
 }): Promise<MeshTarget> {
-  await pruneStaleMeshes();
+  if (!flags.space) await pruneStaleMeshes();
   let target: MeshTarget;
   try {
     target = resolveMeshTarget(process.cwd(), flags);
@@ -130,63 +135,16 @@ export async function resolveTargetOrExit(flags: {
   return target;
 }
 
-/** The five distinct ways a preflight fails. Each also says whether the target OWNS its registry
- *  entry (→ prune): `fromRegistry` means the server+mode came from a registry record (incl. a
- *  `local-recorded` project matched by root), so a definitive failure is a stale-entry signal. */
-export type PreflightFailure =
-  | "unreachable"
-  | "registry-creds-rejected"
-  | "registry-open-now-auth"
-  | "creds-rejected"
-  | "open-wants-auth";
-
-/** Pure decision for {@link preflightOrExit} — separated from I/O so the whole branch tree is
- *  unit-testable (it's the riskiest new logic: a wrong branch prunes a LIVE registry entry). A
- *  non-registry source (`flag-server`/`local-space`, or a raw `--creds` connection) is NEVER pruned;
- *  the user owns that diagnosis. */
-export function classifyPreflightFailure(
-  source: MeshTarget["source"],
-  reason: "auth-required" | "unreachable",
-  hasAuth: boolean,
-): { prune: boolean; kind: PreflightFailure } {
-  const fromRegistry =
-    source === "registry" ||
-    source === "current" ||
-    source === "flag-space" ||
-    source === "local-recorded";
-  if (reason === "unreachable") return { prune: fromRegistry, kind: "unreachable" };
-  if (fromRegistry && hasAuth) return { prune: true, kind: "registry-creds-rejected" };
-  if (fromRegistry) return { prune: true, kind: "registry-open-now-auth" };
-  if (hasAuth) return { prune: false, kind: "creds-rejected" };
-  return { prune: false, kind: "open-wants-auth" };
-}
-
-function preflightMessage(kind: PreflightFailure, t: MeshTarget, pruned: boolean): string {
-  switch (kind) {
-    case "unreachable":
-      return `✗ no mesh running at ${t.server}${pruned ? " (stale registry entry — removed)" : ""} — run \`cotal up\``;
-    case "registry-creds-rejected":
-      return `✗ mesh "${t.space}" at ${t.server} no longer matches its registry entry (credentials rejected — port reused?) — re-run \`cotal up\` from ${t.root}, or \`cotal meshes\` to see what's live`;
-    case "registry-open-now-auth":
-      return `✗ open mesh "${t.space}" at ${t.server} no longer matches its registry entry (broker now requires auth — port reused?) — re-run \`cotal up\` from ${t.root}, or \`cotal meshes\` to see what's live`;
-    case "creds-rejected":
-      return `✗ credentials for "${t.space}" were rejected at ${t.server} — a different mesh may be running there. Run \`cotal meshes\` to check, or \`cotal up\` here to start yours`;
-    case "open-wants-auth":
-      return `✗ broker at ${t.server} requires auth, but this mesh is open (no trust material) — use \`--space <name>\` for an auth mesh, or run \`cotal up\` here without \`--open\``;
-  }
-}
-
 /** Confirm the resolved mesh is up and accepts these creds — replaces the raw NATS "Authorization
  *  Violation" trace with one sentence, and prunes the entry if the broker is gone / mismatched.
- *  Probes with `probeCreds` when given (the caller's `--creds`/minted creds); otherwise mints a
+ *  The probe + classify + message text live in `@cotal-ai/core` (shared with the manager control
+ *  commands); this wrapper owns the CLI's I/O — it acts on core's prune decision, colours, and exits.
+ *  Probes with `probeCreds` when given (the caller's `--creds`/minted creds); otherwise core mints a
  *  throwaway identity from the target's own trust material. */
 export async function preflightOrExit(target: MeshTarget, probeCreds?: string): Promise<void> {
-  const creds =
-    probeCreds ?? (target.auth ? await mintCreds(target.auth, newIdentity(), "manager") : undefined);
-  const probe = await probeConnect(target.server, creds ? { creds } : {});
-  if (probe.ok) return;
-  const { prune, kind } = classifyPreflightFailure(target.source, probe.reason, Boolean(target.auth));
-  if (prune) removeMesh(target.space);
-  console.error(c.red(preflightMessage(kind, target, prune)));
+  const r = await preflightTarget(target, probeCreds);
+  if (r.ok) return;
+  if (r.prune) removeMesh(target.space);
+  console.error(c.red(preflightMessage(r.kind, target, r.prune)));
   process.exit(1);
 }

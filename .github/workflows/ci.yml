@@ -51,6 +51,13 @@ jobs:
       - name: Protocol & security smoke tests
         run: pnpm smoke:ci
 
+      - name: Mesh preflight & resolution smoke tests
+        # Broker-free preflight decision tree incl. the prune-authority rules (smoke:preflight), plus
+        # the live manager target-resolution regression — registry-resolve over DEFAULT_SERVER,
+        # --server override, override-never-prunes-recorded, stale-prune (smoke:server-resolution:live).
+        # nats-server installed above.
+        run: pnpm smoke:preflight && pnpm smoke:server-resolution:live
+
       - name: Runtime smoke tests (tmux)
         # Exercises the tmux Runtime + TerminalLayout end to end (driver, lifecycle by stable
         # @window_id/%pane_id, P3 env -i isolation, attach hints). dist is built by Typecheck above.

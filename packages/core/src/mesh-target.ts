@@ -29,14 +29,17 @@ export interface MeshTarget {
   auth?: SpaceAuth;
   /** `<root>/.cotal/agents` — the persona catalog for this mesh. */
   personaRoot: string;
-  /** Where the target came from — this also carries OWNERSHIP for pruning. Every value except
-   *  `local-space` and `flag-server` (the two non-registry escape hatches) means the server + mode
-   *  came from a registry record, so a stale-broker failure prunes it. `local-recorded` is a local
-   *  project matched to a registry entry by root: registry-owned for pruning, but quiet on the
-   *  success line (the target is self-evident from cwd, like `local-space`). */
+  /** Where the target came from — this also carries OWNERSHIP for pruning. `registry`/`current`/
+   *  `flag-space`/`local-recorded` mean the server + mode came from a registry record, so a
+   *  stale-broker failure prunes the entry. `local-space`/`flag-server`/`flag-space-override` are the
+   *  non-registry escape hatches — NEVER pruned: the probed server is operator-supplied (a raw
+   *  `--server`, or a `--space` whose `--server` overrides the recorded broker), so a failure against
+   *  it must not delete the recorded entry. `local-recorded` is a local project matched to a registry
+   *  entry by root: registry-owned for pruning, but quiet on the success line (self-evident from cwd). */
   source:
     | "flag-server"
     | "flag-space"
+    | "flag-space-override"
     | "local-space"
     | "local-recorded"
     | "registry"
@@ -106,7 +109,12 @@ export function resolveMeshTarget(cwd: string, flags: ResolveFlags = {}): MeshTa
   if (flags.space) {
     const m = findMesh(flags.space);
     if (!m) throw new Error(`no mesh named "${flags.space}" is running — see \`cotal meshes\``);
-    return targetFromEntry(m, flags.server ?? m.server, "flag-space");
+    // An explicit `--server` that overrides the recorded broker is an operator-supplied endpoint, not
+    // the registry's — probing IT must never prune the recorded entry (a dead override would otherwise
+    // delete a live registered mesh, and pre-pruning would block a live-override recovery). Mark it so
+    // preflight classifies the failure as non-registry / no-prune.
+    const overriding = flags.server !== undefined && flags.server !== m.server;
+    return targetFromEntry(m, flags.server ?? m.server, overriding ? "flag-space-override" : "flag-space");
   }
 
   if (flags.server) {
