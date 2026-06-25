@@ -330,8 +330,8 @@ dependency on them). Selectable backends:
 - **`tmux` (integration).** Each agent gets its own window in a shared per-space tmux session.
   This is a true plug-in: the runtime lives in **`@cotal-ai/tmux`** and self-registers a
   `RuntimeProvider` on import (opt in with `import "@cotal-ai/tmux"`, which the `cotal` binary
-  does). You watch it natively via `tmux attach -t cotal-<space>:<name>`; `cotal attach` points
-  you there rather than streaming. Env is isolated (`env -i`) so the tmux server's environment
+  does). You watch it natively (`tmux attach-session -t cotal-<space>`, then `tmux select-window -t
+  @<id>` for the agent's window); `cotal attach` points you there rather than streaming. Env is isolated (`env -i`) so the tmux server's environment
   doesn't reach agents. Teardown: `stop` types `/exit` for a clean mesh leave then kills the
   window (graceful) or kills immediately (hard). The package also self-registers a
   **`TerminalLayout`** provider that opens/closes tmux windows from the ambient `$TMUX` session,

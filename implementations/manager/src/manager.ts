@@ -69,7 +69,7 @@ export interface ManagerOptions {
   space: string;
   servers?: string;
   name?: string;
-  /** Spawn backend. `auto` (default) → pty, or tmux when already inside tmux. */
+  /** Spawn backend. `auto` (default) → pty; tmux/cmux are explicit-only (fail loud if unimported). */
   runtime?: RuntimeMode;
   workspaceRoot?: string;
   /** Port for the console + attach HTTP/WS endpoint (loopback). 0 → ephemeral. */

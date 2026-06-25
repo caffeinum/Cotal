@@ -58,7 +58,7 @@ const cwd = process.cwd();
   else process.env.TMUX = prevTmux;
 }
 
-// tmux — watched natively: attach() points you at `tmux attach -t <session>:<name>`.
+// tmux — watched natively: attach() points you at `tmux attach-session -t <session>` + `select-window -t @N`.
 {
   let rt: ReturnType<typeof createRuntime> | null = null;
   try {
