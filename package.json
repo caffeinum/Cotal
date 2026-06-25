@@ -53,6 +53,8 @@
     "smoke:opencode": "tsx extensions/connector-opencode/smoke/turn-wedge.smoke.ts",
     "smoke:attach": "tsx implementations/manager/smoke/attach.smoke.ts",
     "smoke:env-isolate": "tsx implementations/manager/smoke/env-isolate.smoke.ts",
+    "smoke:tmux": "tsx extensions/tmux/smoke.ts",
+    "smoke:runtime": "pnpm smoke:tmux && pnpm smoke:env-isolate && pnpm smoke:attach",
     "smoke:start-model": "tsx implementations/manager/smoke/start-model-preflight.smoke.ts",
     "smoke:persona-acl": "tsx implementations/manager/smoke/persona-identity-acl.smoke.ts",
     "smoke:manifest-launch": "tsx implementations/manager/smoke/manifest-launch.smoke.ts",

@@ -39,6 +39,13 @@ function cleanup() {
   } catch { /* already gone */ }
 }
 
+// Needs a real tmux. Skip cleanly where it isn't installed (local `pnpm check` on a tmux-less box);
+// CI installs tmux explicitly so this runs there.
+if (!tmux.available()) {
+  console.log("• tmux extension smoke skipped — tmux not installed (install tmux to run it)");
+  process.exit(0);
+}
+
 cleanup(); // start fresh
 
 console.log("\n── driver ──────────────────────────────────────");
