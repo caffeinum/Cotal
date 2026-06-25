@@ -12,11 +12,14 @@ import {
   mintCreds,
   newIdentity,
   registry,
+  findMesh,
+  resolveMeshTarget,
   CONTROL_PRIVILEGED,
   CONTROL_ADMIN,
   type Command,
   type ControlReply,
   type ControlTier,
+  type MeshTarget,
 } from "@cotal-ai/core";
 import { Manager } from "./manager.js";
 import { loadRoster } from "./roster.js";
@@ -31,6 +34,43 @@ type Values = Record<string, string | undefined>;
  *  default — so a manually-run manager matches the folder's mesh instead of assuming the default. */
 function spaceFor(v: Values): string {
   return v.space ?? loadSpaceAuth(authDir(findCotalRoot()))?.space ?? DEFAULT_SPACE;
+}
+
+/** Resolve which running mesh a control command (`ps`/`start`/`stop`/`attach`) targets, with the
+ *  same precedence as the rest of the CLI ({@link resolveMeshTarget} / `connectOrExit`):
+ *    1. explicit `--creds` → a raw off-registry connection. Space defaults to this folder's
+ *       auth-space via {@link spaceFor} (a deliberate manager-command choice — more correct than
+ *       `DEFAULT_SPACE` for a non-default-space project, and what these commands did before — NOT
+ *       `connectOrExit`'s `DEFAULT_SPACE`).
+ *    2. `--server` + an UNregistered `--space` → a raw OPEN off-registry connection, no creds (the
+ *       same escape hatch `connectOrExit` has).
+ *    3. otherwise the registry/`current` resolver — so `cotal ps --space <name>` reaches that mesh's
+ *       RECORDED broker instead of silently assuming `DEFAULT_SERVER` (:4222); `--server` overrides.
+ *  In case 3 the privileged "manager" cred is minted from the RESOLVED mesh's own recorded root (so
+ *  `--space other` loads other's auth, guarded by `targetFromEntry`'s `auth.space === m.space`
+ *  check), or none for an open mesh. Unlike `connectOrExit` it doesn't prune stale entries or
+ *  preflight here (those helpers are CLI-only) — a dead `--space` fails in `ask()`'s reachability
+ *  check rather than being pruned with a "stale registry entry" message. */
+export async function resolveManagerTarget(v: Values): Promise<{ space: string; server: string; creds?: string }> {
+  if (v.creds) {
+    return { space: spaceFor(v), server: v.server ?? DEFAULT_SERVER, creds: readFileSync(v.creds, "utf8") };
+  }
+  // A raw OPEN off-registry mesh: explicit `--server` + a `--space` that isn't registered. Naming
+  // both is as deliberate as `--creds`, but an open broker has no creds to pass — connect bare,
+  // off-registry (no registry lookup). Mirrors `connectOrExit`'s same-shaped escape hatch; a
+  // registered `--space` still goes through the resolver below (which honors `--server` as override).
+  if (v.server && v.space && !findMesh(v.space)) {
+    return { space: v.space, server: v.server, creds: undefined };
+  }
+  let target: MeshTarget;
+  try {
+    target = resolveMeshTarget(process.cwd(), { server: v.server, space: v.space });
+  } catch (e) {
+    console.error(c.red(`✗ ${(e as Error).message}`));
+    process.exit(1);
+  }
+  const creds = target.auth ? await mintCreds(target.auth, newIdentity(), "manager") : undefined;
+  return { space: target.space, server: target.server, creds };
 }
 
 function parse(argv: string[]): Values {
@@ -67,35 +107,19 @@ function parse(argv: string[]): Values {
   return values as Values;
 }
 
-/** Connect a short-lived client, send one control request to the manager, disconnect. `tier` picks
- *  the control subject: privileged for spawn/ps; admin for the operator's cross-agent ops
- *  (stop/attach/purge), which the manager refuses on the privileged subject for a non-owner. The
- *  CLI mints a "manager" cred (allow-all), so it can reach either subject. */
+/** Connect a short-lived client with the resolved creds, send one control request to the manager,
+ *  disconnect. `tier` picks the control subject: privileged for spawn/ps; admin for the operator's
+ *  cross-agent ops (stop/attach/purge), which the manager refuses on the privileged subject for a
+ *  non-owner. `creds` is the privileged "manager" cred resolved by {@link resolveManagerTarget}
+ *  (allow-all, so it reaches either subject), or undefined on an open mesh. */
 async function ask(
   space: string,
   server: string,
   op: string,
   args?: Record<string, unknown>,
-  credsPath?: string,
+  creds?: string,
   tier: ControlTier = CONTROL_PRIVILEGED,
 ): Promise<ControlReply> {
-  // An explicit --creds wins; else self-mint a privileged "manager" cred from .cotal/auth so the
-  // operator's start/stop/ps reach the privileged control subject (P5: only spawn-capable/admin/
-  // manager creds may publish there — an agent cred no longer works); else connect bare on an open
-  // mesh. Mirrors `cotal send`/`spawn`/`history`.
-  let creds = credsPath ? readFileSync(credsPath, "utf8") : undefined;
-  if (!creds) {
-    const auth = loadSpaceAuth(authDir(findCotalRoot()));
-    if (auth) {
-      if (space && space !== auth.space) {
-        console.error(
-          c.red(`Auth here is for space "${auth.space}", not "${space}". Use --space ${auth.space} (or pass --creds).`),
-        );
-        process.exit(1);
-      }
-      creds = await mintCreds(auth, newIdentity(), "manager");
-    }
-  }
   if (!(await isReachable(server, { creds }))) {
     console.error(c.red(`Can't reach NATS at ${server}. Run: cotal up`));
     process.exit(1);
@@ -134,7 +158,8 @@ async function start(argv: string[]): Promise<void> {
     console.error(c.red("--name is required"));
     process.exit(1);
   }
-  const reply = await ask(spaceFor(v), v.server ?? DEFAULT_SERVER, "start", {
+  const t = await resolveManagerTarget(v);
+  const reply = await ask(t.space, t.server, "start", {
     name: v.name,
     role: v.role,
     agent: v.agent,
@@ -142,7 +167,7 @@ async function start(argv: string[]): Promise<void> {
     model: v.model,
     // Opt-in: only sent when `--transcript` is given; absent => the daemon's default (mirror off).
     transcript: v.transcript ? true : undefined,
-  }, v.creds);
+  }, t.creds);
   failIfNotOk(reply);
   const d = reply.data as { name: string; role?: string; agent: string; mode: string };
   console.log(
@@ -159,16 +184,18 @@ async function stop(argv: string[]): Promise<void> {
   }
   // Operator stop is a cross-agent (admin) op — the CLI operator isn't the agent's spawner, so the
   // privileged subject would reject it; admin (its allow-all "manager" cred reaches it) is correct.
-  const reply = await ask(spaceFor(v), v.server ?? DEFAULT_SERVER, "stop", {
+  const t = await resolveManagerTarget(v);
+  const reply = await ask(t.space, t.server, "stop", {
     name: v.name,
-  }, v.creds, CONTROL_ADMIN);
+  }, t.creds, CONTROL_ADMIN);
   failIfNotOk(reply);
   console.log(c.dim(`✓ stopped ${v.name}`));
 }
 
 async function ps(argv: string[]): Promise<void> {
   const v = parse(argv);
-  const reply = await ask(spaceFor(v), v.server ?? DEFAULT_SERVER, "ps", undefined, v.creds);
+  const t = await resolveManagerTarget(v);
+  const reply = await ask(t.space, t.server, "ps", undefined, t.creds);
   failIfNotOk(reply);
   const rows =
     (reply.data as Array<{
@@ -209,9 +236,10 @@ async function attach(argv: string[]): Promise<void> {
   }
   // Operator attach is a cross-agent (admin) op — same reasoning as stop (the operator isn't the
   // spawner; admin reaches any agent).
-  const reply = await ask(spaceFor(v), v.server ?? DEFAULT_SERVER, "attach", {
+  const t = await resolveManagerTarget(v);
+  const reply = await ask(t.space, t.server, "attach", {
     name: v.name,
-  }, v.creds, CONTROL_ADMIN);
+  }, t.creds, CONTROL_ADMIN);
   failIfNotOk(reply);
   const { ws } = reply.data as { ws: string };
   console.error(c.dim(`attached to ${v.name} — Ctrl-] to detach`));
