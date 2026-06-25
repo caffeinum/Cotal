@@ -142,6 +142,7 @@ function parse(argv: string[]): Values {
       "no-transcript": { type: "boolean" },
       spawn: { type: "string" }, // comma-separated agent names to pre-spawn at startup
       launch: { type: "string" }, // supervise: a resolved mesh-manifest launch spec (cotal up -f / spawn -f)
+      cwd: { type: "string" }, // working directory to root the spawned agent at
     },
   });
   // These commands are flags-only — reject stray positionals instead of silently ignoring them
@@ -213,6 +214,7 @@ async function start(argv: string[]): Promise<void> {
     model: v.model,
     // Opt-in: only sent when `--transcript` is given; absent => the daemon's default (mirror off).
     transcript: v.transcript ? true : undefined,
+    cwd: v.cwd,
   }, t.creds);
   failIfNotOk(reply);
   const d = reply.data as { name: string; role?: string; agent: string; mode: string };
@@ -416,7 +418,7 @@ const managerCommands: Command[] = [
     name: "start",
     group: "Control plane",
     summary:
-      "ask the manager to spawn a persona — --name <persona> [--role <r>] [--agent <a>] [--config <file>] [--model <m>] (loads .cotal/agents/<persona>.md; the peer joins under its name:)",
+      "ask the manager to spawn a persona — --name <persona> [--role <r>] [--agent <a>] [--config <file>] [--model <m>] [--cwd <dir>] (loads .cotal/agents/<persona>.md; the peer joins under its name:)",
     run: start,
   },
   {

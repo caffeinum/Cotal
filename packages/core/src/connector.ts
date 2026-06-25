@@ -46,6 +46,11 @@ export interface LaunchOpts {
    *  (Claude launches isolated with `--strict-mcp-config`). Connectors that don't support sharing
    *  throw on a non-empty map rather than silently dropping it. */
   mcpServers?: Record<string, McpServerSpec>;
+  /** The manager's workspace root. Connectors that keep per-agent local state (e.g. the OpenCode
+   *  connector's SQLite DB + serve pidfile) pin it here so a per-agent working directory — which can
+   *  point at any repo — doesn't scatter that state into the target tree. The per-agent working
+   *  directory itself is the manager's concern and is passed to the runtime, not here. */
+  workspaceRoot?: string;
 }
 
 /** A recipe for starting an agent as a mesh node — command, args, and extra env. */

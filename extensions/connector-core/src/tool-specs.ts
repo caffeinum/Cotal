@@ -487,10 +487,16 @@ export function cotalToolSpecs(config: AgentConfig, source = "connector"): Cotal
           .string()
           .optional()
           .describe("Optional model override (e.g. opus, sonnet) — wins over the persona file's model:."),
+        cwd: z
+          .string()
+          .optional()
+          .describe(
+            "Optional working directory to root the new peer at (e.g. a different repo). A relative path resolves against the manager's workspace; omitted → it shares the manager's workspace.",
+          ),
       },
-      async run(agent, _config, { name, role, agent: agentType, model }: { name: string; role?: string; agent?: string; model?: string }) {
+      async run(agent, _config, { name, role, agent: agentType, model, cwd }: { name: string; role?: string; agent?: string; model?: string; cwd?: string }) {
         try {
-          const reply = await agent.spawn(name, role, { agent: agentType, model });
+          const reply = await agent.spawn(name, role, { agent: agentType, model, cwd });
           if (!reply.ok) return err(`Couldn't spawn ${name}: ${reply.error ?? "manager refused"}`);
           const d = reply.data as { name?: string; mode?: string } | undefined;
           const actual = d?.name ?? name; // the manager auto-numbers on a collision — report what it spawned

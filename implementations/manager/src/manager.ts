@@ -98,6 +98,10 @@ export interface StartAgentOpts {
    *  and `config` points at the materialized transient persona the connector reads. The persona file
    *  is never the access authority in this path. */
   resolved?: MeshLaunchAgent;
+  /** Per-agent working directory to root this agent at, overriding the manager's shared
+   *  workspaceRoot. Lets different agents run in different repos/folders. A relative path is
+   *  resolved against the manager's workspace root. Omitted → the agent uses workspaceRoot. */
+  cwd?: string;
 }
 
 interface ManagedAgent {
@@ -424,6 +428,7 @@ export class Manager {
         config: args.config ? String(args.config) : undefined,
         model: args.model ? String(args.model) : undefined,
         transcript: typeof args.transcript === "boolean" ? args.transcript : undefined,
+        cwd: args.cwd ? String(args.cwd) : undefined,
       },
       caller,
     );
@@ -588,6 +593,10 @@ export class Manager {
       // Personal MCP servers the operator opted to share with manager-spawned agents of this type
       // (cotal config; default none → isolated, the memory-safe default this guards).
       const mcpServers = connectorServers(loadCotalConfig(this.workspaceRoot), agent);
+      // Per-agent cwd overrides the manager's shared workspace root, so agents can be rooted at
+      // arbitrary folders/repos. A relative path resolves against the workspace root; omitted → the
+      // agent shares the workspace root (the prior, unchanged behavior).
+      const cwd = opts.cwd ? resolve(this.workspaceRoot, opts.cwd) : this.workspaceRoot;
       const spec = connector.buildLaunch({
         space: this.space,
         name,
@@ -606,8 +615,11 @@ export class Manager {
         allowPublish,
         transcript: opts.transcript,
         mcpServers,
+        // So a connector that keeps per-agent local state can root it at the workspace, not the
+        // (possibly per-agent) launch cwd below. The cwd itself rides runtime.spawn, not the launch.
+        workspaceRoot: this.workspaceRoot,
       });
-      const handle = this.runtime.spawn(name, spec, this.workspaceRoot);
+      const handle = this.runtime.spawn(name, spec, cwd);
       const managed: ManagedAgent = {
         name,
         role,
