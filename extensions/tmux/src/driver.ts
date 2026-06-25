@@ -34,10 +34,14 @@ function hasSession(session: string): boolean {
   }
 }
 
-/** Ensure a detached tmux session exists; creates it if absent. */
+/** Ensure a detached tmux session exists; creates it if absent. A detached session has no client
+ *  to size it, and some tmux builds then treat its window as sizeless — so `split-window` fails
+ *  with "size missing". Give it an explicit initial size; tmux resizes to the real client on attach. */
 export function ensureSession(session: string, cwd: string): void {
   if (!hasSession(session))
-    execFileSync("tmux", ["new-session", "-d", "-s", session, "-c", cwd], { stdio: "ignore" });
+    execFileSync("tmux", ["new-session", "-d", "-s", session, "-x", "200", "-y", "50", "-c", cwd], {
+      stdio: "ignore",
+    });
 }
 
 /** True if a window named `name` exists in `session`. Name-based — fragile under renames; prefer
