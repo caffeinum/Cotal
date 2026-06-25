@@ -14,6 +14,12 @@ import {
   registry,
   findMesh,
   resolveMeshTarget,
+  preflightTarget,
+  preflightMessage,
+  reachableMessage,
+  pruneStaleMeshes,
+  probeConnect,
+  removeMesh,
   CONTROL_PRIVILEGED,
   CONTROL_ADMIN,
   type Command,
@@ -36,32 +42,61 @@ function spaceFor(v: Values): string {
   return v.space ?? loadSpaceAuth(authDir(findCotalRoot()))?.space ?? DEFAULT_SPACE;
 }
 
+/** Raw off-registry reachability — one plain sentence, never a registry/stale-entry message and
+ *  never a prune. Used by the `--creds` and `--server`+unregistered-`--space` escape hatches, which
+ *  connect to a broker the operator named, not the registry. The manager's copy of the CLI's
+ *  `reachableOrExit` (an implementation can't import another); the wording lives in core. */
+async function reachableOrExit(server: string, auth: { creds?: string } = {}): Promise<void> {
+  const probe = await probeConnect(server, auth);
+  if (probe.ok) return;
+  console.error(c.red(reachableMessage(probe.reason, server)));
+  process.exit(1);
+}
+
+/** Confirm a registry-resolved mesh is up + accepts these creds — replacing the raw NATS auth trace
+ *  with one sentence and pruning a stale entry. The manager's copy of the CLI's `preflightOrExit`:
+ *  the probe/classify/message/prune-decision live in core (`preflightTarget`); this owns the I/O —
+ *  it acts on core's prune decision, colours, and exits. */
+async function preflightOrExit(target: MeshTarget, probeCreds?: string): Promise<void> {
+  const r = await preflightTarget(target, probeCreds);
+  if (r.ok) return;
+  if (r.prune) removeMesh(target.space);
+  console.error(c.red(preflightMessage(r.kind, target, r.prune)));
+  process.exit(1);
+}
+
 /** Resolve which running mesh a control command (`ps`/`start`/`stop`/`attach`) targets, with the
- *  same precedence as the rest of the CLI ({@link resolveMeshTarget} / `connectOrExit`):
- *    1. explicit `--creds` → a raw off-registry connection. Space defaults to this folder's
- *       auth-space via {@link spaceFor} (a deliberate manager-command choice — more correct than
- *       `DEFAULT_SPACE` for a non-default-space project, and what these commands did before — NOT
- *       `connectOrExit`'s `DEFAULT_SPACE`).
+ *  same precedence + preflight as the rest of the CLI ({@link resolveMeshTarget} / `connectOrExit`):
+ *    1. explicit `--creds` → a raw off-registry connection (plain reachability, no prune). Space
+ *       defaults to this folder's auth-space via {@link spaceFor} (a deliberate manager-command
+ *       choice — more correct than `DEFAULT_SPACE` for a non-default-space project, and what these
+ *       commands did before — NOT `connectOrExit`'s `DEFAULT_SPACE`).
  *    2. `--server` + an UNregistered `--space` → a raw OPEN off-registry connection, no creds (the
- *       same escape hatch `connectOrExit` has).
- *    3. otherwise the registry/`current` resolver — so `cotal ps --space <name>` reaches that mesh's
- *       RECORDED broker instead of silently assuming `DEFAULT_SERVER` (:4222); `--server` overrides.
- *  In case 3 the privileged "manager" cred is minted from the RESOLVED mesh's own recorded root (so
- *  `--space other` loads other's auth, guarded by `targetFromEntry`'s `auth.space === m.space`
- *  check), or none for an open mesh. Unlike `connectOrExit` it doesn't prune stale entries or
- *  preflight here (those helpers are CLI-only) — a dead `--space` fails in `ask()`'s reachability
- *  check rather than being pruned with a "stale registry entry" message. */
+ *       same escape hatch `connectOrExit` has; plain reachability, no prune).
+ *    3. otherwise the registry/`current` resolver, with the same stale-prune + friendly preflight —
+ *       so `cotal ps --space <name>` reaches that mesh's RECORDED broker instead of silently assuming
+ *       `DEFAULT_SERVER` (:4222); `--server` overrides. The privileged "manager" cred is minted from
+ *       the RESOLVED mesh's own recorded root (so `--space other` loads other's auth, guarded by
+ *       `targetFromEntry`'s `auth.space === m.space` check), or none for an open mesh.
+ *  Shares core's `preflightTarget`/`pruneStaleMeshes` with the CLI, so a dead/mismatched entry gets
+ *  the same one-sentence message + stale-prune the rest of the CLI gives — not a raw NATS trace.
+ *  `ask()` can therefore trust the target is reachable + auth-valid. */
 export async function resolveManagerTarget(v: Values): Promise<{ space: string; server: string; creds?: string }> {
   if (v.creds) {
-    return { space: spaceFor(v), server: v.server ?? DEFAULT_SERVER, creds: readFileSync(v.creds, "utf8") };
+    const server = v.server ?? DEFAULT_SERVER;
+    const creds = readFileSync(v.creds, "utf8");
+    await reachableOrExit(server, { creds });
+    return { space: spaceFor(v), server, creds };
   }
   // A raw OPEN off-registry mesh: explicit `--server` + a `--space` that isn't registered. Naming
   // both is as deliberate as `--creds`, but an open broker has no creds to pass — connect bare,
-  // off-registry (no registry lookup). Mirrors `connectOrExit`'s same-shaped escape hatch; a
-  // registered `--space` still goes through the resolver below (which honors `--server` as override).
+  // off-registry (no registry lookup, no prune). Mirrors `connectOrExit`'s same-shaped escape hatch;
+  // a registered `--space` still goes through the resolver below (which honors `--server` as override).
   if (v.server && v.space && !findMesh(v.space)) {
+    await reachableOrExit(v.server, {});
     return { space: v.space, server: v.server, creds: undefined };
   }
+  await pruneStaleMeshes();
   let target: MeshTarget;
   try {
     target = resolveMeshTarget(process.cwd(), { server: v.server, space: v.space });
@@ -70,6 +105,7 @@ export async function resolveManagerTarget(v: Values): Promise<{ space: string; 
     process.exit(1);
   }
   const creds = target.auth ? await mintCreds(target.auth, newIdentity(), "manager") : undefined;
+  await preflightOrExit(target, creds);
   return { space: target.space, server: target.server, creds };
 }
 
@@ -108,10 +144,12 @@ function parse(argv: string[]): Values {
 }
 
 /** Connect a short-lived client with the resolved creds, send one control request to the manager,
- *  disconnect. `tier` picks the control subject: privileged for spawn/ps; admin for the operator's
- *  cross-agent ops (stop/attach/purge), which the manager refuses on the privileged subject for a
- *  non-owner. `creds` is the privileged "manager" cred resolved by {@link resolveManagerTarget}
- *  (allow-all, so it reaches either subject), or undefined on an open mesh. */
+ *  disconnect. The target is already reachability- + auth-preflighted by {@link resolveManagerTarget}
+ *  (which prints the friendly message + prunes on failure), so this connects straight through. `tier`
+ *  picks the control subject: privileged for spawn/ps; admin for the operator's cross-agent ops
+ *  (stop/attach/purge), which the manager refuses on the privileged subject for a non-owner. `creds`
+ *  is the privileged "manager" cred resolved by {@link resolveManagerTarget} (allow-all, so it
+ *  reaches either subject), or undefined on an open mesh. */
 async function ask(
   space: string,
   server: string,
@@ -120,10 +158,6 @@ async function ask(
   creds?: string,
   tier: ControlTier = CONTROL_PRIVILEGED,
 ): Promise<ControlReply> {
-  if (!(await isReachable(server, { creds }))) {
-    console.error(c.red(`Can't reach NATS at ${server}. Run: cotal up`));
-    process.exit(1);
-  }
   const ep = new CotalEndpoint({
     space,
     servers: server,
