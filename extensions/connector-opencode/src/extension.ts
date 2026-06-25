@@ -58,6 +58,12 @@ export const opencodeConnector: Connector = {
     if (opts.id) env.COTAL_ID = opts.id;
     if (opts.creds) env.COTAL_CREDS = opts.creds;
     if (opts.servers) env.COTAL_SERVERS = opts.servers;
+    // Where serve.ts roots this agent's SQLite DB + serve pidfile. Pin it to the manager's
+    // workspace root so a per-agent launch cwd (which the manager can point at any repo) doesn't
+    // drop `.cotal/opencode/<name>` into the target tree. Standalone `cotal spawn` has no manager
+    // workspace → root it at the launch dir (this process's cwd, which the child inherits), the
+    // prior behavior. serve.ts requires this env (no silent cwd fallback).
+    env.COTAL_OPENCODE_HOME = opts.workspaceRoot ?? process.cwd();
 
     const config: Record<string, unknown> = {
       $schema: "https://opencode.ai/config.json",

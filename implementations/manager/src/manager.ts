@@ -572,7 +572,9 @@ export class Manager {
         allowPublish,
         transcript: opts.transcript,
         mcpServers,
-        cwd,
+        // So a connector that keeps per-agent local state can root it at the workspace, not the
+        // (possibly per-agent) launch cwd below. The cwd itself rides runtime.spawn, not the launch.
+        workspaceRoot: this.workspaceRoot,
       });
       const handle = this.runtime.spawn(name, spec, cwd);
       const managed: ManagedAgent = {
