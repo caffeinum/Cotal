@@ -1,0 +1,19 @@
+implementations/manager/src/attach-client.ts
+  s_738283b8830ace::t_bd34b6dcad0429 11-12,18-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "20780e50db71b5ed609e5e01de2436861e389f63",
+  "prompts": {},
+  "sessions": {
+    "s_738283b8830ace": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "993b92e7-a931-4755-86de-c7a57281e828",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
