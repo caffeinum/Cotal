@@ -1,5 +1,6 @@
 import * as pty from "@lydell/node-pty";
 import type { AgentHandle, AttachSession, LaunchSpec, Runtime } from "@cotal-ai/core";
+import { preparePtyLaunch } from "./windows-launch.js";
 
 const DEFAULT_COLS = 120;
 const DEFAULT_ROWS = 32;
@@ -27,7 +28,12 @@ export class PtyRuntime implements Runtime {
   readonly kind = "pty" as const;
 
   spawn(name: string, spec: LaunchSpec, cwd: string): AgentHandle {
-    const proc = pty.spawn(spec.command, spec.args, {
+    // POSIX: passthrough (node-pty's exec resolves the bare name). win32: resolve the EXACT file and
+    // adapt — a `.cmd`/`.bat` shim runs through cmd.exe with a pre-escaped command line. Resolve
+    // against `spec.env` (the env we actually launch with), not the manager's, so executable
+    // selection stays inside P3 isolation.
+    const { command, args } = preparePtyLaunch(spec.command, spec.args, spec.env ?? {});
+    const proc = pty.spawn(command, args, {
       name: "xterm-256color",
       cols: DEFAULT_COLS,
       rows: DEFAULT_ROWS,
@@ -85,6 +91,13 @@ export class PtyRuntime implements Runtime {
       status: () => (alive ? "running" : "exited"),
       stop: (opts) => {
         if (!alive) return;
+        // node-pty's ConPTY backend has no signals: kill(<signal>) throws on Windows, and a
+        // pseudoconsole can't deliver SIGTERM for a graceful mesh-leave. So a stop here is a hard
+        // terminate — the agent's presence then expires via NATS rather than leaving cleanly.
+        if (process.platform === "win32") {
+          proc.kill();
+          return;
+        }
         if (opts?.graceful === false) {
           proc.kill("SIGKILL");
           return;
