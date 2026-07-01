@@ -13,8 +13,8 @@ and a **tmux wall** (`mesh-wall.sh`). Both spawn real agents; nothing here is sc
 One command brings up the whole thing — the mesh, the agents, and the web UI:
 
 ```sh
-node tools/studio.mjs                 # curated roster (sven, david, garry)
-node tools/studio.mjs sven david elon # explicit agents (agent-file basenames)
+node tools/studio.mjs                 # the full panel — cast from cotal.yaml
+node tools/studio.mjs -f my-panel.yaml # a smaller cast (your own manifest)
 SPACE=demo PORT=4097 node tools/studio.mjs
 # then open http://127.0.0.1:4097/
 ```
