@@ -2,15 +2,27 @@
  * Persona identity + ACL smoke — proves a manager spawn resolves the persona by FILENAME but takes
  * the mesh IDENTITY from inside the file (`name:`), and mints the file's read/post ACL — never a
  * silent default. Regression guard for the "spawned-by-display-name → default-ACL agent" bug.
- * No broker, no real harness: real crypto (createSpaceAuth + the manager's mint path), a fake
- * runtime + a no-op DurableProvisioner ep stub, and we DECODE the written creds JWT to read the ACL.
- * Run with: pnpm smoke:persona-acl
+ * Broker-backed: closure (i) provisions each spawn through a real short-lived ephemeral provisioner
+ * connection (residual-2), so `startAgent` connects before minting — we boot our OWN JWT-auth
+ * nats-server (collision-robust — see _boot-broker) + provision the space, run the real spawn path,
+ * then DECODE the written creds JWT to read the minted ACL. Run with: pnpm smoke:persona-acl
  */
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Manager } from "../src/manager.js";
-import { createSpaceAuth, registry, type Connector, type LaunchSpec, type AgentHandle } from "@cotal-ai/core";
+import {
+  createSpaceAuth,
+  registry,
+  mintCreds,
+  newIdentity,
+  setupSpaceStreams,
+  type Connector,
+  type LaunchSpec,
+  type AgentHandle,
+} from "@cotal-ai/core";
+import { bootBroker } from "./_boot-broker.js";
 
 let failures = 0;
 function check(label: string, cond: boolean, extra?: unknown): void {
@@ -29,7 +41,12 @@ function credAcl(path: string): { sub: string[]; pub: string[] } {
   return { sub: chat(nats.sub?.allow, true), pub: chat(nats.pub?.allow, false) };
 }
 
-const workspaceRoot = mkdtempSync(join(tmpdir(), "cotal-persona-acl-"));
+// A dedicated space + its own JWT-auth broker, so the manager's minted provisioner cred is trusted.
+const space = `persona-acl-${randomUUID().slice(0, 8)}`;
+const auth = await createSpaceAuth(space);
+const { servers: SERVERS, stop: stopBroker } = await bootBroker(auth);
+
+const workspaceRoot = mkdtempSync(join(tmpdir(), "cotal-persona-acl-ws-"));
 const agentsDir = join(workspaceRoot, ".cotal", "agents");
 mkdirSync(agentsDir, { recursive: true });
 // Filename (review-critic) ≠ in-file name (socrates); a non-default read/post ACL.
@@ -38,51 +55,51 @@ writeFileSync(
   "---\nname: socrates\nrole: critic\nsubscribe: [review]\nallowSubscribe: [review, review.>]\nallowPublish: [review.>]\n---\nbody\n",
 );
 
-const mgr = new Manager({ space: "demo", servers: undefined, runtime: "pty", workspaceRoot });
-// Real space trust material so the mint path runs end to end (pure crypto, no broker).
-(mgr as unknown as { auth: unknown }).auth = await createSpaceAuth("demo");
+const mgr = new Manager({ space, servers: SERVERS, runtime: "pty", workspaceRoot });
+(mgr as unknown as { auth: unknown }).auth = auth; // real trust material; the broker enforces it
 
-// Fake runtime (records the spec, launches nothing) + an ep stub that is both ref() and a no-op
-// DurableProvisioner (the manager hands its ep to provisionAgent).
+// Fake runtime (records the spec, launches nothing). Only `ref().id` is read from the endpoint on the
+// spawn path (the spawner audit id); provisioning runs on the real ephemeral provisioner conn.
 const fakeSession = { cols: 80, rows: 24, backlog: () => Buffer.alloc(0), onData: () => () => {}, onExit: () => () => {}, write: () => {}, resize: () => {} };
 const fakeHandle = (name: string): AgentHandle => ({ name, kind: "fake", status: () => "running", stop: () => {}, interrupt: () => {}, attach: () => fakeSession });
 (mgr as unknown as { runtime: { kind: string; spawn: (n: string, s: LaunchSpec) => AgentHandle } }).runtime = {
   kind: "fake",
   spawn: (name) => fakeHandle(name),
 };
-(mgr as unknown as { ep: Record<string, unknown> }).ep = {
-  ref: () => ({ id: "smoke-mgr" }),
-  provisionDmInbox: async () => {},
-  provisionDlvInbox: async () => {},
-  commitAcl: async () => {},
-  provisionTaskQueue: async () => {},
-};
+(mgr as unknown as { ep: Record<string, unknown> }).ep = { ref: () => ({ id: "smoke-mgr" }) };
 
 const recCon: Connector = { kind: "connector", name: "smoke-rec2", requires: ["node"], buildLaunch: () => ({ command: "true", args: [], env: {} }) };
 registry.register(recCon);
 
-// 1 — Spawn by FILENAME; identity comes from the file's name:, ACL from the file (not default).
-{
-  const reply = await mgr.startAgent({ name: "review-critic", agent: "smoke-rec2" });
-  check("spawn by filename succeeds", reply.ok === true, reply);
-  check("identity is the file's name: (socrates), not the filename", reply.ok && reply.data?.name === "socrates", reply.ok && reply.data?.name);
+try {
+  await setupSpaceStreams({ servers: SERVERS, space, creds: await mintCreds(auth, newIdentity(), "provisioner") });
 
-  const acl = credAcl(join(workspaceRoot, ".cotal", "auth", "creds", "socrates.creds"));
-  check("read ACL is the persona's review scope", acl.sub.some((s) => s.endsWith(".review")) && acl.sub.some((s) => s.endsWith(".review.>")), acl.sub);
-  check("post ACL is the persona's review.> (not default-deny)", acl.pub.some((s) => s.includes(".review.>")), acl.pub);
-  check("NOT the silent default (general-only read)", !(acl.sub.length === 1 && acl.sub[0].endsWith(".general")), acl.sub);
-}
+  // 1 — Spawn by FILENAME; identity comes from the file's name:, ACL from the file (not default).
+  {
+    const reply = await mgr.startAgent({ name: "review-critic", agent: "smoke-rec2" });
+    check("spawn by filename succeeds", reply.ok === true, reply);
+    check("identity is the file's name: (socrates), not the filename", reply.ok && reply.data?.name === "socrates", reply.ok && reply.data?.name);
 
-// 2 — Spawning by the DISPLAY name (socrates) fails loud — there is no socrates.md; you spawn by file.
-{
-  const reply = await mgr.startAgent({ name: "socrates", agent: "smoke-rec2" });
-  check("spawn by display-name fails loud (no socrates.md)", reply.ok === false && /no persona "socrates"/.test(reply.error ?? ""), reply);
-}
+    const acl = credAcl(join(workspaceRoot, ".cotal", "auth", "creds", "socrates.creds"));
+    check("read ACL is the persona's review scope", acl.sub.some((s) => s.endsWith(".review")) && acl.sub.some((s) => s.endsWith(".review.>")), acl.sub);
+    check("post ACL is the persona's review.> (not default-deny)", acl.pub.some((s) => s.includes(".review.>")), acl.pub);
+    check("NOT the silent default (general-only read)", !(acl.sub.length === 1 && acl.sub[0].endsWith(".general")), acl.sub);
+  }
 
-// 3 — A second spawn of the same persona auto-numbers the IDENTITY (socrates → socrates-2).
-{
-  const reply = await mgr.startAgent({ name: "review-critic", agent: "smoke-rec2" });
-  check("second spawn auto-numbers the identity", reply.ok && reply.data?.name === "socrates-2", reply.ok && reply.data?.name);
+  // 2 — Spawning by the DISPLAY name (socrates) fails loud — there is no socrates.md; you spawn by file.
+  {
+    const reply = await mgr.startAgent({ name: "socrates", agent: "smoke-rec2" });
+    check("spawn by display-name fails loud (no socrates.md)", reply.ok === false && /no persona "socrates"/.test(reply.error ?? ""), reply);
+  }
+
+  // 3 — A second spawn of the same persona auto-numbers the IDENTITY (socrates → socrates-2).
+  {
+    const reply = await mgr.startAgent({ name: "review-critic", agent: "smoke-rec2" });
+    check("second spawn auto-numbers the identity", reply.ok && reply.data?.name === "socrates-2", reply.ok && reply.data?.name);
+  }
+} finally {
+  await stopBroker();
+  rmSync(workspaceRoot, { recursive: true, force: true });
 }
 
 console.log(`\nPERSONA-IDENTITY/ACL SMOKE ${failures === 0 ? "OK ✅" : "FAILED ❌"}`);

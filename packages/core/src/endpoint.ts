@@ -144,6 +144,11 @@ export interface EndpointOptions {
   registerPresence?: boolean;
   /** Track the roster of peers (default true). */
   watchPresence?: boolean;
+  /** Open + watch the channel registry (default true). Independent of {@link watchPresence}: a
+   *  presence-only supervisor sets this false to track the roster WITHOUT opening the channel-registry
+   *  cache — so its cred needs no channel-registry read grant (residual 2). No effect when `consume` is
+   *  true: the join-time replay decision reads the registry, so a consumer always opens it. */
+  watchChannels?: boolean;
   /** Create inbound stream consumers (DM / chat / anycast). Default true; a pure observer sets false. */
   consume?: boolean;
   /** Initial per-channel attention overrides to publish in presence from the first heartbeat (the
@@ -202,6 +207,7 @@ export class CotalEndpoint extends EventEmitter {
   private readonly ttlMs: number;
   private readonly doRegister: boolean;
   private readonly doWatch: boolean;
+  private readonly doWatchChannels: boolean;
   private readonly doConsume: boolean;
   private readonly ackWaitMs: number;
   private readonly inactiveThresholdMs: number;
@@ -327,6 +333,7 @@ export class CotalEndpoint extends EventEmitter {
     this.ttlMs = opts.ttlMs ?? 6000;
     this.doRegister = opts.registerPresence ?? true;
     this.doWatch = opts.watchPresence ?? true;
+    this.doWatchChannels = opts.watchChannels ?? true;
     this.doConsume = opts.consume ?? true;
     // Seed the presence mirror so file-default channel modes are visible from the first publish
     // (not only after the first runtime toggle). Mirror only — delivery reads the connector's state.
@@ -386,11 +393,14 @@ export class CotalEndpoint extends EventEmitter {
     }
 
     // Open the channel registry bucket when we either watch it (live cache for the connector's
-    // pull/display) or consume (the join-time replay decision reads it fresh). Auth mode OPENs
-    // the bucket pre-created at `cotal up`; open mode lazily creates it.
-    if (this.doWatch || this.doConsume) {
+    // pull/display) or consume (the join-time replay decision reads it fresh). A presence-only
+    // supervisor (watchChannels:false, consume:false) skips it entirely — it needs no channel cache,
+    // so its scoped cred holds no channel-registry read (residual 2). Auth mode OPENs the bucket
+    // pre-created at `cotal up`; open mode lazily creates it.
+    const watchChannels = this.doWatch && this.doWatchChannels;
+    if (watchChannels || this.doConsume) {
       this.channelKv = await openChannelRegistry(this.nc, this.space, { create: !this.creds });
-      if (this.doWatch) await this.startChannelWatch();
+      if (watchChannels) await this.startChannelWatch();
     }
 
     if (this.doRegister) {
@@ -727,8 +737,10 @@ export class CotalEndpoint extends EventEmitter {
    *  PEER's reply lane (`ctl.delivery.<victim>.reply.<n>`) and turn the responder into a confused
    *  deputy — the broker does NOT permission-check the requester's embedded reply subject. With it, a
    *  reply is published only when `m.reply` is under the AUTHENTICATED request subject
-   *  (`${m.subject}.reply.…`), binding the reply to the broker-policed sender token. (The manager's
-   *  tiers reply into the per-id `_INBOX` and leave it off.) */
+   *  (`${m.subject}.reply.…`), binding the reply to the broker-policed sender token. The manager's three
+   *  lifecycle tiers ALSO require it as of closure (i): they reply on bounded `ctl.<tier>.<caller>.reply.…`
+   *  (the manager cred holds the wildcard `ctl.<tier>.*.reply.>` pub — exactly the confused-deputy
+   *  condition above), so do NOT drop `boundReply` on them. */
   serveControl(
     service: string,
     handler: (req: ControlRequest) => Promise<ControlReply> | ControlReply,
@@ -780,19 +792,28 @@ export class CotalEndpoint extends EventEmitter {
     return sub;
   }
 
-  /** Send a control request to a service and await its reply (client side). */
+  /** Send a control request to a service and await its reply (client side). Like {@link requestDelivery},
+   *  the reply rides a BOUNDED subject UNDER the request subject (`ctl.<service>.<id>.reply.<uuid>`), not
+   *  the per-id `_INBOX` — closure (i): this frees the manager's permission set from needing a position-1
+   *  inbox wildcard, so its publish surface can be an exact self-scoped allow-list (no message forging).
+   *  `noMux` lets us name the reply subject while keeping NoResponders detection. The random suffix is
+   *  defense-in-depth (a predictable suffix would let a peer target an in-flight named reply sub). The
+   *  reply sits under the sender's OWN request subject, so the responder's `boundReply` guard accepts it.
+   *
+   *  CUTOVER (not backward-compatible): an agent cred minted BEFORE closure (i) lacks the
+   *  `ctl.<tier>.<id>.reply.>` sub grant — it can still publish the request but cannot subscribe the
+   *  reply, so its control calls (spawn/despawn/purge/definePersona, self-stop) hang. The per-user-auth
+   *  atomic cutover re-mints every agent; if this change ships ahead of that, agents must be RESPAWNED. */
   async requestControl(
     service: string,
     req: ControlRequestInit,
     timeoutMs = 5000,
   ): Promise<ControlReply> {
     if (!this.nc) throw new Error(this.notLiveMsg());
+    const reqSubject = controlServiceSubject(this.space, service, this.card.id);
+    const reply = `${reqSubject}.reply.${randomUUID()}`;
     const body: ControlRequest = { ...req, from: req.from ?? this.ref() };
-    const m = await this.nc.request(
-      controlServiceSubject(this.space, service, this.card.id),
-      JSON.stringify(body),
-      { timeout: timeoutMs },
-    );
+    const m = await this.nc.request(reqSubject, JSON.stringify(body), { timeout: timeoutMs, noMux: true, reply });
     return m.json<ControlReply>();
   }
 
@@ -1345,21 +1366,27 @@ export class CotalEndpoint extends EventEmitter {
     try { return e.json<DeliveryLeaseInfo>(); } catch { return undefined; }
   }
 
-  /** Ensure + bind the manager singleton-lease bucket. NOTE: `Kvm.open` binds LAZILY — it does NOT
-   *  verify the stream exists or throw when it's missing, so it can't "create if absent" (a fresh bucket
-   *  then fails 'stream not found' on the first write — unlike the delivery bucket, which is pre-created
-   *  at `cotal up`). `create` is the ensure-exists call: it makes the bucket (bucket-level TTL) or, when
-   *  another manager already did, throws — and we bind the now-existing one. Either way the per-KEY CAS
-   *  create stays the only single-flight gate, so a lost bucket-create race never reads as "lease held".
-   *  The manager is allow-all, so it may create. */
+  /** Ensure + bind the manager singleton-lease bucket. Mirrors the presence-bucket pattern (connectAndBind):
+   *  AUTH mode OPENs the bucket pre-created at `cotal up` (the scoped `supervisor` cred holds no
+   *  STREAM.CREATE — and `open` binds direct=false, so the CAS-conflict `kv.get` inside `acquire` rides
+   *  STREAM.MSG.GET, the verb the supervisor grants, never DIRECT.GET). OPEN mode (no creds) create-firsts:
+   *  `Kvm.open` binds LAZILY — it does NOT verify the stream exists or throw when it's missing (a fresh
+   *  bucket then fails 'stream not found' on the first write), so `create` is the ensure-exists call (it
+   *  makes the bucket or, when another endpoint already did, throws and we bind the existing one). Either
+   *  way the per-KEY CAS create stays the only single-flight gate, so a lost bucket-create race never reads
+   *  as "lease held". */
   private async managerLeaseRegistry(): Promise<KV> {
     if (!this.nc) throw new Error("endpoint not started");
     if (this.managerLeaseKv) return this.managerLeaseKv;
     const kvm = new Kvm(this.nc);
-    try {
-      this.managerLeaseKv = await kvm.create(managerBucket(this.space), { ttl: MANAGER_LEASE_TTL_MS });
-    } catch {
+    if (this.creds) {
       this.managerLeaseKv = await kvm.open(managerBucket(this.space));
+    } else {
+      try {
+        this.managerLeaseKv = await kvm.create(managerBucket(this.space), { ttl: MANAGER_LEASE_TTL_MS });
+      } catch {
+        this.managerLeaseKv = await kvm.open(managerBucket(this.space));
+      }
     }
     return this.managerLeaseKv;
   }
@@ -2493,6 +2520,12 @@ export class CotalEndpoint extends EventEmitter {
   }
 
   private applyPresence(id: string, raw: Presence): void {
+    // Defense-in-depth (per-user-auth closure (i), residual 3): the KV key IS the publisher's identity —
+    // publishPresence() writes its record under card.id — so a record whose embedded card.id disagrees
+    // with its bucket key is forged or corrupt. Drop it rather than surface a spoofed roster identity.
+    // The write-side scoping ($KV.<presenceBucket>.<own-id>) is the primary guard; this rejects a
+    // mis-keyed record even if a broad writer slips one in under another agent's key.
+    if (raw.card?.id !== id) return;
     const prev = this.roster.get(id);
     const stale = Date.now() - raw.ts > this.ttlMs;
     // Any offline materialization (a stale snapshot OR a graceful-leave record) drops the advisory
