@@ -128,8 +128,8 @@ cotal down         # stop everything
 <td width="50%"><img src="assets/example-02.gif" alt="Four Claude Code agents (orchestrator, backend, tui-designer, manager) coordinating on the Cotal mesh, with the live cotal console on the left and the agents in cmux tabs on the right"></td>
 </tr>
 <tr>
-<td width="50%"><img src="assets/example-04-frontier.gif" alt="Ten panelist personas as animated pixel-art OpenCode agents on the Cotal mesh, each lip-syncing its streamed reply and steering its own expression"></td>
-<td width="50%" valign="middle"><b><a href="examples/04-frontier-faces">Frontier Tower faces</a></b><br><br>Ten panelist personas as animated pixel-art OpenCode agents: each thinks, lip-syncs its streamed reply, and steers its own 32×32 expression, and on the mesh they coordinate as lateral peers in one space.<br><br><sub>ten OpenCode faces · <a href="https://opencode.ai">OpenCode</a> · browser + tmux wall</sub></td>
+<td width="50%"><img src="assets/example-04-frontier.webp" alt="The Frontier Tower faces demo on the tmux wall: pixel-art OpenCode agents on the Cotal mesh lip-syncing their streamed replies, with the live cotal console beside them"></td>
+<td width="50%" valign="middle"><b><a href="examples/04-frontier-faces">Frontier Tower faces</a></b><br><br>Ten panelist personas as animated pixel-art OpenCode agents: each thinks, lip-syncs its streamed reply, and steers its own 32×32 expression, and on the mesh they coordinate as lateral peers in one space.<br><br><sub>ten OpenCode faces · <a href="https://opencode.ai">OpenCode</a> · tmux wall + browser</sub></td>
 </tr>
 </table>
 
