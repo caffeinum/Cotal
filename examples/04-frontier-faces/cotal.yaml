@@ -43,14 +43,26 @@ channels:
     subscribe: [david, sven]
     allowPublish: [david, sven]
 
-  # Spicy provocations — no consensus required.
-  hot-takes:
-    description: Spicy provocations — no consensus required.
-    subscribe: [sven, garry, elon, steve, bernie, mira]
-    allowPublish: [sven, garry, elon, steve, bernie, mira]
+  # Control vs. emergence — a human at the gate, or environments that self-correct?
+  gates-vs-gardens:
+    description: Control vs. emergence — a human at the gate, or environments that self-correct?
+    subscribe: [sven, david, rayan, michelle, mira]
+    allowPublish: [sven, david, rayan, michelle, mira]
 
-  # Getting it right — safety, ethics, and the long game.
-  stewardship:
-    description: Getting it right — safety, ethics, and the long game.
-    subscribe: [michelle, mira, dario, bernie, rayan]
-    allowPublish: [michelle, mira, dario, bernie, rayan]
+  # How fast, how dangerous, and can we steer it?
+  the-curve:
+    description: How fast, how dangerous, and can we steer it?
+    subscribe: [dario, elon, garry, mira, sven]
+    allowPublish: [dario, elon, garry, mira, sven]
+
+  # The human ledger of automation — jobs, access, and power.
+  who-pays:
+    description: The human ledger of automation — jobs, access, and power.
+    subscribe: [bernie, elon, garry, dario, michelle, mira]
+    allowPublish: [bernie, elon, garry, dario, michelle, mira]
+
+  # Craft, and the last moat when agents generate everything.
+  taste-and-slop:
+    description: Craft, and the last moat when agents generate everything.
+    subscribe: [steve, rayan, sven, garry, david, michelle]
+    allowPublish: [steve, rayan, sven, garry, david, michelle]
