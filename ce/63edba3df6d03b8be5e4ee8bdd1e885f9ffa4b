@@ -1,0 +1,22 @@
+extensions/connector-claude-code/src/mcp.ts
+  s_738283b8830ace::t_04426c5a4f6c07 267-284
+  s_738283b8830ace::t_f87c9f98d8c557 207-212
+.changeset/pending-wake-boot-race.md
+  s_738283b8830ace::t_48a07f50bc0c4c 1-5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.12",
+  "base_commit_sha": "ce63edba3df6d03b8be5e4ee8bdd1e885f9ffa4b",
+  "prompts": {},
+  "sessions": {
+    "s_738283b8830ace": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "993b92e7-a931-4755-86de-c7a57281e828",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
