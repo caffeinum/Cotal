@@ -1,0 +1,21 @@
+.changeset/lazy-docs-index.md
+  s_ed25aaaf9c7e77::t_24ba603087ecea 1-5
+extensions/connector-core/src/docs.ts
+  s_ed25aaaf9c7e77::t_dd98b78d9e0c3d 198-202,222-223,225,232,234
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9a27f0aac7007e4c07c07a0e1c9abbc7237a07e1",
+  "prompts": {},
+  "sessions": {
+    "s_ed25aaaf9c7e77": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "90dd1251-161e-469a-96db-040d1e555035",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
