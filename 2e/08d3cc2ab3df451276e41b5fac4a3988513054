@@ -1,0 +1,27 @@
+.changeset/mcp-helper-footprint.md
+  s_ed25aaaf9c7e77::t_1a746684e72872 5
+bin/smoke/ci-suites.d/7e1a28ba4404515f4982e9e7f9521ed592eb2820e7b27a7f626632cfaaaa5465.txt
+  s_ed25aaaf9c7e77::t_0daf984cc8c780 1
+extensions/connector-claude-code/package.json
+  s_ed25aaaf9c7e77::t_644bd901562fb0 24
+extensions/connector-claude-code/smoke/mcp-footprint.smoke.ts
+  s_ed25aaaf9c7e77::t_a17be44d42afb1 2-3,6-8,18,38,84-85
+package.json
+  s_ed25aaaf9c7e77::t_b8e8676b89cdc1 238
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2e08d3cc2ab3df451276e41b5fac4a3988513054",
+  "prompts": {},
+  "sessions": {
+    "s_ed25aaaf9c7e77": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "90dd1251-161e-469a-96db-040d1e555035",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
