@@ -1,0 +1,33 @@
+extensions/connector-claude-code/smoke/mcp-footprint.smoke.ts
+  s_ed25aaaf9c7e77::t_2b3c307e738ccc 1-130
+.changeset/mcp-helper-footprint.md
+  s_ed25aaaf9c7e77::t_2f945ea2168df7 1-5
+bin/smoke/ci-suites.d/7e1a28ba4404515f4982e9e7f9521ed592eb2820e7b27a7f626632cfaaaa5465.txt
+  s_ed25aaaf9c7e77::t_effd1912d6c876 1-3
+extensions/connector-claude-code/.mcp.json
+  s_ed25aaaf9c7e77::t_32116b2274e3c1 5
+extensions/connector-claude-code/package.json
+  s_ed25aaaf9c7e77::t_4f8778f5c28e0c 24
+extensions/connector-claude-code/scripts/ascii-bundle.mjs
+  s_ed25aaaf9c7e77::t_a09117e2e82976 1-21
+extensions/connector-claude-code/src/extension.ts
+  s_ed25aaaf9c7e77::t_0d7098837d4ec1 112-116,268
+package.json
+  s_ed25aaaf9c7e77::t_cd54f742708bef 238
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6d04e8dd15c2809bae21f056cbd29a0167d4d4b8",
+  "prompts": {},
+  "sessions": {
+    "s_ed25aaaf9c7e77": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "90dd1251-161e-469a-96db-040d1e555035",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
