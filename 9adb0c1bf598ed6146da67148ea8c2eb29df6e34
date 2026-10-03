@@ -1,0 +1,24 @@
+packages/core/src/command.ts
+  s_3bbd3baf54137a::t_e029ab150110f1 14-16
+implementations/cli/src/index.ts
+  s_3bbd3baf54137a::t_7a19a9dae72277 75-77
+implementations/cli/src/command.ts
+  s_3bbd3baf54137a::t_e71947fdb852f2 19-30,46-53,56,59-63
+  s_3bbd3baf54137a::t_2aa551f4830dc2 54-55,57-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "9adb0c1bf598ed6146da67148ea8c2eb29df6e34",
+  "prompts": {},
+  "sessions": {
+    "s_3bbd3baf54137a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4bc9ebbe-841d-4811-9fb5-935017520815",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}

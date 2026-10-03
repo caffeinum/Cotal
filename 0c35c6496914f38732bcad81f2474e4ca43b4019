@@ -1,0 +1,16 @@
+packages/core/src/command.ts
+  s_3bbd3baf54137a::t_e029ab150110f1 14-16
+implementations/cli/src/index.ts
+  s_3bbd3baf54137a::t_f73934da058eeb 73-74,78-79
+  s_3bbd3baf54137a::t_baef844763a1e6 8
+  s_3bbd3baf54137a::t_7a19a9dae72277 75-77
+implementations/cli/src/command.ts
+  s_3bbd3baf54137a::t_e71947fdb852f2 19-30,46-53,56,59-63
+  s_3bbd3baf54137a::t_2aa551f4830dc2 54-55,57-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "0c35c6496914f38732bcad81f2474e4ca43b4019",
+  "prompts": {}
+}
