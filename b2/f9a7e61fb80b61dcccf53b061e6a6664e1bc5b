@@ -1,0 +1,21 @@
+extensions/connector-core/smoke/docs.smoke.ts
+  s_ed25aaaf9c7e77::t_0a7d56b4ac543e 13,18-30,266
+extensions/connector-core/src/docs.ts
+  s_ed25aaaf9c7e77::t_f19d998e9cce1f 204-209
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b2f9a7e61fb80b61dcccf53b061e6a6664e1bc5b",
+  "prompts": {},
+  "sessions": {
+    "s_ed25aaaf9c7e77": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "90dd1251-161e-469a-96db-040d1e555035",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
