@@ -1,0 +1,27 @@
+.changeset/slim-mcp-helper.md
+  s_ed25aaaf9c7e77::t_3449b9276d6874 1-5
+extensions/connector-claude-code/.mcp.json
+  s_ed25aaaf9c7e77::t_d9ffec3ddba2cc 5
+extensions/connector-claude-code/package.json
+  s_ed25aaaf9c7e77::t_891707b85118cb 24
+extensions/connector-claude-code/scripts/ascii-bundle.cjs
+  s_ed25aaaf9c7e77::t_6d0b4f8ea32789 1-18
+extensions/connector-claude-code/src/extension.ts
+  s_ed25aaaf9c7e77::t_91ed1b8840070f 112-116,268
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "dd99b74004a098929cee2db619a457e927c21854",
+  "prompts": {},
+  "sessions": {
+    "s_ed25aaaf9c7e77": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "90dd1251-161e-469a-96db-040d1e555035",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
