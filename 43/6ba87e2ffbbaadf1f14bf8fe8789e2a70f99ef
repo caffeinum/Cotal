@@ -1,0 +1,24 @@
+extensions/connector-claude-code/build.mjs
+  s_ed25aaaf9c7e77::t_02442c2648b3c6 1-48
+  s_ed25aaaf9c7e77::t_ce72af9b674aa9 49-52
+extensions/connector-claude-code/package.json
+  s_ed25aaaf9c7e77::t_cae688a66a433f 24
+extensions/connector-claude-code/smoke/mcp-footprint.smoke.ts
+  s_ed25aaaf9c7e77::t_ce1b88559dbfc4 27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "436ba87e2ffbbaadf1f14bf8fe8789e2a70f99ef",
+  "prompts": {},
+  "sessions": {
+    "s_ed25aaaf9c7e77": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "90dd1251-161e-469a-96db-040d1e555035",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
