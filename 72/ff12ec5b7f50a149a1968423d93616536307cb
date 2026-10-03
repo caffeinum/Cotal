@@ -1,0 +1,29 @@
+extensions/connector-claude-code/smoke/hosted-sessions.smoke.ts
+  s_ed25aaaf9c7e77::t_63667d2cbdb30d 1-146
+.changeset/claude-serve-session.md
+  s_ed25aaaf9c7e77::t_ca398ac164330b 1-5
+bin/smoke/ci-suites.d/cea77799392da1cf6bdfdbde125e2b57bced78e63d5e51ed4e3628fc6c062aec.txt
+  s_ed25aaaf9c7e77::t_f5d9684e15a1d7 1-2
+extensions/connector-claude-code/package.json
+  s_ed25aaaf9c7e77::t_f0455cdded5c89 18-21,25
+extensions/connector-claude-code/src/mcp.ts
+  s_ed25aaaf9c7e77::t_64038de475354a 10-13,15,69-109,114,137,190,204,206-207,217-232,237-241,243-258,292,300,303,309,314-317,319-337,340-346
+package.json
+  s_ed25aaaf9c7e77::t_4c759c71293daa 233
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "72ff12ec5b7f50a149a1968423d93616536307cb",
+  "prompts": {},
+  "sessions": {
+    "s_ed25aaaf9c7e77": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "90dd1251-161e-469a-96db-040d1e555035",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
